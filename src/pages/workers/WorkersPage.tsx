@@ -12,6 +12,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +101,7 @@ const formatHeartbeat = (value: string) => {
 };
 
 const Workers = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<WorkerRegistration[]>([]);
   const workerStatusRef = useRef<Map<string, WorkerStatus>>(new Map());
   const [activeRegistration, setActiveRegistration] = useState<WorkerRegistration | null>(null);
@@ -122,6 +124,14 @@ const Workers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [environmentFilter, setEnvironmentFilter] = useState<Environment | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<WorkerStatus | 'all'>('all');
+
+  useEffect(() => {
+    if (searchParams.get('action') !== 'register') return;
+    setRegisterOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const environmentOptions = getEnvironmentConfigs();
   useEffect(() => {

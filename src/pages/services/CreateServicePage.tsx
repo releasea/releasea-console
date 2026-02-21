@@ -38,6 +38,7 @@ import {
   normalizeRepoName,
   normalizeRegistryHost,
   normalizeSecretValue,
+  parseRepositoryReference,
   resolveGitBaseUrl,
   resolveImageBase,
 } from './create-service/helpers';
@@ -234,8 +235,13 @@ export default function CreateService() {
   const templateSourceOwner = selectedTemplateSource?.owner || TEMPLATE_OWNER;
   const templateSourceRepo = selectedTemplateSource?.repo || TEMPLATE_REPO;
 
-  const templateRepoOwner = TEMPLATE_OWNER;
-  const templateRepoName = useMemo(() => normalizeRepoName(serviceName), [serviceName]);
+  const selectedProjectForForm = useMemo(() => {
+    const targetProjectId = projectId || originProjectId || '';
+    if (!targetProjectId) return null;
+    return projects.find((project) => project.id === targetProjectId) ?? null;
+  }, [projects, projectId, originProjectId]);
+
+  const templateRepoNameSuggestion = useMemo(() => normalizeRepoName(serviceName), [serviceName]);
   const isTemplateMode: boolean = repoMode === 'template';
   const isTemplateRepoChecking = isTemplateMode && templateRepoAvailability === 'checking';
   const isTemplateRepoAlreadyExists = isTemplateMode && templateRepoAvailability === 'exists';
@@ -260,10 +266,52 @@ export default function CreateService() {
     return pickLatestCredential(candidates);
   }, [registryCredentials]);
 
-  const gitBaseUrl = resolveGitBaseUrl(platformScmCredential?.provider);
-  const templateRepoUrl = templateRepoName
-    ? `${gitBaseUrl}/${templateRepoOwner}/${templateRepoName}`
+  const selectedScmCredential = useMemo(
+    () =>
+      scmCredentialId === 'inherit'
+        ? null
+        : scopedScmCredentials.find((cred) => cred.id === scmCredentialId) ?? null,
+    [scmCredentialId, scopedScmCredentials],
+  );
+  const selectedRegistryCredential = useMemo(
+    () =>
+      registryCredentialId === 'inherit'
+        ? null
+        : scopedRegistryCredentials.find((cred) => cred.id === registryCredentialId) ?? null,
+    [registryCredentialId, scopedRegistryCredentials],
+  );
+  const inheritedScmCredential = useMemo(
+    () =>
+      scopedScmCredentials.find((cred) => cred.id === selectedProjectForForm?.scmCredentialId) ?? null,
+    [scopedScmCredentials, selectedProjectForForm?.scmCredentialId],
+  );
+  const inheritedRegistryCredential = useMemo(
+    () =>
+      scopedRegistryCredentials.find((cred) => cred.id === selectedProjectForForm?.registryCredentialId) ?? null,
+    [scopedRegistryCredentials, selectedProjectForForm?.registryCredentialId],
+  );
+  const effectiveScmCredential = selectedScmCredential ?? inheritedScmCredential ?? platformScmCredential;
+  const effectiveRegistryCredential =
+    selectedRegistryCredential ?? inheritedRegistryCredential ?? platformRegistryCredential;
+
+  const projectRepoRef = useMemo(
+    () => parseRepositoryReference(selectedProjectForForm?.repositoryUrl ?? ''),
+    [selectedProjectForForm?.repositoryUrl],
+  );
+  const defaultTemplateRepoOwner =
+    selectedProjectForForm?.owner?.trim() || projectRepoRef?.owner || TEMPLATE_OWNER;
+
+  const gitBaseUrl = resolveGitBaseUrl(effectiveScmCredential?.provider);
+  const templateRepoUrl = templateRepoNameSuggestion
+    ? `${gitBaseUrl}/${defaultTemplateRepoOwner}/${templateRepoNameSuggestion}`
     : '';
+  const effectiveTemplateRepoUrl = (repoUrl.trim() || templateRepoUrl).trim();
+  const parsedTemplateRepo = useMemo(
+    () => parseRepositoryReference(effectiveTemplateRepoUrl),
+    [effectiveTemplateRepoUrl],
+  );
+  const templateRepoOwner = parsedTemplateRepo?.owner ?? defaultTemplateRepoOwner;
+  const templateRepoName = parsedTemplateRepo?.name ?? templateRepoNameSuggestion;
 
   useEffect(() => {
     if (!(repoMode === 'template' && sourceType === 'git')) {
@@ -273,8 +321,15 @@ export default function CreateService() {
       return;
     }
 
-    const owner = templateRepoOwner.trim();
-    const name = templateRepoName.trim();
+    if (repoUrl.trim() && !parsedTemplateRepo) {
+      templateRepoCheckRequestRef.current += 1;
+      setTemplateRepoAvailability('error');
+      setTemplateRepoAvailabilityMessage('Use a valid repository URL like https://github.com/org/repo.');
+      return;
+    }
+
+    const owner = parsedTemplateRepo?.owner?.trim() ?? '';
+    const name = parsedTemplateRepo?.name?.trim() ?? '';
     if (!owner || !name) {
       templateRepoCheckRequestRef.current += 1;
       setTemplateRepoAvailability('idle');
@@ -282,8 +337,8 @@ export default function CreateService() {
       return;
     }
 
-    const provider = platformScmCredential?.provider?.toLowerCase() ?? '';
-    if (!platformScmCredential?.id || provider !== 'github') {
+    const provider = effectiveScmCredential?.provider?.toLowerCase() ?? '';
+    if (!effectiveScmCredential?.id || provider !== 'github') {
       templateRepoCheckRequestRef.current += 1;
       setTemplateRepoAvailability('idle');
       setTemplateRepoAvailabilityMessage('');
@@ -300,7 +355,7 @@ export default function CreateService() {
         owner,
         name,
         projectId: projectId || originProjectId || undefined,
-        scmCredentialId: platformScmCredential.id,
+        scmCredentialId: effectiveScmCredential.id,
       });
 
       if (templateRepoCheckRequestRef.current !== requestId) return;
@@ -329,16 +384,16 @@ export default function CreateService() {
   }, [
     repoMode,
     sourceType,
-    templateRepoOwner,
-    templateRepoName,
-    platformScmCredential?.id,
-    platformScmCredential?.provider,
+    repoUrl,
+    parsedTemplateRepo,
+    effectiveScmCredential?.id,
+    effectiveScmCredential?.provider,
     projectId,
     originProjectId,
   ]);
 
   const registryHost =
-    normalizeRegistryHost(platformRegistryCredential?.registryUrl) || 'docker.io';
+    normalizeRegistryHost(effectiveRegistryCredential?.registryUrl) || 'docker.io';
   const templateImageOwner = templateRepoOwner.toLowerCase();
   const templateImageBase = templateRepoName
     ? `${registryHost}/${templateImageOwner}/${templateRepoName}`
@@ -502,11 +557,16 @@ export default function CreateService() {
     const resolvedProjectId = projectId || originProjectId || undefined;
     const platformScmId = platformScmCredential?.id ?? '';
     const platformRegistryId = platformRegistryCredential?.id ?? '';
+    const inheritedScmCredentialId = selectedProjectForForm?.scmCredentialId ?? '';
+    const inheritedRegistryCredentialId = selectedProjectForForm?.registryCredentialId ?? '';
+    const chosenScmCredentialId = scmCredentialId === 'inherit' ? inheritedScmCredentialId : scmCredentialId;
+    const chosenRegistryCredentialId =
+      registryCredentialId === 'inherit' ? inheritedRegistryCredentialId : registryCredentialId;
     const resolvedScmCredentialId = isTemplateMode
-      ? platformScmId
+      ? (chosenScmCredentialId || platformScmId)
       : (scmCredentialId === 'inherit' ? '' : scmCredentialId);
     const resolvedRegistryCredentialId = isTemplateMode
-      ? platformRegistryId
+      ? (chosenRegistryCredentialId || platformRegistryId)
       : (registryCredentialId === 'inherit' ? '' : registryCredentialId);
     const resolvedSecretProviderId =
       secretProviderId === 'inherit' ? '' : secretProviderId;
@@ -538,6 +598,14 @@ export default function CreateService() {
       return;
     }
     if (isTemplateMode) {
+      if (!parsedTemplateRepo) {
+        toast({
+          title: 'Invalid repository URL',
+          description: 'Use a valid URL like https://github.com/org/repo.',
+        });
+        setIsLoading(false);
+        return;
+      }
       if (!templateRepoName) {
         toast({
           title: 'Service name required',
@@ -546,7 +614,7 @@ export default function CreateService() {
         setIsLoading(false);
         return;
       }
-      if (!platformScmCredential || platformScmCredential.provider?.toLowerCase() !== 'github') {
+      if (!effectiveScmCredential || effectiveScmCredential.provider?.toLowerCase() !== 'github') {
         toast({
           title: 'Git provider not supported',
           description: 'Template creation currently supports GitHub credentials only.',
@@ -554,10 +622,10 @@ export default function CreateService() {
         setIsLoading(false);
         return;
       }
-      if (selectedType === 'microservice' && !platformRegistryCredential) {
+      if (selectedType === 'microservice' && !effectiveRegistryCredential) {
         toast({
           title: 'Registry not configured',
-          description: 'Configure a platform registry credential before creating this service.',
+          description: 'Configure a registry credential before creating this service.',
         });
         setIsLoading(false);
         return;
@@ -628,8 +696,8 @@ export default function CreateService() {
           templateOwner: templateSourceOwner,
           templateRepo: templateSourceRepo,
           templatePath: selectedTemplatePath || undefined,
-          owner: templateRepoOwner,
-          name: templateRepoName,
+          owner: parsedTemplateRepo.owner,
+          name: parsedTemplateRepo.name,
           private: newRepoPrivate,
         });
         if (error || !repo) {
@@ -642,7 +710,7 @@ export default function CreateService() {
           return;
         }
 
-        const resolvedRepoUrl = repo.clone_url || repo.html_url || templateRepoUrl;
+        const resolvedRepoUrl = repo.clone_url || repo.html_url || effectiveTemplateRepoUrl;
         const resolvedBranch = repo.default_branch || branch;
         const baseSetupPayload = {
           repoUrl: resolvedRepoUrl,
@@ -859,7 +927,7 @@ export default function CreateService() {
                             type="button"
                             onClick={() => setSourceType('git')}
                             className={cn(
-                              'rounded-lg border px-4 py-3 text-left transition-colors',
+                              'h-full rounded-lg border px-4 py-3 text-left transition-colors',
                               sourceType === 'git'
                                 ? 'border-primary bg-primary/10 text-foreground'
                                 : 'border-border bg-muted/30 text-muted-foreground'
@@ -874,7 +942,7 @@ export default function CreateService() {
                             type="button"
                             onClick={() => setSourceType('docker')}
                             className={cn(
-                              'rounded-lg border px-4 py-3 text-left transition-colors',
+                              'h-full rounded-lg border px-4 py-3 text-left transition-colors',
                               sourceType === 'docker'
                                 ? 'border-primary bg-primary/10 text-foreground'
                                 : 'border-border bg-muted/30 text-muted-foreground'
@@ -903,7 +971,7 @@ export default function CreateService() {
                             </p>
                           ) : null}
                           {isTemplateMode ? (
-                            <div className="space-y-2">
+                            <div className="rounded-lg border border-border p-4 space-y-2">
                               <Label htmlFor="targetImage">Target Images</Label>
                               <Input
                                 id="targetImage"
@@ -917,7 +985,7 @@ export default function CreateService() {
                               </p>
                             </div>
                           ) : (
-                            <div className="space-y-2">
+                            <div className="rounded-lg border border-border p-4 space-y-2">
                               <Label htmlFor="targetImage">Target Image</Label>
                               <Input
                                 id="targetImage"
@@ -934,7 +1002,7 @@ export default function CreateService() {
                           )}
                         </div>
                       ) : (
-                        <div className="space-y-2">
+                        <div className="rounded-lg border border-border p-4 space-y-2">
                           <Label htmlFor="dockerImage">Docker Image</Label>
                           <Input
                             id="dockerImage"
@@ -1182,63 +1250,36 @@ export default function CreateService() {
                         {sourceType === 'git' && (
                           <div className="space-y-2">
                             <Label>SCM Credentials</Label>
-                            {isTemplateMode ? (
-                              <Input
-                                value={
-                                  platformScmCredential
-                                    ? `${platformScmCredential.name} · ${platformScmCredential.provider || 'github'}`
-                                    : 'No platform SCM credential configured'
-                                }
-                                className="bg-muted/50 font-mono text-sm"
-                                disabled
-                              />
-                            ) : (
-                              <Select value={scmCredentialId} onValueChange={setScmCredentialId}>
-                                <SelectTrigger className="bg-muted/50">
-                                  <SelectValue placeholder="Inherit project default" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="inherit">Inherit project default</SelectItem>
-                                  {scopedScmCredentials.map((cred) => (
-                                    <SelectItem key={cred.id} value={cred.id}>
-                                      {cred.name} · {cred.provider || 'github'}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          <Label>Registry Credentials</Label>
-                          {isTemplateMode ? (
-                            <Input
-                              value={
-                                platformRegistryCredential
-                                  ? `${platformRegistryCredential.name} · ${platformRegistryCredential.registryUrl ||
-                                  platformRegistryCredential.provider ||
-                                  'registry'
-                                  }`
-                                  : 'No platform registry credential configured'
-                              }
-                              className="bg-muted/50 font-mono text-sm"
-                              disabled
-                            />
-                          ) : (
-                            <Select value={registryCredentialId} onValueChange={setRegistryCredentialId}>
+                            <Select value={scmCredentialId} onValueChange={setScmCredentialId}>
                               <SelectTrigger className="bg-muted/50">
                                 <SelectValue placeholder="Inherit project default" />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="inherit">Inherit project default</SelectItem>
-                                {scopedRegistryCredentials.map((cred) => (
+                                {scopedScmCredentials.map((cred) => (
                                   <SelectItem key={cred.id} value={cred.id}>
-                                    {cred.name} · {cred.registryUrl || cred.provider || 'registry'}
+                                    {cred.name} · {cred.provider || 'github'}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
-                          )}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <Label>Registry Credentials</Label>
+                          <Select value={registryCredentialId} onValueChange={setRegistryCredentialId}>
+                            <SelectTrigger className="bg-muted/50">
+                              <SelectValue placeholder="Inherit project default" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="inherit">Inherit project default</SelectItem>
+                              {scopedRegistryCredentials.map((cred) => (
+                                <SelectItem key={cred.id} value={cred.id}>
+                                  {cred.name} · {cred.registryUrl || cred.provider || 'registry'}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="space-y-2">
                           <Label>Secret Provider</Label>

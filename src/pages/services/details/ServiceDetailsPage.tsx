@@ -1932,14 +1932,6 @@ const ServiceDetails = () => {
 
   const handlePromoteCanary = async () => {
     if (!service || deployStrategyType !== 'canary') return;
-    const percent = Number(canaryPercent) || 0;
-    if (percent <= 0) {
-      toast({
-        title: 'Already promoted',
-        description: 'Canary traffic is already at 100% stable. No promotion needed.',
-      });
-      return;
-    }
     setPromoteCanaryInProgress(true);
     try {
       const result = await promoteCanary(service.id, viewEnv);
@@ -1952,7 +1944,7 @@ const ServiceDetails = () => {
       } else {
         toast({
           title: 'Promote canary queued',
-          description: `Moving 100% traffic to new version in ${getEnvironmentLabel(viewEnv)}. Rules will be republished when the worker completes.`,
+          description: `Moving 100% traffic to new version in ${getEnvironmentLabel(viewEnv)}. Your default canary percentage in Settings is preserved for the next deploy.`,
         });
         await runRealtimeRefresh(
           refreshRealtimeSnapshot,
@@ -2383,7 +2375,7 @@ const ServiceDetails = () => {
             onDeployLatest={handleDeployLatest}
             onOpenVersionPicker={handleOpenVersionPicker}
             isCanaryStrategy={deployStrategyType === 'canary'}
-            canaryPercent={Number(canaryPercent) || 0}
+            canaryPercent={Number(service.deploymentStrategy?.canaryPercent ?? canaryPercent) || 10}
             canPromoteCanary={
               deployStrategyType === 'canary' &&
               isSuccessfulDeployStatus(deploysSorted[0]?.status)
@@ -2426,8 +2418,6 @@ const ServiceDetails = () => {
             onLoadLogs={handleLoadLogs}
             visibleLogs={visibleLogs}
             viewEnvLabel={viewEnvLabel}
-            getReplicaName={readReplicaName}
-            getContainerName={readContainerName}
           />
 
           <EventsTab

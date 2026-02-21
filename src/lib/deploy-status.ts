@@ -21,7 +21,7 @@ const LIVE_DEPLOY_STATUSES = new Set<string>([
 const SUCCESSFUL_DEPLOY_STATUSES = new Set<string>(['completed']);
 const FAILED_DEPLOY_STATUSES = new Set<string>(['failed', 'rollback']);
 const RUNTIME_ERROR_STATUSES = new Set<string>(['error', 'crashloop']);
-const RUNTIME_TRANSITION_STATUSES = new Set<string>(['pending', 'unknown', 'degraded']);
+const RUNTIME_TRANSITION_STATUSES = new Set<string>(['pending', 'unknown']);
 const NON_RUNTIME_SERVICE_STATUSES = new Set<ServiceStatus>(['creating', 'created', 'deleting', 'stopped', 'idle']);
 
 const normalizeDeployStatusMap: Record<string, string> = {
@@ -104,8 +104,11 @@ const runtimeStatusToDisplay = (runtimeStatus: string, fallback: ServiceStatus):
   if (RUNTIME_ERROR_STATUSES.has(runtimeStatus)) {
     return 'error';
   }
+  if (runtimeStatus === 'degraded') {
+    return fallback === 'stopped' || fallback === 'idle' ? fallback : 'running';
+  }
   if (RUNTIME_TRANSITION_STATUSES.has(runtimeStatus)) {
-    return 'pending';
+    return fallback === 'running' || fallback === 'error' ? 'running' : 'pending';
   }
   if (runtimeStatus === 'healthy') {
     return 'running';
