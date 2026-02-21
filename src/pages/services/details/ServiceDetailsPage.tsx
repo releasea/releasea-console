@@ -939,7 +939,7 @@ const ServiceDetails = () => {
   const latestLiveDeployStatus = useMemo(
     () =>
       hasOptimisticQueuedDeploy && !hasLiveDeploys
-        ? 'queued'
+        ? 'requested'
         : deploysSorted.find((deploy) => isLiveDeployStatus(deploy.status))?.status ?? null,
     [deploysSorted, hasLiveDeploys, hasOptimisticQueuedDeploy],
   );

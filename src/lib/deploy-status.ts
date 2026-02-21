@@ -5,8 +5,7 @@ const DEPLOY_ACTION_BLOCKED_STATUSES = new Set<string>([
   'scheduled',
   'preparing',
   'deploying',
-  'queued',
-  'in-progress',
+  'retrying',
 ]);
 const LIVE_DEPLOY_STATUSES = new Set<string>([
   'requested',
@@ -18,17 +17,36 @@ const LIVE_DEPLOY_STATUSES = new Set<string>([
   'promoting',
   'retrying',
   'rollback',
-  'queued',
-  'in-progress',
 ]);
-const SUCCESSFUL_DEPLOY_STATUSES = new Set<string>(['completed', 'success']);
+const SUCCESSFUL_DEPLOY_STATUSES = new Set<string>(['completed']);
 const FAILED_DEPLOY_STATUSES = new Set<string>(['failed', 'rollback']);
 const RUNTIME_ERROR_STATUSES = new Set<string>(['error', 'crashloop']);
 const RUNTIME_TRANSITION_STATUSES = new Set<string>(['pending', 'unknown', 'degraded']);
 const NON_RUNTIME_SERVICE_STATUSES = new Set<ServiceStatus>(['creating', 'created', 'deleting', 'stopped', 'idle']);
 
-const hasStatus = (statuses: Set<string>, status?: DeployStatusValue | string | null): boolean =>
-  typeof status === 'string' && statuses.has(status);
+const normalizeDeployStatusMap: Record<string, string> = {
+  queued: 'scheduled',
+  'in-progress': 'deploying',
+  success: 'completed',
+};
+
+export const normalizeDeployStatusValue = (
+  status?: DeployStatusValue | string | null,
+): string | null => {
+  if (typeof status !== 'string') {
+    return null;
+  }
+  const normalized = status.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  return normalizeDeployStatusMap[normalized] ?? normalized;
+};
+
+const hasStatus = (statuses: Set<string>, status?: DeployStatusValue | string | null): boolean => {
+  const normalized = normalizeDeployStatusValue(status);
+  return normalized != null && statuses.has(normalized);
+};
 
 export const isDeployActionBlockedStatus = (status?: DeployStatusValue | string | null): boolean =>
   hasStatus(DEPLOY_ACTION_BLOCKED_STATUSES, status);
@@ -101,9 +119,10 @@ export const resolveServiceStatusForDisplay = (options: {
   latestDeployStatus?: DeployStatusValue | string | null;
 }): ServiceStatus | DeployStatusValue => {
   const { service, environment, latestDeployStatus } = options;
+  const normalizedDeployStatus = normalizeDeployStatusValue(latestDeployStatus);
 
-  if (isLiveDeployStatus(latestDeployStatus)) {
-    return latestDeployStatus as DeployStatusValue;
+  if (isLiveDeployStatus(normalizedDeployStatus)) {
+    return normalizedDeployStatus as DeployStatusValue;
   }
 
   const normalizedEnvironment = normalizeRuntimeEnvironment(environment);
