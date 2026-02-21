@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly RELEASEA_DOCS_URL?: string;
   readonly RELEASEA_TEMPLATE_OWNER?: string;
   readonly RELEASEA_TEMPLATE_REPO?: string;
+  readonly RELEASEA_WORKER_STALE_SECONDS?: string;
 }
 
 interface ImportMeta {

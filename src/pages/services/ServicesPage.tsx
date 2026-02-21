@@ -128,15 +128,6 @@ const Services = () => {
     [services],
   );
 
-  const filteredServices = useMemo(() => {
-    return visibleServices.filter(service => {
-      const matchesSearch = service.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesType = typeFilter === 'all' || service.type === typeFilter;
-      const matchesStatus = statusFilter === 'all' || service.status === statusFilter;
-      return matchesSearch && matchesType && matchesStatus;
-    });
-  }, [visibleServices, searchQuery, typeFilter, statusFilter]);
-
   const latestDeployByService = useMemo(() => {
     const map = new Map<string, Deploy>();
     deploys.forEach((deploy) => {
@@ -175,6 +166,31 @@ const Services = () => {
     });
     return map;
   }, [deploys]);
+
+  const displayStatusByService = useMemo(() => {
+    const map = new Map<string, string>();
+    visibleServices.forEach((service) => {
+      const deployStatus = activeDeployStatusByService.get(service.id) ?? null;
+      const deployEnvironment = latestDeployByService.get(service.id)?.environment;
+      const displayStatus = resolveServiceStatusForDisplay({
+        service,
+        environment: deployEnvironment,
+        latestDeployStatus: deployStatus,
+      });
+      map.set(service.id, displayStatus);
+    });
+    return map;
+  }, [activeDeployStatusByService, latestDeployByService, visibleServices]);
+
+  const filteredServices = useMemo(() => {
+    return visibleServices.filter((service) => {
+      const matchesSearch = service.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesType = typeFilter === 'all' || service.type === typeFilter;
+      const displayStatus = displayStatusByService.get(service.id) ?? service.status;
+      const matchesStatus = statusFilter === 'all' || displayStatus === statusFilter;
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [displayStatusByService, searchQuery, statusFilter, typeFilter, visibleServices]);
 
   const metricsTargets = useMemo(
     () => filteredServices.filter((service) => service.type === 'microservice'),
@@ -244,12 +260,7 @@ const Services = () => {
       header: 'Status',
       render: (service) => {
         const deployStatus = activeDeployStatusByService.get(service.id) ?? null;
-        const deployEnvironment = latestDeployByService.get(service.id)?.environment;
-        const displayStatus = resolveServiceStatusForDisplay({
-          service,
-          environment: deployEnvironment,
-          latestDeployStatus: deployStatus,
-        });
+        const displayStatus = displayStatusByService.get(service.id) ?? service.status;
         return (
           <div className="flex flex-col gap-2">
             <StatusBadge status={displayStatus} />
