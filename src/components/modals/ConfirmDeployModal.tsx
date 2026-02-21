@@ -41,12 +41,27 @@ export function ConfirmDeployModal({
     if (!service) return;
     setIsConfirming(true);
     onStart?.();
-    const response = await apiClient.post<{ operation?: { id: string; status: string } }>(
+    const response = await apiClient.post<{
+      operation?: { id: string; status: string };
+      queued?: boolean;
+      blockedByActiveDeploy?: boolean;
+      message?: string;
+    }>(
       `/services/${service.id}/deploys`,
       { environment, version },
     );
     if (response.error) {
       onError?.(response.error);
+      setIsConfirming(false);
+      return;
+    }
+    const blockedByActiveDeploy =
+      response.data?.blockedByActiveDeploy === true || response.data?.queued === false;
+    if (blockedByActiveDeploy) {
+      onError?.(
+        response.data?.message ??
+          'A deploy is already in progress for this environment. Wait until it reaches a non-blocking state.',
+      );
       setIsConfirming(false);
       return;
     }

@@ -78,6 +78,10 @@ import type { EnvVar, PublicationTargets, RuleRow, ServiceDetailsLocationState }
 const FAST_POLL_INTERVAL_MS = 2500;
 const FAST_POLL_GRACE_MS = 30_000;
 const OPTIMISTIC_DEPLOY_TIMEOUT_MS = 20_000;
+const WORKER_STALE_SECONDS = (() => {
+  const parsed = Number.parseInt(import.meta.env.RELEASEA_WORKER_STALE_SECONDS ?? '90', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 90;
+})();
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message.trim();
@@ -111,7 +115,11 @@ function isWorkerAvailableForEnvironment(worker: Worker, environment: string): b
   if ((worker.onlineAgents ?? 0) <= 0) return false;
   const workerEnvironment = worker.environment?.trim();
   if (!workerEnvironment) return false;
-  return environmentsShareNamespace(workerEnvironment, environment);
+  if (!environmentsShareNamespace(workerEnvironment, environment)) return false;
+  const lastHeartbeatMs = Date.parse(worker.lastHeartbeat ?? '');
+  if (Number.isNaN(lastHeartbeatMs)) return false;
+  const thresholdMs = Date.now() - WORKER_STALE_SECONDS * 1000;
+  return lastHeartbeatMs >= thresholdMs;
 }
 
 function buildServiceSettingsHydrationKey(service: Service): string {
