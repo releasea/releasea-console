@@ -50,7 +50,7 @@ export function RepositorySourceSection({
               type="button"
               onClick={() => handleRepoModeChange('template')}
               className={cn(
-                'rounded-lg border px-4 py-3 text-left transition-colors',
+                'h-full rounded-lg border px-4 py-3 text-left transition-colors',
                 repoMode === 'template'
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border bg-muted/30 text-muted-foreground'
@@ -63,7 +63,7 @@ export function RepositorySourceSection({
               type="button"
               onClick={() => handleRepoModeChange('existing')}
               className={cn(
-                'rounded-lg border px-4 py-3 text-left transition-colors',
+                'h-full rounded-lg border px-4 py-3 text-left transition-colors',
                 repoMode === 'existing'
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border bg-muted/30 text-muted-foreground'
@@ -77,16 +77,19 @@ export function RepositorySourceSection({
       ) : null}
 
       {repoMode === 'template' ? (
-        <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+        <div className="rounded-lg border border-border p-4 space-y-4">
           <div className="space-y-2">
             <Label htmlFor={repoInputId}>Repository URL</Label>
             <Input
               id={repoInputId}
-              value={templateRepoUrl}
+              value={repoUrl || templateRepoUrl}
+              onChange={(event) => setRepoUrl(event.target.value)}
               placeholder={repoPlaceholder}
               className="bg-muted/50 font-mono text-sm"
-              disabled
             />
+            <p className="text-xs text-muted-foreground">
+              Generated from the selected SCM credential and project context. You can edit it.
+            </p>
           </div>
           {templateRepoAvailability === 'checking' ? (
             <p className="text-xs text-muted-foreground">Checking if the GitHub repository already exists...</p>
@@ -101,7 +104,7 @@ export function RepositorySourceSection({
           ) : null}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="rounded-lg border border-border p-4 space-y-2">
           <Label htmlFor={repoInputId}>Repository URL</Label>
           <Input
             id={repoInputId}
@@ -115,24 +118,26 @@ export function RepositorySourceSection({
       )}
 
       {!isTemplateMode ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor={branchInputId}>Branch</Label>
-            <Input
-              id={branchInputId}
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              className="bg-muted/50 font-mono text-sm"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={rootDirInputId}>Root Directory</Label>
-            <Input
-              id={rootDirInputId}
-              value={rootDir}
-              onChange={(event) => setRootDir(event.target.value)}
-              className="bg-muted/50 font-mono text-sm"
-            />
+        <div className="rounded-lg border border-border p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor={branchInputId}>Branch</Label>
+              <Input
+                id={branchInputId}
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+                className="bg-muted/50 font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={rootDirInputId}>Root Directory</Label>
+              <Input
+                id={rootDirInputId}
+                value={rootDir}
+                onChange={(event) => setRootDir(event.target.value)}
+                className="bg-muted/50 font-mono text-sm"
+              />
+            </div>
           </div>
         </div>
       ) : null}

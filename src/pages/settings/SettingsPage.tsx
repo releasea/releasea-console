@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Globe,
   Bell,
@@ -66,7 +67,16 @@ import {
   parseTemplateImport,
 } from './template-utils';
 
+const SETTINGS_TABS = ['display', 'general', 'notifications', 'credentials', 'templates', 'resources'] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+const normalizeSettingsTab = (value: string | null | undefined): SettingsTab =>
+  SETTINGS_TABS.includes(value as SettingsTab) ? (value as SettingsTab) : 'display';
+
 const SettingsPage = () => {
+  const location = useLocation();
+  const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeSettingsTab(query.get('tab')));
   const [isSaving, setIsSaving] = useState(false);
   const { preferences, updatePreference, updatePreferences, resetPreferences } = usePlatformPreferences();
 
@@ -139,6 +149,30 @@ const SettingsPage = () => {
   const [secretAwsRegion, setSecretAwsRegion] = useState('us-east-1');
   const [secretGcpProjectId, setSecretGcpProjectId] = useState('');
   const [secretGcpServiceAccount, setSecretGcpServiceAccount] = useState('');
+
+  useEffect(() => {
+    setActiveTab(normalizeSettingsTab(query.get('tab')));
+  }, [query]);
+
+  useEffect(() => {
+    if (activeTab !== 'credentials') return;
+    const focus = new URLSearchParams(location.search).get('focus');
+    const targetId =
+      focus === 'scm'
+        ? 'settings-scm-credential-form'
+        : focus === 'registry'
+          ? 'settings-registry-credential-form'
+          : '';
+    if (!targetId) return;
+    const timer = window.setTimeout(() => {
+      const section = document.getElementById(targetId);
+      if (!section) return;
+      section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const focusTarget = section.querySelector<HTMLElement>('input, [role="combobox"], textarea');
+      focusTarget?.focus();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, location.search]);
 
   useEffect(() => {
     let active = true;
@@ -504,7 +538,7 @@ const SettingsPage = () => {
           description="Configure your Releasea instance"
         />
 
-        <Tabs defaultValue="display" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(normalizeSettingsTab(value))} className="space-y-6">
           <TabsList className="bg-muted/50 flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="display" className="gap-2">
               <Monitor className="w-4 h-4" />
@@ -764,11 +798,12 @@ const SettingsPage = () => {
           </TabsContent>
 
           <TabsContent value="credentials" className="space-y-6">
-            <SettingsSection
-              title="SCM credentials"
-              description="Store Git provider tokens or SSH keys for build access. Service overrides project, project overrides platform."
-            >
-              <div className="space-y-4">
+            <div id="settings-scm-credential-form">
+              <SettingsSection
+                title="SCM credentials"
+                description="Store Git provider tokens or SSH keys for build access. Service overrides project, project overrides platform."
+              >
+                <div className="space-y-4">
                 <div className="rounded-lg border border-border bg-card">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
@@ -921,20 +956,22 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <Button onClick={handleCreateScmCredential} disabled={isSavingScm} className="gap-2">
-                    <KeyRound className="h-4 w-4" />
-                    {isSavingScm ? 'Saving...' : 'Add SCM credential'}
-                  </Button>
+                  <div className="flex justify-end">
+                    <Button onClick={handleCreateScmCredential} disabled={isSavingScm} className="gap-2">
+                      <KeyRound className="h-4 w-4" />
+                      {isSavingScm ? 'Saving...' : 'Add SCM credential'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </SettingsSection>
+              </SettingsSection>
+            </div>
 
-            <SettingsSection
-              title="Registry credentials"
-              description="Store container registry credentials for push and deploy operations."
-            >
-              <div className="space-y-4">
+            <div id="settings-registry-credential-form">
+              <SettingsSection
+                title="Registry credentials"
+                description="Store container registry credentials for push and deploy operations."
+              >
+                <div className="space-y-4">
                 <div className="rounded-lg border border-border bg-card">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
@@ -1091,14 +1128,15 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <Button onClick={handleCreateRegistryCredential} disabled={isSavingRegistry} className="gap-2">
-                    <KeyRound className="h-4 w-4" />
-                    {isSavingRegistry ? 'Saving...' : 'Add registry credential'}
-                  </Button>
+                  <div className="flex justify-end">
+                    <Button onClick={handleCreateRegistryCredential} disabled={isSavingRegistry} className="gap-2">
+                      <KeyRound className="h-4 w-4" />
+                      {isSavingRegistry ? 'Saving...' : 'Add registry credential'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </SettingsSection>
+              </SettingsSection>
+            </div>
 
             <SettingsSection
               title="Secret providers"

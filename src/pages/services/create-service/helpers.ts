@@ -14,6 +14,47 @@ export const resolveGitBaseUrl = (provider?: string) => {
   return 'https://github.com';
 };
 
+export type RepositoryReference = {
+  host: string;
+  owner: string;
+  name: string;
+};
+
+export const parseRepositoryReference = (value: string): RepositoryReference | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const sshMatch = trimmed.match(/^git@([^:]+):([^/]+)\/(.+?)(?:\.git)?$/i);
+  if (sshMatch) {
+    return {
+      host: sshMatch[1].toLowerCase(),
+      owner: sshMatch[2],
+      name: sshMatch[3].replace(/\.git$/i, ''),
+    };
+  }
+
+  let candidate = trimmed;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts.length < 2) return null;
+    const owner = parts[0];
+    const name = parts[1].replace(/\.git$/i, '');
+    if (!owner || !name) return null;
+    return {
+      host: parsed.hostname.toLowerCase(),
+      owner,
+      name,
+    };
+  } catch {
+    return null;
+  }
+};
+
 export const normalizeRegistryHost = (value?: string) => {
   if (!value) return '';
   const trimmed = value.trim();

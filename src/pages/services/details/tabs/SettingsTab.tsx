@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +12,13 @@ import { useServiceSettingsFormStore } from '@/forms/store/service-settings-form
 import type { DeployStrategyType } from '@/types/releasea';
 import { Power } from 'lucide-react';
 import { frameworkOptions } from '../constants';
+import {
+  normalizeRepoName,
+  normalizeRegistryHost,
+  parseRepositoryReference,
+  resolveGitBaseUrl,
+  resolveImageBase,
+} from '../../create-service/helpers';
 export const SettingsTab = () => {
   const {
     service,
@@ -32,6 +40,65 @@ export const SettingsTab = () => {
     onToggleServiceActive,
     onDeleteService,
   } = useServiceSettingsFormStore();
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === projectId) ?? null,
+    [projects, projectId],
+  );
+  const selectedScmCredential = useMemo(
+    () =>
+      credentials.serviceScmCredentialId === 'inherit'
+        ? null
+        : credentials.scopedScmCredentials.find((cred) => cred.id === credentials.serviceScmCredentialId) ?? null,
+    [credentials.scopedScmCredentials, credentials.serviceScmCredentialId],
+  );
+  const selectedRegistryCredential = useMemo(
+    () =>
+      credentials.serviceRegistryCredentialId === 'inherit'
+        ? null
+        : credentials.scopedRegistryCredentials.find((cred) => cred.id === credentials.serviceRegistryCredentialId) ?? null,
+    [credentials.scopedRegistryCredentials, credentials.serviceRegistryCredentialId],
+  );
+  const inheritedScmCredential = useMemo(
+    () =>
+      credentials.scopedScmCredentials.find((cred) => cred.id === selectedProject?.scmCredentialId) ?? null,
+    [credentials.scopedScmCredentials, selectedProject?.scmCredentialId],
+  );
+  const inheritedRegistryCredential = useMemo(
+    () =>
+      credentials.scopedRegistryCredentials.find((cred) => cred.id === selectedProject?.registryCredentialId) ?? null,
+    [credentials.scopedRegistryCredentials, selectedProject?.registryCredentialId],
+  );
+  const platformScmCredential = useMemo(
+    () => credentials.scopedScmCredentials.find((cred) => cred.scope === 'platform') ?? null,
+    [credentials.scopedScmCredentials],
+  );
+  const platformRegistryCredential = useMemo(
+    () => credentials.scopedRegistryCredentials.find((cred) => cred.scope === 'platform') ?? null,
+    [credentials.scopedRegistryCredentials],
+  );
+  const effectiveScmCredential = selectedScmCredential ?? inheritedScmCredential ?? platformScmCredential;
+  const effectiveRegistryCredential =
+    selectedRegistryCredential ?? inheritedRegistryCredential ?? platformRegistryCredential;
+
+  const sourceRepoRef = useMemo(() => parseRepositoryReference(source.repoUrl), [source.repoUrl]);
+  const projectRepoRef = useMemo(
+    () => parseRepositoryReference(selectedProject?.repositoryUrl ?? ''),
+    [selectedProject?.repositoryUrl],
+  );
+  const defaultRepoOwner =
+    sourceRepoRef?.owner || selectedProject?.owner?.trim() || projectRepoRef?.owner || 'releasea';
+  const repoNameForDefaults = sourceRepoRef?.name || normalizeRepoName(service.name);
+  const suggestedRepoUrl = repoNameForDefaults
+    ? `${resolveGitBaseUrl(effectiveScmCredential?.provider)}/${defaultRepoOwner}/${repoNameForDefaults}`
+    : '';
+  const suggestedTargetImage = repoNameForDefaults
+    ? `${normalizeRegistryHost(effectiveRegistryCredential?.registryUrl) || 'docker.io'}/${defaultRepoOwner.toLowerCase()}/${repoNameForDefaults}:latest`
+    : '';
+  const effectiveTargetImage = source.dockerImage.trim() || suggestedTargetImage;
+  const effectiveTargetImageBase = effectiveTargetImage ? resolveImageBase(effectiveTargetImage) : '';
+  const additionalTargetImageTag = effectiveTargetImageBase ? `${effectiveTargetImageBase}:<git-sha>` : '';
+
   return (
   <TabsContent value="settings" className="space-y-6">
     <form onSubmit={onSubmit} className="space-y-6">
@@ -76,7 +143,7 @@ export const SettingsTab = () => {
                 <button
                   type="button"
                   onClick={() => source.setType('git')}
-                  className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                  className={`h-full rounded-lg border px-4 py-3 text-left transition-colors ${
                     source.type === 'git'
                       ? 'border-primary bg-primary/10 text-foreground'
                       : 'border-border bg-muted/30 text-muted-foreground'
@@ -88,7 +155,7 @@ export const SettingsTab = () => {
                 <button
                   type="button"
                   onClick={() => source.setType('docker')}
-                  className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                  className={`h-full rounded-lg border px-4 py-3 text-left transition-colors ${
                     source.type === 'docker'
                       ? 'border-primary bg-primary/10 text-foreground'
                       : 'border-border bg-muted/30 text-muted-foreground'
@@ -101,16 +168,25 @@ export const SettingsTab = () => {
 
               {source.type === 'git' ? (
                 <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-2">
+                  <div className="rounded-lg border border-border p-4 space-y-2">
                     <Label htmlFor="repoUrl">Repository URL</Label>
                     <Input
                       id="repoUrl"
                       value={source.repoUrl}
                       onChange={(e) => source.setRepoUrl(e.target.value)}
+                      placeholder={suggestedRepoUrl || 'https://github.com/org/repo'}
                       className="bg-muted/50 font-mono text-sm"
                     />
+                    {source.repoUrl.trim() === '' && suggestedRepoUrl && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs text-muted-foreground">Suggested: <span className="font-mono">{suggestedRepoUrl}</span></p>
+                        <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => source.setRepoUrl(suggestedRepoUrl)}>
+                          Use suggested
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-border p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="branch">Branch</Label>
                       <Input
@@ -130,29 +206,53 @@ export const SettingsTab = () => {
                       />
                     </div>
                     <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="targetImage">Target Image</Label>
+                      <Label htmlFor="targetImage">Target Images</Label>
                       <Input
                         id="targetImage"
                         value={source.dockerImage}
                         onChange={(e) => source.setDockerImage(e.target.value)}
-                        placeholder="registry.example.com/org/service:latest"
+                        placeholder={suggestedTargetImage || 'registry.example.com/org/service:latest'}
                         className="bg-muted/50 font-mono text-sm"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Image tag used when the worker builds and pushes this service.
-                      </p>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          Image tag used when the worker builds and pushes this service.
+                        </p>
+                        {source.dockerImage.trim() === '' && suggestedTargetImage && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs text-muted-foreground">Suggested: <span className="font-mono">{suggestedTargetImage}</span></p>
+                            <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => source.setDockerImage(suggestedTargetImage)}>
+                              Use suggested
+                            </Button>
+                          </div>
+                        )}
+                        {additionalTargetImageTag && (
+                          <p className="text-xs text-muted-foreground">
+                            Additional tag: <span className="font-mono">{additionalTargetImageTag}</span>
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="rounded-lg border border-border p-4 space-y-2">
                   <Label htmlFor="dockerImage">Docker Image</Label>
                   <Input
                     id="dockerImage"
                     value={source.dockerImage}
                     onChange={(e) => source.setDockerImage(e.target.value)}
+                    placeholder={suggestedTargetImage || 'registry.example.com/org/service:latest'}
                     className="bg-muted/50 font-mono text-sm"
                   />
+                  {source.dockerImage.trim() === '' && suggestedTargetImage && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">Suggested: <span className="font-mono">{suggestedTargetImage}</span></p>
+                      <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => source.setDockerImage(suggestedTargetImage)}>
+                        Use suggested
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -277,7 +377,9 @@ export const SettingsTab = () => {
                     onChange={(e) => deployment.setCanaryPercent(e.target.value)}
                     className="bg-muted/50 font-mono"
                   />
-                  <p className="text-xs text-muted-foreground">Traffic distribution performed at the application entry router.</p>
+                  <p className="text-xs text-muted-foreground">
+                    This is the default canary exposure for new canary deploys. Promoting from Summary affects only the current rollout.
+                  </p>
                 </div>
               )}
               {deployment.deployStrategyType === 'blue-green' && (
