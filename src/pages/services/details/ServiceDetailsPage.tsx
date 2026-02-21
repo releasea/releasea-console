@@ -265,7 +265,6 @@ const ServiceDetails = () => {
   const [isLoading, setIsLoading] = useState(true);
   const metricsRequestTokenRef = useRef(0);
   const deployPoller = useRef<number | null>(null);
-  const rulePoller = useRef<number | null>(null);
   const servicePoller = useRef<number | null>(null);
   const fastPollGraceUntilRef = useRef(0);
   const hadLiveDeployRef = useRef(false);
@@ -391,11 +390,6 @@ const ServiceDetails = () => {
     [markRealtimeSyncFailure, markRealtimeSyncSuccess],
   );
 
-  const refreshDeploys = useCallback(async () => {
-    const nextDeploys = await fetchRealtimeResource<Deploy[]>('/deploys', 'load deploys');
-    setDeploysData(nextDeploys);
-  }, [fetchRealtimeResource]);
-
   const refreshServices = useCallback(async () => {
     const nextServices = await fetchRealtimeResource<Service[]>('/services', 'load services');
     setServices(nextServices);
@@ -404,16 +398,6 @@ const ServiceDetails = () => {
   const refreshWorkers = useCallback(async () => {
     const nextWorkers = await fetchRealtimeResource<Worker[]>('/workers?view=summary', 'load workers');
     setWorkers(nextWorkers);
-  }, [fetchRealtimeResource]);
-
-  const refreshRules = useCallback(async () => {
-    const nextRules = await fetchRealtimeResource<ManagedRule[]>('/rules', 'load rules');
-    setRules(nextRules);
-  }, [fetchRealtimeResource]);
-
-  const refreshRuleDeploys = useCallback(async () => {
-    const next = await fetchRealtimeResource<RuleDeploy[]>('/rule-deploys', 'load rule deploys');
-    setRuleDeploysData(next);
   }, [fetchRealtimeResource]);
 
   const applyServiceStatusSnapshot = useCallback(
@@ -455,9 +439,6 @@ const ServiceDetails = () => {
     return () => {
       if (deployPoller.current) {
         window.clearInterval(deployPoller.current);
-      }
-      if (rulePoller.current) {
-        window.clearInterval(rulePoller.current);
       }
       if (servicePoller.current) {
         window.clearInterval(servicePoller.current);
@@ -517,7 +498,10 @@ const ServiceDetails = () => {
     }
     const interval = service?.status === 'creating' ? 5000 : 20000;
     servicePoller.current = window.setInterval(() => {
-      void runRealtimeRefresh(refreshServices, 'Unable to refresh service runtime status.');
+      void runRealtimeRefresh(
+        refreshRealtimeSnapshot,
+        'Unable to refresh service runtime status.',
+      );
     }, interval);
     return () => {
       if (servicePoller.current) {
@@ -525,7 +509,7 @@ const ServiceDetails = () => {
         servicePoller.current = null;
       }
     };
-  }, [service?.status, isFastPolling, isLiveSyncConnected, refreshServices, runRealtimeRefresh]);
+  }, [service?.status, isFastPolling, isLiveSyncConnected, refreshRealtimeSnapshot, runRealtimeRefresh]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -548,38 +532,6 @@ const ServiceDetails = () => {
     }
     setServiceRules(rules.filter((rule) => rule.serviceId === id));
   }, [id, rules]);
-  useEffect(() => {
-    if (isLiveSyncConnected) {
-      if (rulePoller.current) {
-        window.clearInterval(rulePoller.current);
-        rulePoller.current = null;
-      }
-      return;
-    }
-    const hasPendingRules = serviceRules.some((rule) =>
-      ['publishing', 'unpublishing', 'queued', 'in-progress'].includes(rule.status),
-    );
-    if (!hasPendingRules) {
-      if (rulePoller.current) {
-        window.clearInterval(rulePoller.current);
-        rulePoller.current = null;
-      }
-      return;
-    }
-
-    if (!rulePoller.current) {
-      rulePoller.current = window.setInterval(() => {
-        void runRealtimeRefresh(refreshRules, 'Unable to refresh rule status.');
-      }, 2000);
-    }
-
-    return () => {
-      if (rulePoller.current) {
-        window.clearInterval(rulePoller.current);
-        rulePoller.current = null;
-      }
-    };
-  }, [isLiveSyncConnected, refreshRules, runRealtimeRefresh, serviceRules]);
   const deploys = deploysData.filter((deploy) => deploy.serviceId === id && (deploy.environment ? deploy.environment === viewEnv : true));
   const hasSuccessfulDeploy = deploys.some((deploy) => isSuccessfulDeployStatus(deploy.status));
   const deploysSorted = useMemo(() => {
@@ -1450,7 +1402,7 @@ const ServiceDetails = () => {
       label: 'updateServiceSettings',
     });
     setSettingsSaving(false);
-    void runRealtimeRefresh(refreshServices, 'Unable to refresh service settings state.');
+    void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh service settings state.');
     const replicasChanged =
       String(service?.minReplicas ?? 1) !== minReplicas ||
       String(service?.maxReplicas ?? 3) !== maxReplicas;
@@ -1516,7 +1468,7 @@ const ServiceDetails = () => {
     }
     setRules((current) => current.filter((rule) => rule.id !== selectedRule.id));
     setServiceRules((current) => current.filter((rule) => rule.id !== selectedRule.id));
-    void runRealtimeRefresh(refreshRuleDeploys, 'Unable to refresh rule deploy status.');
+    void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh rule deploy status.');
     toast({
       title: 'Rule deletion queued',
       description: `Rule "${selectedRule.name}" queued for deletion.`,
@@ -1611,13 +1563,7 @@ const ServiceDetails = () => {
         label: 'updateRulePublication',
       });
       if (success) {
-        // Refetch rules and rule deploys from backend to get actual state
-        void runRealtimeRefresh(
-          async () => {
-            await Promise.all([refreshRules(), refreshRuleDeploys()]);
-          },
-          'Unable to refresh rule publication status.',
-        );
+        void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh rule publication status.');
       } else {
         if (previousRule) {
           setServiceRules((current) => current.map((rule) => (rule.id === previousRule.id ? previousRule : rule)));
@@ -1861,9 +1807,7 @@ const ServiceDetails = () => {
         description: `Publishing to ${getPublicationLabel(newRulePublishTargets).toLowerCase()} in ${getEnvironmentLabel(viewEnv)}.`,
       });
       void runRealtimeRefresh(
-        async () => {
-          await Promise.all([refreshRules(), refreshRuleDeploys()]);
-        },
+        refreshRealtimeSnapshot,
         'Unable to refresh new rule status.',
       );
     } else {
@@ -1935,9 +1879,7 @@ const ServiceDetails = () => {
     if (!pendingDeployVersion || !service) return;
     try {
       const synced = await runRealtimeRefresh(
-        async () => {
-          await Promise.all([refreshDeploys(), refreshServices(), refreshRules(), refreshRuleDeploys()]);
-        },
+        refreshRealtimeSnapshot,
         'Deploy was queued, but live status refresh failed.',
       );
       toast(
@@ -2005,9 +1947,7 @@ const ServiceDetails = () => {
           description: `Moving 100% traffic to new version in ${getEnvironmentLabel(viewEnv)}. Rules will be republished when the worker completes.`,
         });
         await runRealtimeRefresh(
-          async () => {
-            await Promise.all([refreshServices(), refreshDeploys(), refreshRules(), refreshRuleDeploys()]);
-          },
+          refreshRealtimeSnapshot,
           'Unable to refresh canary promotion status.',
         );
       }

@@ -49,6 +49,7 @@ export function useSSEStream<T = unknown>(options: UseSSEStreamOptions<T>): UseS
     let abortController: AbortController | null = null;
     let reconnectTimer: number | null = null;
     let retryCount = 0;
+    let consecutiveFailures = 0;
 
     const clearReconnect = () => {
       if (reconnectTimer !== null) {
@@ -129,6 +130,7 @@ export function useSSEStream<T = unknown>(options: UseSSEStreamOptions<T>): UseS
 
         setIsConnected(true);
         retryCount = 0;
+        consecutiveFailures = 0;
         clearReconnect();
 
         const reader = response.body.getReader();
@@ -158,7 +160,10 @@ export function useSSEStream<T = unknown>(options: UseSSEStreamOptions<T>): UseS
       } catch {
         if (cancelled || controller.signal.aborted) return;
         setIsConnected(false);
-        onErrorRef.current?.('Live sync disconnected. Retrying...');
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 2) {
+          onErrorRef.current?.('Live sync disconnected. Retrying...');
+        }
         scheduleReconnect();
       }
     };
