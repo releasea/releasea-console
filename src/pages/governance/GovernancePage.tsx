@@ -80,17 +80,26 @@ const GovernancePage = () => {
 
   useEffect(() => {
     const load = async () => {
-      const [approvalsData, settingsData, logsData] = await Promise.all([
-        fetchApprovalRequests(),
-        fetchGovernanceSettings(),
-        fetchAuditLogs(),
-      ]);
-      setApprovals(approvalsData);
-      setSettings(settingsData);
-      setAuditLogs(logsData);
-      setIsLoading(false);
+      try {
+        const [approvalsData, settingsData, logsData] = await Promise.all([
+          fetchApprovalRequests(),
+          fetchGovernanceSettings(),
+          fetchAuditLogs(),
+        ]);
+        setApprovals(approvalsData);
+        setSettings(settingsData);
+        setAuditLogs(logsData);
+      } catch (error) {
+        toast({
+          title: 'Failed to load governance data',
+          description: error instanceof Error ? error.message : 'Try again in a few moments.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
-    load();
+    void load();
   }, []);
 
   const pendingApprovals = approvals.filter(a => a.status === 'pending');
@@ -196,6 +205,12 @@ const GovernancePage = () => {
         title: reviewAction === 'approve' ? 'Approved' : 'Rejected',
         description: `Request has been ${reviewAction === 'approve' ? 'approved' : 'rejected'}.`,
       });
+    } else {
+      toast({
+        title: 'Failed to review approval',
+        description: 'The approval state could not be updated. Please try again.',
+        variant: 'destructive',
+      });
     }
 
     setSelectedApproval(null);
@@ -206,12 +221,21 @@ const GovernancePage = () => {
   const handleSaveSettings = async () => {
     if (!settings) return;
     setIsSaving(true);
-    await updateGovernanceSettings(settings);
-    setIsSaving(false);
-    toast({
-      title: 'Settings saved',
-      description: 'Governance settings have been updated.',
-    });
+    try {
+      await updateGovernanceSettings(settings);
+      toast({
+        title: 'Settings saved',
+        description: 'Governance settings have been updated.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to save governance settings',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getStatusBadge = (status: ApprovalRequest['status']) => {

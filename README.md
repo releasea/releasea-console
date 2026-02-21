@@ -26,6 +26,7 @@ npm run test
 | Variable | Description | Default |
 |---|---|---|
 | `RELEASEA_API_BASE_URL` | Releasea API base URL | `http://localhost:8070/api` |
+| `RELEASEA_WORKER_STALE_SECONDS` | Worker stale timeout (seconds) used for deploy/start/stop/restart gating hints | `90` |
 | `RELEASEA_ENABLE_SIGNUP` | Enables sign-up entrypoints in auth UI | `false` |
 | `RELEASEA_ADMIN_EMAIL` | Default email shown on auth screen | `admin@releasea.io` |
 | `RELEASEA_DOCS_URL` | Public documentation URL used by help links | `https://docs.releasea.io` |
