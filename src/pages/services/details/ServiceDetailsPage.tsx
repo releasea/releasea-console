@@ -65,6 +65,7 @@ import type {
   Worker,
 } from '@/types/releasea';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
+import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
 import { EventsTab, type ServiceEvent } from './tabs/EventsTab';
 import { LogsTab } from './tabs/LogsTab';
 import { MetricsTab } from './tabs/MetricsTab';
@@ -284,6 +285,7 @@ const ServiceDetails = () => {
   const optimisticDeployTimeoutRef = useRef<number | null>(null);
   const [ruleDeploysData, setRuleDeploysData] = useState<RuleDeploy[]>([]);
   const [promoteCanaryInProgress, setPromoteCanaryInProgress] = useState(false);
+  const [promoteCanaryOpen, setPromoteCanaryOpen] = useState(false);
   const [deployLoading, setDeployLoading] = useState(false);
   const [isFastPolling, setIsFastPolling] = useState(false);
   const [runtimeRefreshNonce, setRuntimeRefreshNonce] = useState(0);
@@ -1932,6 +1934,11 @@ const ServiceDetails = () => {
 
   const handlePromoteCanary = async () => {
     if (!service || deployStrategyType !== 'canary') return;
+    setPromoteCanaryOpen(true);
+  };
+
+  const handleConfirmPromoteCanary = async () => {
+    if (!service || deployStrategyType !== 'canary') return;
     setPromoteCanaryInProgress(true);
     try {
       const result = await promoteCanary(service.id, viewEnv);
@@ -1943,8 +1950,8 @@ const ServiceDetails = () => {
         });
       } else {
         toast({
-          title: 'Promote canary queued',
-          description: `Moving 100% traffic to new version in ${getEnvironmentLabel(viewEnv)}. Your default canary percentage in Settings is preserved for the next deploy.`,
+          title: 'Canary promoted successfully',
+          description: `All traffic in ${getEnvironmentLabel(viewEnv)} is now being shifted to the new version. Your default canary percentage is preserved for the next deploy.`,
         });
         await runRealtimeRefresh(
           refreshRealtimeSnapshot,
@@ -2553,6 +2560,15 @@ const ServiceDetails = () => {
           onError: handleDeploySubmitError,
           onConfirm: handleConfirmDeploy,
         }}
+      />
+
+      <ConfirmPromoteCanaryModal
+        open={promoteCanaryOpen}
+        onOpenChange={setPromoteCanaryOpen}
+        serviceName={service?.name ?? ''}
+        environment={viewEnv}
+        canaryPercent={Number(service?.deploymentStrategy?.canaryPercent ?? canaryPercent) || 10}
+        onConfirm={handleConfirmPromoteCanary}
       />
 
     </AppLayout>
