@@ -209,25 +209,22 @@ export const SummaryTab = ({
                 </DropdownMenuContent>
               </DropdownMenu>
               {isCanaryStrategy && onPromoteCanary && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-2"
-                    onClick={onPromoteCanary}
-                    disabled={!canPromoteCanary || promoteCanaryInProgress || deployDisabled}
-                    aria-busy={promoteCanaryInProgress}
-                    title={!canPromoteCanary ? 'Complete a canary deploy successfully to enable promote' : undefined}
-                  >
-                    {promoteCanaryInProgress ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <TrendingUp className="w-4 h-4" />
-                    )}
-                    {promoteCanaryInProgress ? 'Promoting...' : 'Promote to 100%'}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">Default canary {canaryPercent || 10}%</span>
-                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={onPromoteCanary}
+                  disabled={!canPromoteCanary || promoteCanaryInProgress || deployDisabled}
+                  aria-busy={promoteCanaryInProgress}
+                  title={!canPromoteCanary ? 'Complete a canary deploy successfully to enable promote' : undefined}
+                >
+                  {promoteCanaryInProgress ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <TrendingUp className="w-4 h-4" />
+                  )}
+                  {promoteCanaryInProgress ? 'Promoting...' : 'Promote to 100%'}
+                </Button>
               )}
             </div>
             <div className="text-xs text-right">
