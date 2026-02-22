@@ -4,6 +4,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TabsContent } from '@/components/ui/tabs';
 import type { DeployStatusValue, Service, ServiceStatus } from '@/types/releasea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, Timer, TrendingUp } from 'lucide-react';
 
 type AppUrl = {
@@ -35,9 +36,6 @@ type SummaryTabProps = {
   deployBusy: boolean;
   deployDisabled: boolean;
   deployRestrictionMessage?: string;
-  liveSyncError?: string | null;
-  liveSyncLabel: string;
-  liveSyncActive?: boolean;
   onDeployLatest: () => void;
   onOpenVersionPicker: () => void;
   isCanaryStrategy?: boolean;
@@ -54,6 +52,8 @@ type SummaryTabProps = {
   latencyPeakLabel: string;
   requestsAvgLabel: string;
   requestsPeakLabel: string;
+  isLive?: boolean;
+  liveSyncError?: string | null;
 };
 
 export const SummaryTab = ({
@@ -76,9 +76,6 @@ export const SummaryTab = ({
   deployBusy,
   deployDisabled,
   deployRestrictionMessage,
-  liveSyncError,
-  liveSyncLabel,
-  liveSyncActive = false,
   onDeployLatest,
   onOpenVersionPicker,
   isCanaryStrategy,
@@ -94,6 +91,8 @@ export const SummaryTab = ({
   latencyPeakLabel,
   requestsAvgLabel,
   requestsPeakLabel,
+  isLive,
+  liveSyncError,
 }: SummaryTabProps) => (
   <TabsContent value="summary" className="space-y-6">
     <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-stretch">
@@ -181,33 +180,55 @@ export const SummaryTab = ({
         <div className="pt-3 border-t border-border/60 space-y-2">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex flex-wrap gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="gap-2" disabled={deployDisabled} aria-busy={deployBusy}>
-                    {deployBusy ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Rocket className="w-4 h-4" />
-                    )}
-                    {deployBusy ? `Deploying to ${viewEnvLabel}` : `Deploy to ${viewEnvLabel}`}
-                    {!deployDisabled && <ChevronDown className="w-3 h-3" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuItem onClick={onDeployLatest} disabled={deployDisabled}>
-                    <Rocket className="w-4 h-4 mr-2" />
-                    Deploy latest version
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onOpenVersionPicker} disabled={deployDisabled}>
-                    <ListOrdered className="w-4 h-4 mr-2" />
-                    Deploy specific version
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    {deployRestrictionMessage || 'Versions are loaded from deployment history.'}
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {deployDisabled && deployRestrictionMessage ? (
+                <TooltipProvider delayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-not-allowed">
+                        <Button size="sm" className="gap-2 pointer-events-none" disabled aria-busy={deployBusy}>
+                          {deployBusy ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Rocket className="w-4 h-4" />
+                          )}
+                          {deployBusy ? `Deploying to ${viewEnvLabel}` : `Deploy to ${viewEnvLabel}`}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs bg-yellow-50 border-yellow-200 text-yellow-900 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200">
+                      {deployRestrictionMessage}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="gap-2" disabled={deployDisabled} aria-busy={deployBusy}>
+                      {deployBusy ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Rocket className="w-4 h-4" />
+                      )}
+                      {deployBusy ? `Deploying to ${viewEnvLabel}` : `Deploy to ${viewEnvLabel}`}
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuItem onClick={onDeployLatest}>
+                      <Rocket className="w-4 h-4 mr-2" />
+                      Deploy latest version
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onOpenVersionPicker}>
+                      <ListOrdered className="w-4 h-4 mr-2" />
+                      Deploy specific version
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                      Versions are loaded from deployment history.
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               {isCanaryStrategy && onPromoteCanary && (
                 <Button
                   size="sm"
@@ -227,22 +248,28 @@ export const SummaryTab = ({
                 </Button>
               )}
             </div>
-            <div className="text-xs text-right">
+            <div className="flex items-center gap-1.5 text-xs">
               {liveSyncError ? (
-                <span className="inline-flex items-center gap-1 text-warning">
+                <span className="inline-flex items-center gap-1.5 text-yellow-500">
                   <AlertTriangle className="w-3 h-3" />
-                  Live sync delayed: {liveSyncError}
+                  Live sync delayed
+                </span>
+              ) : isLive ? (
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  Live
                 </span>
               ) : (
-                <span className="text-muted-foreground">
-                  Live sync {liveSyncActive ? 'active' : 'idle'} • Last sync {liveSyncLabel}
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+                  Idle
                 </span>
               )}
             </div>
           </div>
-          {deployDisabled && deployRestrictionMessage && (
-            <p className="text-xs text-muted-foreground">{deployRestrictionMessage}</p>
-          )}
         </div>
       </div>
 

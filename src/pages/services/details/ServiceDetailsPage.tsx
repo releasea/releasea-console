@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Activity, ExternalLink, FileText, Play, Rocket, Settings, ShieldCheck, Square, Terminal } from 'lucide-react';
+import { Activity, ExternalLink, FileText, Rocket, Settings, ShieldCheck, Terminal } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Badge } from '@/components/ui/badge';
@@ -2176,121 +2176,6 @@ const ServiceDetails = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {service.status === 'running' ? (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-2"
-                  onClick={async () => {
-                    const success = await performAction({
-                      endpoint: `/services/${id}/stop`,
-                      method: 'POST',
-                      payload: { environment: viewEnv },
-                      label: 'stopService',
-                    });
-                    if (success) {
-                      toast({
-                        title: service.type === 'static-site' ? 'Disable requested' : 'Stop requested',
-                        description: service.type === 'static-site'
-                          ? `Disabling ${service.name}...`
-                          : `Stopping ${service.name}...`,
-                      });
-                      void runRealtimeRefresh(refreshServices, 'Unable to refresh service state after stop.');
-                    } else {
-                      toast({
-                        title: service.type === 'static-site' ? 'Disable failed' : 'Stop failed',
-                        description: service.type === 'static-site'
-                          ? 'Unable to disable this static site. Check rule status or worker connectivity.'
-                          : 'Unable to stop this service. Check worker connectivity.',
-                        variant: 'destructive',
-                      });
-                    }
-                  }}
-                >
-                  <Square className="w-3 h-3" />
-                  {service.type === 'static-site' ? 'Disable' : 'Stop'}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="gap-2"
-                  disabled={!hasSuccessfulDeploy}
-                  title={
-                    hasSuccessfulDeploy
-                      ? undefined
-                      : 'Deploy the service at least once before starting it.'
-                  }
-                  onClick={async () => {
-                    const success = await performAction({
-                      endpoint: `/services/${id}/start`,
-                      method: 'POST',
-                      payload: { environment: viewEnv },
-                      label: 'startService',
-                    });
-                    if (success) {
-                      toast({
-                        title: service.type === 'static-site' ? 'Enable requested' : 'Start requested',
-                        description: service.type === 'static-site'
-                          ? `Enabling ${service.name}...`
-                          : `Starting ${service.name}...`,
-                      });
-                      void runRealtimeRefresh(refreshServices, 'Unable to refresh service state after start.');
-                    } else {
-                      toast({
-                        title: service.type === 'static-site' ? 'Enable failed' : 'Start failed',
-                        description: service.type === 'static-site'
-                          ? 'Unable to enable this static site. Check rule status or worker connectivity.'
-                          : 'Unable to start this service. Check worker connectivity.',
-                        variant: 'destructive',
-                      });
-                    }
-                  }}
-                >
-                  <Play className="w-3 h-3" />
-                  {service.type === 'static-site' ? 'Enable' : 'Start'}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!hasSuccessfulDeploy}
-                title={
-                  hasSuccessfulDeploy
-                    ? undefined
-                    : service.type === 'static-site'
-                      ? 'Deploy the site at least once before redeploying it.'
-                      : 'Deploy the service at least once before restarting it.'
-                }
-                onClick={async () => {
-                  const success = await performAction({
-                    endpoint: `/services/${id}/restart`,
-                    method: 'POST',
-                    payload: { environment: viewEnv },
-                    label: 'restartService',
-                  });
-                  if (success) {
-                    toast({
-                      title: service.type === 'static-site' ? 'Redeploy requested' : 'Restart requested',
-                      description: service.type === 'static-site'
-                        ? `Redeploying ${service.name}...`
-                        : `Restarting ${service.name}...`,
-                    });
-                    void runRealtimeRefresh(refreshServices, 'Unable to refresh service state after restart.');
-                  } else {
-                    toast({
-                      title: service.type === 'static-site' ? 'Redeploy failed' : 'Restart failed',
-                      description: service.type === 'static-site'
-                        ? 'Unable to redeploy this static site. Check worker connectivity.'
-                        : 'Unable to restart this service. Check worker connectivity.',
-                      variant: 'destructive',
-                    });
-                  }
-                }}
-              >
-                {service.type === 'static-site' ? 'Redeploy' : 'Restart'}
-              </Button>
-            </div>
           </div>
         </div>
 
@@ -2365,9 +2250,6 @@ const ServiceDetails = () => {
           viewEnvLabel={viewEnvLabel}
           displayStatus={serviceDisplayStatus}
           latestDeployStrategySummary={deploysSorted[0]?.strategyStatus?.summary ?? undefined}
-          liveSyncError={realtimeSyncError}
-          liveSyncLabel={lastRealtimeSyncLabel}
-          liveSyncActive={isLiveSyncConnected || isFastPolling}
             repositoryUrl={repositoryUrl}
             dockerImageLabel={dockerImageLabel}
             branchName={branchName}
@@ -2397,6 +2279,8 @@ const ServiceDetails = () => {
             latencyPeakLabel={latencyPeakLabel}
             requestsAvgLabel={requestsAvgLabel}
             requestsPeakLabel={requestsPeakLabel}
+            isLive={isLiveSyncConnected || isFastPolling}
+            liveSyncError={realtimeSyncError}
           />
 
           <MetricsTab
