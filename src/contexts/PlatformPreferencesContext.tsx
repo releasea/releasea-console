@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { clientLogger } from '@/platform/logging/client-logger';
 
 export interface PlatformPreferences {
   // Display preferences
@@ -65,7 +66,7 @@ const loadPreferences = (): PlatformPreferences => {
       return { ...defaultPreferences, ...parsed };
     }
   } catch (error) {
-    console.warn('[PlatformPreferences] Failed to load preferences:', error);
+    clientLogger.warn('preferences.load', 'Failed to load preferences', { error });
   }
 
   return defaultPreferences;
@@ -79,7 +80,7 @@ const savePreferences = (preferences: PlatformPreferences): void => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
   } catch (error) {
-    console.warn('[PlatformPreferences] Failed to save preferences:', error);
+    clientLogger.warn('preferences.save', 'Failed to save preferences', { error });
   }
 };
 

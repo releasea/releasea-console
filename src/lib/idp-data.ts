@@ -1,5 +1,5 @@
-import { AppConfig } from '@/lib/config';
 import { apiClient } from '@/lib/api-client';
+import { clientLogger } from '@/platform/logging/client-logger';
 import type {
   IdentityProviderConfig,
   GroupMapping,
@@ -82,9 +82,7 @@ const resolveResponse = async <T>(
 ): Promise<T> => {
   const { data, error } = await request;
   if (error || data == null) {
-    if (AppConfig.debug) {
-      console.warn(`[api] ${label} failed`, error);
-    }
+    clientLogger.warn(`api.${label}`, 'Request failed', { error });
     return fallback;
   }
   return data;
@@ -96,9 +94,7 @@ const resolveAction = async (
 ): Promise<boolean> => {
   const { error } = await request;
   if (error) {
-    if (AppConfig.debug) {
-      console.warn(`[api] ${label} failed`, error);
-    }
+    clientLogger.warn(`api.${label}`, 'Action failed', { error });
     return false;
   }
   return true;

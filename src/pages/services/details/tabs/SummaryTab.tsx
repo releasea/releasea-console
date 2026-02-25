@@ -6,10 +6,12 @@ import { TabsContent } from '@/components/ui/tabs';
 import type { DeployStatusValue, Service, ServiceStatus } from '@/types/releasea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, Timer, TrendingUp } from 'lucide-react';
+import { sanitizeExternalURL } from '@/platform/security/data-security';
 
 type AppUrl = {
   id: string;
-  href: string;
+  href: string | null;
+  display: string;
   protocolLabel: string;
   targetLabel: string;
 };
@@ -93,8 +95,11 @@ export const SummaryTab = ({
   requestsPeakLabel,
   isLive,
   liveSyncError,
-}: SummaryTabProps) => (
-  <TabsContent value="summary" className="space-y-6">
+}: SummaryTabProps) => {
+  const safeRepositoryURL = repositoryUrl ? sanitizeExternalURL(repositoryUrl) : null;
+
+  return (
+    <TabsContent value="summary" className="space-y-6">
     <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-stretch">
       <div className="rounded-lg border border-border bg-card p-5 space-y-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -138,21 +143,23 @@ export const SummaryTab = ({
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Repository</p>
-            {repositoryUrl ? (
+            {safeRepositoryURL?.href ? (
               <div className="flex flex-wrap items-center gap-2">
                 <a
-                  href={repositoryUrl}
+                  href={safeRepositoryURL.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-mono text-xs text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  {repositoryUrl}
+                  {safeRepositoryURL.display}
                   <ExternalLink className="w-3 h-3" />
                 </a>
                 <Badge variant="secondary" className="text-xs font-mono">
                   {branchName}
                 </Badge>
               </div>
+            ) : safeRepositoryURL?.display ? (
+              <p className="text-sm font-mono text-muted-foreground">{safeRepositoryURL.display}</p>
             ) : dockerImageLabel ? (
               <p className="text-sm font-mono text-foreground">{dockerImageLabel}</p>
             ) : (
@@ -339,15 +346,19 @@ export const SummaryTab = ({
                 <Badge variant="outline" className="text-xs">
                   {url.targetLabel}
                 </Badge>
-                <a
-                  href={url.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-primary hover:underline inline-flex items-center gap-1"
-                >
-                  {url.href}
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                {url.href ? (
+                  <a
+                    href={url.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    {url.display}
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <span className="text-sm text-muted-foreground">{url.display}</span>
+                )}
               </div>
             ))}
           </div>
@@ -372,5 +383,6 @@ export const SummaryTab = ({
         <p className="text-xs text-muted-foreground">Last probe info unavailable.</p>
       </div>
     </div>
-  </TabsContent>
-);
+    </TabsContent>
+  );
+};

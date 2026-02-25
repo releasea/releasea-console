@@ -37,6 +37,7 @@ import { environmentsShareNamespace, getEnvironmentConfigs, getEnvironmentLabel 
 import { useTablePagination } from '@/hooks/use-table-pagination';
 import { apiClient } from '@/lib/api-client';
 import { useSSEStream } from '@/lib/use-sse-stream';
+import { sanitizeExternalURL } from '@/platform/security/data-security';
 import { ServiceSettingsFormStoreProvider } from '@/forms/store/service-settings-form-store';
 import {
   isDeployActionBlockedStatus,
@@ -822,8 +823,8 @@ const ServiceDetails = () => {
         (a, b) => (protocolOrder[a] ?? 99) - (protocolOrder[b] ?? 99),
       );
       return protocols.map((protocol) => ({
+        ...sanitizeExternalURL(`${protocol}://${service.name}.releasea.${suffix}`),
         id: `${target}-${protocol}`,
-        href: `${protocol}://${service.name}.releasea.${suffix}`,
         protocolLabel: protocol.toUpperCase(),
         targetLabel: target === 'internal' ? 'Internal' : 'External',
       }));
@@ -1214,6 +1215,7 @@ const ServiceDetails = () => {
     : 'No profile';
 
   const repositoryUrl = sourceType === 'git' ? repoUrl : null;
+  const servicePublicURL = sanitizeExternalURL(service.url ?? '');
   const dockerImageLabel = sourceType === 'docker' ? dockerImage : null;
   const branchName = branch;
   const dockerfileLabel = dockerfilePath;
@@ -2160,17 +2162,19 @@ const ServiceDetails = () => {
                         {deployStrategyLabel}
                       </Badge>
                     )}
-                    {service.url && (
+                    {servicePublicURL.href ? (
                       <a
-                        href={service.url}
+                        href={servicePublicURL.href}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm text-primary hover:underline flex items-center gap-1"
                       >
-                        {service.url}
+                        {servicePublicURL.display}
                         <ExternalLink className="w-3 h-3" />
                       </a>
-                    )}
+                    ) : servicePublicURL.display ? (
+                      <span className="text-sm text-muted-foreground">{servicePublicURL.display}</span>
+                    ) : null}
                   </div>
                 </div>
               </div>

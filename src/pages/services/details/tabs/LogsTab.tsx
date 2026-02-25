@@ -4,6 +4,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import type { LogEntry } from '@/types/releasea';
 import { FileText } from 'lucide-react';
 import { LOG_LINE_LIMIT } from '../constants';
+import { redactSensitiveText } from '@/platform/security/data-security';
 
 type LogsTabProps = {
   selectedReplica: string;
@@ -149,7 +150,13 @@ export const LogsTab = ({
           visibleLogs.length > 0 &&
           visibleLogs.map((log) => (
             <div key={log.id}>
-              <span className="text-foreground">{log.message}</span>
+              <span className="text-foreground">
+                {redactSensitiveText(log.message, {
+                  maskEmails: true,
+                  maskIPs: true,
+                  maxLength: 2000,
+                })}
+              </span>
             </div>
           ))}
       </div>

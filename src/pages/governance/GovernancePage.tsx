@@ -48,6 +48,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { toast } from '@/hooks/use-toast';
+import { maskIPAddress, redactSensitiveText, sanitizeTextForRender } from '@/platform/security/data-security';
 import {
   fetchApprovalRequests,
   fetchGovernanceSettings,
@@ -695,51 +696,59 @@ const GovernancePage = () => {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredAuditLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="flex items-start justify-between py-3 px-4 rounded-lg border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mt-0.5">
-                          {log.resourceType === 'deploy' && <Rocket className="w-4 h-4" />}
-                          {log.resourceType === 'rule' && <Globe className="w-4 h-4" />}
-                          {log.resourceType === 'service' && <AlertCircle className="w-4 h-4" />}
-                          {log.resourceType === 'team' && <Users className="w-4 h-4" />}
-                          {log.resourceType === 'settings' && <Settings className="w-4 h-4" />}
-                          {log.resourceType === 'user' && <Shield className="w-4 h-4" />}
-                          {log.resourceType === 'approval' && <CheckCircle2 className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {log.action.replace(/\./g, ' ').replace(/_/g, ' ')}
-                            </p>
-                            <Badge variant="outline" className="text-xs">
-                              {log.resourceType}
-                            </Badge>
+                  {filteredAuditLogs.map((log) => {
+                    const detailsPreview = log.details
+                      ? redactSensitiveText(JSON.stringify(log.details), {
+                          maskEmails: true,
+                          maskIPs: true,
+                          maxLength: 80,
+                        })
+                      : '';
+                    return (
+                      <div
+                        key={log.id}
+                        className="flex items-start justify-between py-3 px-4 rounded-lg border border-border/50 bg-muted/10 hover:bg-muted/20 transition-colors"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mt-0.5">
+                            {log.resourceType === 'deploy' && <Rocket className="w-4 h-4" />}
+                            {log.resourceType === 'rule' && <Globe className="w-4 h-4" />}
+                            {log.resourceType === 'service' && <AlertCircle className="w-4 h-4" />}
+                            {log.resourceType === 'team' && <Users className="w-4 h-4" />}
+                            {log.resourceType === 'settings' && <Settings className="w-4 h-4" />}
+                            {log.resourceType === 'user' && <Shield className="w-4 h-4" />}
+                            {log.resourceType === 'approval' && <CheckCircle2 className="w-4 h-4" />}
                           </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-foreground">
+                                {sanitizeTextForRender(log.action.replace(/\./g, ' ').replace(/_/g, ' '), { maxLength: 120 })}
+                              </p>
+                              <Badge variant="outline" className="text-xs">
+                                {sanitizeTextForRender(log.resourceType, { maxLength: 32 })}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {sanitizeTextForRender(log.resourceName, { maxLength: 140 })} • {sanitizeTextForRender(log.performedBy.name, { maxLength: 80 })}
+                            </p>
+                            {detailsPreview && (
+                              <p className="text-xs text-muted-foreground/80 mt-1 font-mono">{detailsPreview}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
                           <p className="text-xs text-muted-foreground">
-                            {log.resourceName} • {log.performedBy.name}
+                            {format(new Date(log.performedAt), 'MMM d, HH:mm')}
                           </p>
-                          {log.details && (
-                            <p className="text-xs text-muted-foreground/80 mt-1 font-mono">
-                              {JSON.stringify(log.details).slice(0, 80)}
-                              {JSON.stringify(log.details).length > 80 && '...'}
+                          {log.ipAddress && (
+                            <p className="text-xs text-muted-foreground/60 font-mono">
+                              {maskIPAddress(log.ipAddress)}
                             </p>
                           )}
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(log.performedAt), 'MMM d, HH:mm')}
-                        </p>
-                        {log.ipAddress && (
-                          <p className="text-xs text-muted-foreground/60 font-mono">{log.ipAddress}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </SettingsSection>

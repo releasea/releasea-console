@@ -162,11 +162,7 @@ const Auth = () => {
     const result = await requestPasswordReset(email);
     
     if (result.success) {
-      // Get the token from localStorage
-      const token = localStorage.getItem('releasea_reset_token');
-      if (token) {
-        setResetToken(token);
-      }
+      setResetToken(result.token ?? '');
       setView('reset-sent');
     } else {
       setError(result.error || 'Failed to send reset email');

@@ -19,7 +19,7 @@ interface AuthContextType {
   loginWithSSOTicket: (ticket: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; token?: string }>;
   validatePasswordResetToken: (token: string) => Promise<{ valid: boolean; email?: string }>;
   confirmPasswordReset: (token: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   hasPermission: (requiredRole: 'admin' | 'developer') => boolean;
@@ -32,36 +32,81 @@ const roleHierarchy: Record<string, number> = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LEGACY_AUTH_STORAGE_KEYS = [
+  'releasea_auth_user',
+  'releasea_auth_token',
+  'releasea_refresh_token',
+  'releasea_reset_token',
+];
+
+const clearLegacyAuthStorage = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  for (const key of LEGACY_AUTH_STORAGE_KEYS) {
+    localStorage.removeItem(key);
+  }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const readString = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+const normalizeAuthUser = (value: unknown): AuthUser | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = readString(value.id);
+  const email = readString(value.email);
+  if (!id || !email) {
+    return null;
+  }
+
+  const role = readString(value.role) === 'admin' ? 'admin' : 'developer';
+  const name = readString(value.name) || email;
+
+  return {
+    id,
+    name,
+    email,
+    role,
+    teamId: readString(value.teamId),
+    teamName: readString(value.teamName),
+  };
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing session on mount
   useEffect(() => {
-    const storedUser = localStorage.getItem('releasea_auth_user');
-    const storedToken = localStorage.getItem('releasea_auth_token');
-    if (storedToken) {
-      apiClient.setToken(storedToken);
-    }
-    if (storedUser && storedToken) {
+    let active = true;
+
+    const restore = async () => {
+      clearLegacyAuthStorage();
       try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem('releasea_auth_user');
+        const restoredUser = await apiClient.restoreSession<unknown>();
+        if (!active) {
+          return;
+        }
+        setUser(normalizeAuthUser(restoredUser));
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
       }
-    } else if (storedUser && !storedToken) {
-      localStorage.removeItem('releasea_auth_user');
-    }
-    setIsLoading(false);
+    };
+
+    void restore();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const applyAuthSession = (sessionUser: AuthUser, token: string, refreshToken?: string) => {
+  const applyAuthSession = (sessionUser: AuthUser, token: string) => {
     setUser(sessionUser);
-    localStorage.setItem('releasea_auth_user', JSON.stringify(sessionUser));
-    localStorage.setItem('releasea_auth_token', token);
-    if (refreshToken) {
-      localStorage.setItem('releasea_refresh_token', refreshToken);
-    }
     apiClient.setToken(token);
   };
 
@@ -74,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error ?? 'Login failed.' };
     }
 
-    applyAuthSession(result.user, result.token, result.refreshToken);
+    applyAuthSession(result.user, result.token);
     setIsLoading(false);
 
     return { success: true };
@@ -89,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error ?? 'Failed to create account. Please try again.' };
     }
 
-    applyAuthSession(result.user, result.token, result.refreshToken);
+    applyAuthSession(result.user, result.token);
     setIsLoading(false);
     return { success: true };
   };
@@ -103,12 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error ?? 'SSO login failed.' };
     }
 
-    applyAuthSession(result.user, result.token, result.refreshToken);
+    applyAuthSession(result.user, result.token);
     setIsLoading(false);
     return { success: true };
   };
 
-  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string; token?: string }> => {
     setIsLoading(true);
 
     const result = await authRequestPasswordReset(email);
@@ -117,12 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error ?? 'Please enter a valid email address.' };
     }
 
-    if (result.token) {
-      localStorage.setItem('releasea_reset_token', result.token);
-    }
-
     setIsLoading(false);
-    return { success: true };
+    return { success: true, token: result.token };
   };
 
   const validatePasswordResetToken = async (token: string): Promise<{ valid: boolean; email?: string }> => {
@@ -138,7 +179,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error ?? 'Invalid or expired reset link. Please request a new one.' };
     }
 
-    localStorage.removeItem('releasea_reset_token');
     setIsLoading(false);
     return { success: true };
   };
@@ -148,9 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authLogout();
 
     setUser(null);
-    localStorage.removeItem('releasea_auth_user');
-    localStorage.removeItem('releasea_auth_token');
-    localStorage.removeItem('releasea_refresh_token');
+    clearLegacyAuthStorage();
     apiClient.setToken(null);
     setIsLoading(false);
   };
