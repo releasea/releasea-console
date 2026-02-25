@@ -5,6 +5,14 @@ import { apiClient } from './api-client';
 const RETRY_BASE_MS = 1000;
 const RETRY_MAX_MS = 15000;
 
+const generateCorrelationId = (): string => {
+  const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (randomUUID) {
+    return randomUUID();
+  }
+  return `corr-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
+
 interface UseSSEStreamOptions<T> {
   /** API endpoint path, e.g. `/services/status/stream` */
   endpoint: string;
@@ -108,7 +116,11 @@ export function useSSEStream<T = unknown>(options: UseSSEStreamOptions<T>): UseS
       abortController = controller;
 
       try {
-        const headers = new Headers({ Accept: 'text/event-stream' });
+        const headers = new Headers({
+          Accept: 'text/event-stream',
+          'X-Correlation-ID': generateCorrelationId(),
+          'X-Requested-With': 'XMLHttpRequest',
+        });
         const token = apiClient.getToken();
         if (token) {
           headers.set('Authorization', `Bearer ${token}`);

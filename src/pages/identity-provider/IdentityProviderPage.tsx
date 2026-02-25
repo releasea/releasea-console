@@ -43,6 +43,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { fetchTeams } from '@/lib/data';
 import { getApiUrl } from '@/lib/config';
+import { maskEmail, maskIPAddress, redactSensitiveText, sanitizeTextForRender } from '@/platform/security/data-security';
 import {
   fetchIdpConfig,
   updateIdpConfig,
@@ -798,13 +799,15 @@ const IdentityProvider = () => {
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={`w-2 h-2 rounded-full ${session.active ? 'bg-success' : 'bg-muted'}`} />
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{session.userName}</p>
-                            <p className="text-xs text-muted-foreground truncate">{session.userEmail}</p>
+                            <p className="text-sm font-medium text-foreground truncate">
+                              {sanitizeTextForRender(session.userName, { maxLength: 80 })}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">{maskEmail(session.userEmail)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-4 shrink-0">
                           <div className="text-right hidden sm:block">
-                            <p className="text-xs text-muted-foreground">{session.ipAddress}</p>
+                            <p className="text-xs text-muted-foreground">{maskIPAddress(session.ipAddress)}</p>
                             <p className="text-xs text-muted-foreground">{formatDate(session.lastActivity)}</p>
                           </div>
                           <Badge variant="outline" className="text-xs">
@@ -842,19 +845,25 @@ const IdentityProvider = () => {
                       <div key={log.id} className="flex items-start gap-3 px-4 py-3">
                         <div className="mt-0.5">{getAuditIcon(log.action)}</div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground">{log.details}</p>
+                          <p className="text-sm text-foreground">
+                            {redactSensitiveText(log.details, {
+                              maskEmails: true,
+                              maskIPs: true,
+                              maxLength: 200,
+                            })}
+                          </p>
                           <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                             <span>{formatDate(log.timestamp)}</span>
                             {log.userName && (
                               <>
                                 <span>•</span>
-                                <span>{log.userName}</span>
+                                <span>{sanitizeTextForRender(log.userName, { maxLength: 80 })}</span>
                               </>
                             )}
                             {log.ipAddress && (
                               <>
                                 <span>•</span>
-                                <span>{log.ipAddress}</span>
+                                <span>{maskIPAddress(log.ipAddress)}</span>
                               </>
                             )}
                           </div>

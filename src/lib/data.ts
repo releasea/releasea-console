@@ -1,5 +1,15 @@
 import { AppConfig, getApiUrl } from '@/lib/config';
 import { apiClient } from '@/lib/api-client';
+import { clientLogger } from '@/platform/logging/client-logger';
+import {
+  authExchangeSSORequestSchema,
+  authSessionRequestSchema,
+  authSessionResponseSchema,
+  authSignUpRequestSchema,
+  createDeployRequestSchema,
+  promoteCanaryRequestSchema,
+  promoteCanaryResponseSchema,
+} from '@/platform/http/contracts/contracts';
 import type {
   AuthUser,
   Deploy,
@@ -76,9 +86,7 @@ type ApiResult<T> = {
 const resolveResponse = async <T>(request: Promise<ApiResult<T>>, fallback: T, label: string): Promise<T> => {
   const { data, error } = await request;
   if (error || data == null) {
-    if (AppConfig.debug) {
-      console.warn(`[api] ${label} failed`, error);
-    }
+    clientLogger.warn(`api.${label}`, 'Request failed', { error });
     return fallback;
   }
   return data;
@@ -87,9 +95,7 @@ const resolveResponse = async <T>(request: Promise<ApiResult<T>>, fallback: T, l
 const resolveAction = async (request: Promise<ApiResult<unknown>>, label: string): Promise<boolean> => {
   const { error } = await request;
   if (error) {
-    if (AppConfig.debug) {
-      console.warn(`[api] ${label} failed`, error);
-    }
+    clientLogger.warn(`api.${label}`, 'Action failed', { error });
     return false;
   }
   return true;
@@ -122,13 +128,29 @@ export const performAction = async (options: {
   label: string;
 }): Promise<boolean> => {
   const { endpoint, method = 'POST', payload, label } = options;
+  const isCreateDeploy = /^\/services\/[^/]+\/deploys$/i.test(endpoint.trim());
+  const createDeployPayloadSchema = isCreateDeploy ? createDeployRequestSchema : undefined;
   if (method === 'PUT') {
+    if (createDeployPayloadSchema) {
+      return resolveAction(apiClient.put(endpoint, payload, { requestSchema: createDeployPayloadSchema }), label);
+    }
     return resolveAction(apiClient.put(endpoint, payload), label);
   }
   if (method === 'DELETE') {
     return resolveAction(apiClient.delete(endpoint), label);
   }
-  return resolveAction(apiClient.post(endpoint, payload ?? {}), label);
+  if (createDeployPayloadSchema) {
+    return resolveAction(
+      apiClient.post(endpoint, payload ?? {}, {
+        requestSchema: createDeployPayloadSchema,
+      }),
+      label,
+    );
+  }
+  return resolveAction(
+    apiClient.post(endpoint, payload ?? {}),
+    label,
+  );
 };
 
 export const fetchTeams = async (): Promise<Team[]> =>
@@ -162,9 +184,7 @@ export const fetchServiceTemplates = async (): Promise<ServiceTemplate[]> =>
 export const createServiceTemplate = async (payload: Partial<ServiceTemplate>): Promise<ServiceTemplate | null> => {
   const response = await apiClient.post<ServiceTemplate>('/templates', payload);
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] createServiceTemplate failed', response.error);
-    }
+    clientLogger.warn('api.createServiceTemplate', 'Request failed', { error: response.error });
     return null;
   }
   return response.data;
@@ -176,9 +196,7 @@ export const updateServiceTemplate = async (
 ): Promise<ServiceTemplate | null> => {
   const response = await apiClient.put<ServiceTemplate>(`/templates/${id}`, payload);
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] updateServiceTemplate failed', response.error);
-    }
+    clientLogger.warn('api.updateServiceTemplate', 'Request failed', { error: response.error });
     return null;
   }
   return response.data;
@@ -243,9 +261,7 @@ export const checkGithubTemplateRepoAvailability = async (
     `/scm/github/template-repos/availability?${query.toString()}`,
   );
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] checkGithubTemplateRepoAvailability failed', response.error);
-    }
+    clientLogger.warn('api.checkGithubTemplateRepoAvailability', 'Request failed', { error: response.error });
     return { exists: null, error: response.error || 'Failed to check repository availability' };
   }
   return { exists: Boolean(response.data.exists), error: null };
@@ -256,9 +272,7 @@ export const createGithubTemplateRepo = async (
 ): Promise<{ repo: TemplateRepoResponse | null; error: string | null }> => {
   const response = await apiClient.post<TemplateRepoResponse>('/scm/github/template-repos', payload);
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] createGithubTemplateRepo failed', response.error);
-    }
+    clientLogger.warn('api.createGithubTemplateRepo', 'Request failed', { error: response.error });
     return { repo: null, error: response.error || 'Failed to create repository' };
   }
   return { repo: response.data, error: null };
@@ -301,6 +315,10 @@ export const promoteCanary = async (
   const response = await apiClient.post<{ operation: { id: string; status: string } }>(
     `/services/${serviceId}/promote-canary`,
     { environment },
+    {
+      requestSchema: promoteCanaryRequestSchema,
+      responseSchema: promoteCanaryResponseSchema,
+    },
   );
   if (response.error) {
     return { error: response.error };
@@ -322,9 +340,7 @@ export const createRule = async (
   const endpoint = serviceId ? `/services/${serviceId}/rules` : '/rules';
   const response = await apiClient.post<ManagedRule>(endpoint, payload);
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] createRule failed', response.error);
-    }
+    clientLogger.warn('api.createRule', 'Request failed', { error: response.error });
     return null;
   }
   return response.data;
@@ -333,9 +349,7 @@ export const createRule = async (
 export const updateRule = async (ruleId: string, payload: Partial<ManagedRule>): Promise<ManagedRule | null> => {
   const response = await apiClient.put<ManagedRule>(`/rules/${ruleId}`, payload);
   if (response.error || !response.data) {
-    if (AppConfig.debug) {
-      console.warn('[api] updateRule failed', response.error);
-    }
+    clientLogger.warn('api.updateRule', 'Request failed', { error: response.error });
     return null;
   }
   return response.data;
@@ -415,7 +429,7 @@ export const fetchMetrics = async (serviceId: string, from?: Date, to?: Date, en
   if (to) params.set('to', to.toISOString());
   // Environment is required - fail fast if not provided
   if (!environment) {
-    console.warn('[api] fetchMetrics called without environment');
+    clientLogger.warn('api.fetchMetrics', 'Called without required environment');
     return {
       serviceId,
       timestamps,
@@ -459,7 +473,7 @@ export const fetchServiceLogs = async (
   if (options?.limit) params.set('limit', String(options.limit));
   // Environment is required
   if (!options?.environment) {
-    console.warn('[api] fetchServiceLogs called without environment');
+    clientLogger.warn('api.fetchServiceLogs', 'Called without required environment');
     return EMPTY_LOGS;
   }
   params.set('environment', options.environment);
@@ -471,7 +485,7 @@ export const fetchServiceLogs = async (
 
 export const fetchServicePods = async (serviceId: string, environment: string): Promise<string[]> => {
   if (!environment) {
-    console.warn('[api] fetchServicePods called without environment');
+    clientLogger.warn('api.fetchServicePods', 'Called without required environment');
     return [];
   }
   const params = new URLSearchParams();
@@ -664,24 +678,38 @@ export const updatePlatformSettings = async (payload: PlatformSettings): Promise
 export const authLogin = async (
   email: string,
   password: string,
-): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string; refreshToken?: string }> => {
-  const response = await apiClient.post<{ user: AuthUser; token: string; refreshToken?: string }>('/auth/login', { email, password });
+): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string }> => {
+  const response = await apiClient.post<{ user: AuthUser; token: string }>(
+    '/auth/login',
+    { email, password },
+    {
+      requestSchema: authSessionRequestSchema,
+      responseSchema: authSessionResponseSchema,
+    },
+  );
   if (response.error || !response.data?.user || !response.data?.token) {
     return { success: false, error: response.error ?? 'Login failed.' };
   }
-  return { success: true, user: response.data.user, token: response.data.token, refreshToken: response.data.refreshToken };
+  return { success: true, user: response.data.user, token: response.data.token };
 };
 
 export const authSignUp = async (
   name: string,
   email: string,
   password: string,
-): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string; refreshToken?: string }> => {
-  const response = await apiClient.post<{ user: AuthUser; token: string; refreshToken?: string }>('/auth/signup', { name, email, password });
+): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string }> => {
+  const response = await apiClient.post<{ user: AuthUser; token: string }>(
+    '/auth/signup',
+    { name, email, password },
+    {
+      requestSchema: authSignUpRequestSchema,
+      responseSchema: authSessionResponseSchema,
+    },
+  );
   if (response.error || !response.data?.user || !response.data?.token) {
     return { success: false, error: response.error ?? 'Failed to create account. Please try again.' };
   }
-  return { success: true, user: response.data.user, token: response.data.token, refreshToken: response.data.refreshToken };
+  return { success: true, user: response.data.user, token: response.data.token };
 };
 
 export const authRequestPasswordReset = async (
@@ -718,8 +746,7 @@ export const authConfirmPasswordReset = async (
 };
 
 export const authLogout = async (): Promise<boolean> => {
-  const refreshToken = localStorage.getItem('releasea_refresh_token') ?? '';
-  return resolveAction(apiClient.post('/auth/logout', { refreshToken }), 'logout');
+  return resolveAction(apiClient.post('/auth/logout'), 'logout');
 };
 
 export type AuthSSOConfig = {
@@ -746,10 +773,14 @@ export const buildAuthSSOStartUrl = (redirect: string, from?: string): string =>
 
 export const authExchangeSSOTicket = async (
   ticket: string,
-): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string; refreshToken?: string }> => {
-  const response = await apiClient.post<{ user: AuthUser; token: string; refreshToken?: string }>(
+): Promise<{ success: boolean; error?: string; user?: AuthUser; token?: string }> => {
+  const response = await apiClient.post<{ user: AuthUser; token: string }>(
     '/auth/sso/exchange',
     { ticket },
+    {
+      requestSchema: authExchangeSSORequestSchema,
+      responseSchema: authSessionResponseSchema,
+    },
   );
   if (response.error || !response.data?.user || !response.data?.token) {
     return { success: false, error: response.error ?? 'SSO login failed.' };
@@ -758,7 +789,6 @@ export const authExchangeSSOTicket = async (
     success: true,
     user: response.data.user,
     token: response.data.token,
-    refreshToken: response.data.refreshToken,
   };
 };
 
