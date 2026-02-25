@@ -728,7 +728,12 @@ export default function CreateService() {
           return;
         }
 
-        await updateService(createdService.id, baseSetupPayload);
+        // The deploy endpoint blocks while service.status is "creating".
+        // Mark service as created before queueing the first auto deploy.
+        await updateService(createdService.id, {
+          ...baseSetupPayload,
+          status: 'created',
+        });
         const deployQueued = await performAction({
           endpoint: `/services/${createdService.id}/deploys`,
           method: 'POST',
