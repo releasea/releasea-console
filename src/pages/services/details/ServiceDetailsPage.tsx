@@ -82,6 +82,8 @@ import type { EnvVar, PublicationTargets, RuleRow, ServiceDetailsLocationState }
 const FAST_POLL_INTERVAL_MS = 2500;
 const FAST_POLL_GRACE_MS = 30_000;
 const OPTIMISTIC_DEPLOY_TIMEOUT_MS = 20_000;
+const METRICS_DEFAULT_WINDOW_MS = 15 * 60 * 1000;
+const LOGS_DEFAULT_WINDOW_MS = 3 * 60 * 60 * 1000;
 const WORKER_STALE_SECONDS = (() => {
   const parsed = Number.parseInt(import.meta.env.RELEASEA_WORKER_STALE_SECONDS ?? '90', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 90;
@@ -167,6 +169,37 @@ function buildServiceSettingsHydrationKey(service: Service): string {
     secretProviderId: service.secretProviderId ?? '',
     environment: service.environment ?? {},
   });
+}
+
+function resolveRuntimeLabel(service: Service): string {
+  const sourceType = (service.sourceType ?? '').trim().toLowerCase();
+  const hasDockerImage = Boolean(service.dockerImage?.trim());
+  const isScheduledJob =
+    service.deployTemplateId === 'tpl-cronjob' ||
+    Boolean(service.scheduleCron || service.scheduleCommand);
+
+  if (service.type === 'static-site') {
+    const framework = (service.framework ?? '').trim();
+    return framework ? `${framework} static build` : 'Static hosting runtime';
+  }
+
+  if (isScheduledJob) {
+    return 'Scheduled container runtime';
+  }
+
+  if (sourceType === 'registry' || hasDockerImage) {
+    return 'Container image runtime';
+  }
+
+  if (sourceType === 'git' || service.repoUrl) {
+    return 'Git build runtime';
+  }
+
+  if (service.type === 'worker') {
+    return 'Worker container runtime';
+  }
+
+  return 'Container runtime';
 }
 
 const ServiceDetails = () => {
@@ -258,7 +291,7 @@ const ServiceDetails = () => {
   const [availableContainers, setAvailableContainers] = useState<string[]>([]);
   const [podsLoading, setPodsLoading] = useState(false);
   const [containersLoading, setContainersLoading] = useState(false);
-  const [metricsFrom, setMetricsFrom] = useState(() => new Date(Date.now() - 60 * 60 * 1000));
+  const [metricsFrom, setMetricsFrom] = useState(() => new Date(Date.now() - METRICS_DEFAULT_WINDOW_MS));
   const [metricsTo, setMetricsTo] = useState(() => new Date());
   const [metricsToNow, setMetricsToNow] = useState(true);
 
@@ -978,8 +1011,8 @@ const ServiceDetails = () => {
       setSelectedReplica('');
       setSelectedContainer('');
       const now = new Date();
-      const lastHour = new Date(now.getTime() - 60 * 60 * 1000);
-      setMetricsFrom(lastHour);
+      const defaultWindowStart = new Date(now.getTime() - METRICS_DEFAULT_WINDOW_MS);
+      setMetricsFrom(defaultWindowStart);
       setMetricsTo(now);
       setMetricsToNow(true);
       setLogsLoaded(false);
@@ -1120,7 +1153,7 @@ const ServiceDetails = () => {
 
       if (logsLoaded && nextReplica) {
         const to = new Date();
-        const from = new Date(to.getTime() - 15 * 60 * 1000);
+        const from = new Date(to.getTime() - LOGS_DEFAULT_WINDOW_MS);
         const runtimeLogs = await fetchServiceLogs(id, {
           from,
           to,
@@ -1236,11 +1269,7 @@ const ServiceDetails = () => {
         ? `Blue/Green (${blueGreenPrimary})`
         : 'Rolling';
 
-  const runtimeLabel = {
-    microservice: 'Node.js 20',
-    'static-site': 'External runtime',
-    worker: 'Node.js 20',
-  }[service.type];
+  const runtimeLabel = resolveRuntimeLabel(service);
 
   const isScheduledJob =
     service.deployTemplateId === 'tpl-cronjob' ||
@@ -1325,7 +1354,7 @@ const ServiceDetails = () => {
     setLogsLoading(true);
     if (id) {
       const to = new Date();
-      const recentWindowMs = selectedContainerIsHistorical ? 24 * 60 * 60 * 1000 : 15 * 60 * 1000;
+      const recentWindowMs = selectedContainerIsHistorical ? 24 * 60 * 60 * 1000 : LOGS_DEFAULT_WINDOW_MS;
       const from = new Date(to.getTime() - recentWindowMs);
       const data = await fetchServiceLogs(id, {
         from,

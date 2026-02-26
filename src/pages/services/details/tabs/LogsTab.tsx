@@ -135,7 +135,7 @@ export const LogsTab = ({
       <div className="space-y-1 font-mono text-[13px] leading-5">
         {!logsLoaded && (
           <p className="text-muted-foreground">
-            Click "Load logs" to fetch recent entries for a specific pod and container.
+            Click "Load logs" to fetch entries from the last 3 hours for a specific pod and container.
           </p>
         )}
         {logsLoaded && visibleLogs.length === 0 && (
