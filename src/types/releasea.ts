@@ -392,6 +392,7 @@ export type CredentialScope = 'platform' | 'project' | 'service';
 
 export interface ScmCredential {
   id: string;
+  _id?: string | { $oid?: string };
   name: string;
   provider: string;
   authType: string;
@@ -405,6 +406,7 @@ export interface ScmCredential {
 
 export interface RegistryCredential {
   id: string;
+  _id?: string | { $oid?: string };
   name: string;
   provider?: string;
   registryUrl?: string;

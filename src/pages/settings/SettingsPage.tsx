@@ -36,6 +36,8 @@ import { toast } from '@/hooks/use-toast';
 import {
   createRegistryCredential,
   createScmCredential,
+  deleteRegistryCredential,
+  deleteScmCredential,
   fetchPlatformSettings,
   fetchProjects,
   fetchRegistryCredentials,
@@ -239,6 +241,19 @@ const SettingsPage = () => {
     if (scope === 'project') return resolveProjectName(projectId);
     if (scope === 'service') return resolveServiceName(serviceId);
     return 'All projects';
+  };
+
+  const credentialIdFromDocument = (value: { id?: string; _id?: string | { $oid?: string } }): string => {
+    if (typeof value.id === 'string' && value.id.trim()) {
+      return value.id.trim();
+    }
+    if (typeof value._id === 'string' && value._id.trim()) {
+      return value._id.trim();
+    }
+    if (value._id && typeof value._id === 'object' && typeof value._id.$oid === 'string' && value._id.$oid.trim()) {
+      return value._id.$oid.trim();
+    }
+    return '';
   };
 
   const refreshCredentials = async () => {
@@ -530,6 +545,36 @@ const SettingsPage = () => {
     toast({ title: 'Registry credential added', description: 'Credential stored successfully.' });
   };
 
+  const handleDeleteScmCredential = async (credential: ScmCredential) => {
+    const credentialId = credentialIdFromDocument(credential);
+    if (!credentialId) {
+      toast({ title: 'Unable to delete', description: 'Credential identifier not found.', variant: 'destructive' });
+      return;
+    }
+    const success = await deleteScmCredential(credentialId);
+    if (!success) {
+      toast({ title: 'Failed to delete SCM credential', description: 'Try again or check API logs.', variant: 'destructive' });
+      return;
+    }
+    await refreshCredentials();
+    toast({ title: 'SCM credential deleted', description: 'Credential removed successfully.' });
+  };
+
+  const handleDeleteRegistryCredential = async (credential: RegistryCredential) => {
+    const credentialId = credentialIdFromDocument(credential);
+    if (!credentialId) {
+      toast({ title: 'Unable to delete', description: 'Credential identifier not found.', variant: 'destructive' });
+      return;
+    }
+    const success = await deleteRegistryCredential(credentialId);
+    if (!success) {
+      toast({ title: 'Failed to delete registry credential', description: 'Try again or check API logs.', variant: 'destructive' });
+      return;
+    }
+    await refreshCredentials();
+    toast({ title: 'Registry credential deleted', description: 'Credential removed successfully.' });
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6 w-full">
@@ -813,11 +858,12 @@ const SettingsPage = () => {
                         <th className="px-4 py-3 text-left font-medium">Scope</th>
                         <th className="px-4 py-3 text-left font-medium">Target</th>
                         <th className="px-4 py-3 text-left font-medium">Updated</th>
+                        <th className="px-4 py-3 text-right font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
                       {scmCredentials.map((cred) => (
-                        <tr key={cred.id} className="hover:bg-muted/30">
+                        <tr key={credentialIdFromDocument(cred) || `${cred.name}-${cred.createdAt}`} className="hover:bg-muted/30">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <GitBranch className="h-4 w-4 text-muted-foreground" />
@@ -836,11 +882,23 @@ const SettingsPage = () => {
                           <td className="px-4 py-3 text-muted-foreground">
                             {cred.updatedAt ? new Date(cred.updatedAt).toLocaleDateString() : new Date(cred.createdAt).toLocaleDateString()}
                           </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() => void handleDeleteScmCredential(cred)}
+                              aria-label={`Delete ${cred.name}`}
+                              disabled={!credentialIdFromDocument(cred)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                       {scmCredentials.length === 0 && (
                         <TableEmptyRow
-                          colSpan={5}
+                          colSpan={6}
                           icon={<GitBranch className="h-5 w-5 text-muted-foreground" />}
                           title="No SCM credentials"
                           description="Add a Git token or SSH key to allow workers to clone repositories."
@@ -981,11 +1039,12 @@ const SettingsPage = () => {
                         <th className="px-4 py-3 text-left font-medium">Scope</th>
                         <th className="px-4 py-3 text-left font-medium">Target</th>
                         <th className="px-4 py-3 text-left font-medium">Updated</th>
+                        <th className="px-4 py-3 text-right font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
                       {registryCredentials.map((cred) => (
-                        <tr key={cred.id} className="hover:bg-muted/30">
+                        <tr key={credentialIdFromDocument(cred) || `${cred.name}-${cred.createdAt}`} className="hover:bg-muted/30">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <Package className="h-4 w-4 text-muted-foreground" />
@@ -1006,11 +1065,23 @@ const SettingsPage = () => {
                           <td className="px-4 py-3 text-muted-foreground">
                             {cred.updatedAt ? new Date(cred.updatedAt).toLocaleDateString() : new Date(cred.createdAt).toLocaleDateString()}
                           </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() => void handleDeleteRegistryCredential(cred)}
+                              aria-label={`Delete ${cred.name}`}
+                              disabled={!credentialIdFromDocument(cred)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                       {registryCredentials.length === 0 && (
                         <TableEmptyRow
-                          colSpan={5}
+                          colSpan={6}
                           icon={<Package className="h-5 w-5 text-muted-foreground" />}
                           title="No registry credentials"
                           description="Add registry credentials to allow workers to push images."

@@ -221,6 +221,12 @@ export const createRegistryCredential = async (payload: Partial<RegistryCredenti
     label: 'createRegistryCredential',
   });
 
+export const deleteScmCredential = async (id: string): Promise<boolean> =>
+  deleteResource(`/credentials/scm/${encodeURIComponent(id)}`, 'deleteScmCredential');
+
+export const deleteRegistryCredential = async (id: string): Promise<boolean> =>
+  deleteResource(`/credentials/registry/${encodeURIComponent(id)}`, 'deleteRegistryCredential');
+
 export type TemplateRepoPayload = {
   scmCredentialId?: string;
   projectId?: string;
