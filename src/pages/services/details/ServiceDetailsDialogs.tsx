@@ -266,7 +266,10 @@ export const ServiceDetailsDialogs = ({
               <div className="rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs max-h-[360px] overflow-auto">
                 {deployLog.selected.logs.length > 0 ? (
                   deployLog.selected.logs.map((entry, index) => (
-                    <div key={`${deployLog.selected?.id}-log-${index}`} className="py-0.5 text-foreground">
+                    <div
+                      key={`${deployLog.selected?.id}-log-${index}`}
+                      className="py-0.5 text-foreground whitespace-pre-wrap break-all"
+                    >
                       {entry}
                     </div>
                   ))

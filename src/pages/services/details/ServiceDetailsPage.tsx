@@ -40,10 +40,12 @@ import { useSSEStream } from '@/lib/use-sse-stream';
 import { sanitizeExternalURL } from '@/platform/security/data-security';
 import { ServiceSettingsFormStoreProvider } from '@/forms/store/service-settings-form-store';
 import {
+  isFailedDeployStatus,
   isDeployActionBlockedStatus,
   isLiveDeployStatus,
   resolveServiceStatusForDisplay,
   isSuccessfulDeployStatus,
+  normalizeDeployStatusValue,
   parseDeployTimestamp,
 } from '@/lib/deploy-status';
 import type {
@@ -906,16 +908,29 @@ const ServiceDetails = () => {
         : deploysSorted.find((deploy) => isLiveDeployStatus(deploy.status))?.status ?? null,
     [deploysSorted, hasLiveDeploys, hasOptimisticQueuedDeploy],
   );
+  const latestDeployStatus = useMemo(
+    () => normalizeDeployStatusValue(deploysSorted[0]?.status) ?? null,
+    [deploysSorted],
+  );
   const serviceDisplayStatus = useMemo(
-    () =>
-      service
-        ? resolveServiceStatusForDisplay({
-            service,
-            environment: viewEnv,
-            latestDeployStatus: latestLiveDeployStatus,
-          })
-        : 'pending',
-    [service, viewEnv, latestLiveDeployStatus],
+    () => {
+      if (!service) {
+        return 'pending';
+      }
+      if (!hasLiveDeploys && !hasSuccessfulDeploy && latestDeployStatus && isFailedDeployStatus(latestDeployStatus)) {
+        return latestDeployStatus;
+      }
+      const resolved = resolveServiceStatusForDisplay({
+        service,
+        environment: viewEnv,
+        latestDeployStatus: latestLiveDeployStatus,
+      });
+      if (!hasLiveDeploys && !hasSuccessfulDeploy && resolved === 'running') {
+        return 'idle';
+      }
+      return resolved;
+    },
+    [service, hasLiveDeploys, hasSuccessfulDeploy, latestDeployStatus, viewEnv, latestLiveDeployStatus],
   );
   const versionOptions = commits.length > 0
     ? commits.map((c) => ({
@@ -1058,7 +1073,7 @@ const ServiceDetails = () => {
       if (!active) return;
       const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
       setAvailablePods(sortedPods);
-      setSelectedReplica((current) => current || sortedPods[0] || '');
+      setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
       setPodsLoading(false);
     };
     loadPods();
@@ -1066,6 +1081,28 @@ const ServiceDetails = () => {
       active = false;
     };
   }, [id, viewEnv]);
+
+  useEffect(() => {
+    if (!id || !viewEnv) return;
+    const shouldRefreshPods = activeTab === 'logs' || hasLiveDeploys || isFastPolling;
+    if (!shouldRefreshPods) return;
+    let active = true;
+    const refreshPods = async () => {
+      const pods = await fetchServicePods(id, viewEnv);
+      if (!active) return;
+      const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
+      setAvailablePods(sortedPods);
+      setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
+    };
+    void refreshPods();
+    const interval = window.setInterval(() => {
+      void refreshPods();
+    }, hasLiveDeploys || isFastPolling ? 3000 : 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeTab, hasLiveDeploys, id, isFastPolling, viewEnv]);
 
   useEffect(() => {
     if (runtimeRefreshNonce === 0 || !id || !viewEnv) return;
@@ -1139,7 +1176,7 @@ const ServiceDetails = () => {
         ),
       ).sort((a, b) => a.localeCompare(b));
       setAvailableContainers(containers);
-      setSelectedContainer((current) => current || containers[0] || '');
+      setSelectedContainer((current) => (current && containers.includes(current) ? current : containers[0] || ''));
       setContainersLoading(false);
     };
     void loadContainers();
