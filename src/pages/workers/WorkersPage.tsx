@@ -54,6 +54,9 @@ import { getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { createWorkerRegistration, deleteWorker, fetchWorkerRegistrations, fetchWorkers, restartWorker, updateWorker } from '@/lib/data';
 
+const defaultInternalDomain = import.meta.env.RELEASEA_INTERNAL_DOMAIN?.trim() || 'releasea.internal';
+const defaultExternalDomain = import.meta.env.RELEASEA_EXTERNAL_DOMAIN?.trim() || 'releasea.external';
+
 const buildInstallCommand = (registration: WorkerRegistration) => {
   const tags = registration.tags.length > 0 ? registration.tags.join(',') : registration.environment;
   return [
@@ -65,7 +68,9 @@ const buildInstallCommand = (registration: WorkerRegistration) => {
     `  --set namespacePrefix=${registration.namespacePrefix} \\`,
     `  --set environment=${registration.environment} \\`,
     `  --set tags=${tags} \\`,
-    `  --set worker.name=${registration.name}`,
+    `  --set worker.name=${registration.name} \\`,
+    `  --set-string global.routing.internalDomain=${defaultInternalDomain} \\`,
+    `  --set-string global.routing.externalDomain=${defaultExternalDomain}`,
   ].join('\n');
 };
 
