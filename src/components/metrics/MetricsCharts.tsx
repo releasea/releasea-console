@@ -66,14 +66,14 @@ const RELATIVE_RANGE_OPTIONS = [
   { value: '7d', label: 'Last 7d', windowMs: 7 * 24 * 60 * 60 * 1000 },
 ] as const;
 
-type RelativeRangeValue = (typeof RELATIVE_RANGE_OPTIONS)[number]['value'] | 'relative' | 'custom';
+type RelativeRangeValue = (typeof RELATIVE_RANGE_OPTIONS)[number]['value'] | 'custom';
 
 const resolveRelativeRangeValue = (windowMs: number, toNow: boolean): RelativeRangeValue => {
   if (!toNow) {
     return 'custom';
   }
   const matched = RELATIVE_RANGE_OPTIONS.find((option) => Math.abs(option.windowMs - windowMs) <= 30_000);
-  return matched?.value ?? 'relative';
+  return matched?.value ?? '15m';
 };
 
 const average = (values: number[]) =>
@@ -152,10 +152,7 @@ const MetricsCharts = ({
     }
 
     const now = new Date();
-    const windowMs =
-      nextValue === 'relative'
-        ? selectedWindowMs
-        : RELATIVE_RANGE_OPTIONS.find((option) => option.value === nextValue)?.windowMs ?? selectedWindowMs;
+    const windowMs = RELATIVE_RANGE_OPTIONS.find((option) => option.value === nextValue)?.windowMs ?? selectedWindowMs;
     onTimeRangeChange(new Date(now.getTime() - windowMs), now, true);
   }, [metricsFrom, metricsTo, onTimeRangeChange, selectedWindowMs]);
 
@@ -627,7 +624,7 @@ const MetricsCharts = ({
           )}
           <Select value={relativeRangeValue} onValueChange={handleRelativeRangeChange}>
             <SelectTrigger className="h-7 w-auto min-w-[132px] bg-card text-xs">
-              <SelectValue placeholder="Relative range" />
+              <SelectValue placeholder="Time range" />
             </SelectTrigger>
             <SelectContent>
               {RELATIVE_RANGE_OPTIONS.map((option) => (
@@ -635,21 +632,22 @@ const MetricsCharts = ({
                   {option.label}
                 </SelectItem>
               ))}
-              <SelectItem value="relative">Relative (custom)</SelectItem>
               <SelectItem value="custom">Custom range</SelectItem>
             </SelectContent>
           </Select>
-          <DateTimeRangePicker
-            variant="popover"
-            showManualInputs={false}
-            showQuickRanges={false}
-            value={{ from: metricsFrom, to: metricsTo }}
-            onChange={({ from, to }) => {
-              setRelativeRangeValue('custom');
-              onTimeRangeChange(from, to, false);
-            }}
-            className="h-7 text-xs"
-          />
+          {relativeRangeValue === 'custom' && (
+            <DateTimeRangePicker
+              variant="popover"
+              showManualInputs={false}
+              showQuickRanges={false}
+              value={{ from: metricsFrom, to: metricsTo }}
+              onChange={({ from, to }) => {
+                setRelativeRangeValue('custom');
+                onTimeRangeChange(from, to, false);
+              }}
+              className="h-7 text-xs"
+            />
+          )}
           {metricsToNow && (
             <Badge variant="secondary" className="h-7 px-2 text-[10px]">
               Sliding window
