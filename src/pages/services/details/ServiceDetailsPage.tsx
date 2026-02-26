@@ -50,6 +50,7 @@ import {
 } from '@/lib/deploy-status';
 import type {
   Deploy,
+  DeployStatusValue,
   DeployStrategyType,
   Environment,
   LogEntry,
@@ -64,6 +65,7 @@ import type {
   ScmCredential,
   SecretProvider,
   Service,
+  ServiceStatus,
   ServiceStatusSnapshot,
   Worker,
 } from '@/types/releasea';
@@ -941,11 +943,21 @@ const ServiceDetails = () => {
         : deploysSorted.find((deploy) => isLiveDeployStatus(deploy.status))?.status ?? null,
     [deploysSorted, hasLiveDeploys, hasOptimisticQueuedDeploy],
   );
-  const latestDeployStatus = useMemo(
-    () => normalizeDeployStatusValue(deploysSorted[0]?.status) ?? null,
+  const latestDeployStatus = useMemo<DeployStatusValue | null>(() => {
+    const normalized = normalizeDeployStatusValue(deploysSorted[0]?.status);
+    if (
+      normalized &&
+      (isLiveDeployStatus(normalized) ||
+        isSuccessfulDeployStatus(normalized) ||
+        isFailedDeployStatus(normalized))
+    ) {
+      return normalized as DeployStatusValue;
+    }
+    return null;
+  },
     [deploysSorted],
   );
-  const serviceDisplayStatus = useMemo(
+  const serviceDisplayStatus = useMemo<ServiceStatus | DeployStatusValue>(
     () => {
       if (!service) {
         return 'pending';
