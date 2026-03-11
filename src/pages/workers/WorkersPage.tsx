@@ -101,6 +101,12 @@ const normalizeBootstrapProfile = (profile: WorkerBootstrapProfile | null | unde
   },
 });
 
+const escapeHelmSetValue = (value: string): string =>
+  value
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/=/g, '\\=');
+
 const buildInstallCommand = (
   registration: WorkerRegistration,
 ) => {
@@ -108,10 +114,10 @@ const buildInstallCommand = (
   const registrationToken = registration.token?.trim() || '<generate-token-first>';
 
   const flags = [
-    `--set token=${registrationToken}`,
-    `--set environment=${registration.environment}`,
-    `--set tags=${tags}`,
-    `--set worker.name=${registration.name}`,
+    `--set token=${escapeHelmSetValue(registrationToken)}`,
+    `--set environment=${escapeHelmSetValue(registration.environment)}`,
+    `--set tags='${escapeHelmSetValue(tags)}'`,
+    `--set worker.name=${escapeHelmSetValue(registration.name)}`,
   ];
 
   const flagLines = flags.map((flag, index) => `  ${flag}${index < flags.length - 1 ? ' \\' : ''}`);
