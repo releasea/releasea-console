@@ -383,7 +383,7 @@ export interface WorkerRegistration {
   namespacePrefix: string;
   namespace: string;
   createdAt: string;
-  token: string;
+  token?: string;
   status: 'unused' | 'active' | 'inactive' | 'revoked';
   notes?: string;
 }
