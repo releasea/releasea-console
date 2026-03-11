@@ -1,7 +1,10 @@
 // Application configuration
+const productionDefaultApiBaseUrl = typeof window !== 'undefined'
+  ? `${window.location.origin}/api`
+  : '/api';
 const defaultApiBaseUrl = import.meta.env.DEV
   ? 'http://localhost:8070/api'
-  : 'https://api.releasea.dev';
+  : productionDefaultApiBaseUrl;
 
 const rawApiBaseUrl = import.meta.env.RELEASEA_API_BASE_URL || defaultApiBaseUrl;
 const normalizedApiBaseUrl = rawApiBaseUrl.replace(/\/+$/, '');
