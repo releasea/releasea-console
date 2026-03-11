@@ -62,13 +62,12 @@ import {
   restartWorker,
   updateWorker,
 } from '@/lib/data';
+import { getDocsUrl } from '@/lib/docs-url';
 
 const defaultPlatformNamespace = import.meta.env.RELEASEA_PLATFORM_NAMESPACE?.trim() || 'releasea-system';
 const defaultWorkerNamespacePrefix = 'releasea-apps';
 const defaultWorkerAPIBaseUrl = import.meta.env.RELEASEA_WORKER_API_BASE_URL?.trim()
   || `http://releasea-api.${defaultPlatformNamespace}.svc.cluster.local:8070/api/v1`;
-
-type InstallCommandMode = 'standard' | 'advanced';
 
 const fallbackBootstrapProfile: WorkerBootstrapProfile = {
   id: 'worker-bootstrap-profile',
@@ -104,14 +103,9 @@ const normalizeBootstrapProfile = (profile: WorkerBootstrapProfile | null | unde
 
 const buildInstallCommand = (
   registration: WorkerRegistration,
-  profileInput: WorkerBootstrapProfile | null | undefined,
-  mode: InstallCommandMode,
 ) => {
-  const profile = normalizeBootstrapProfile(profileInput);
   const tags = registration.tags.length > 0 ? registration.tags.join(',') : registration.environment;
   const registrationToken = registration.token?.trim() || '<generate-token-first>';
-  const registrationNamespacePrefix = registration.namespacePrefix?.trim() || profile.namespacePrefix || defaultWorkerNamespacePrefix;
-  const installNamespace = registration.namespace?.trim() || profile.platformNamespace || defaultPlatformNamespace;
 
   const flags = [
     `--set token=${registrationToken}`,
@@ -119,23 +113,6 @@ const buildInstallCommand = (
     `--set tags=${tags}`,
     `--set worker.name=${registration.name}`,
   ];
-
-  if (mode === 'advanced') {
-    flags.push(`--set bootstrap.mode=external`);
-    flags.push(`--set-string install.namespace=${installNamespace}`);
-    flags.push(`--set namespacePrefix=${registrationNamespacePrefix}`);
-    flags.push(`--set-string api.baseUrl=${profile.apiBaseUrl}`);
-    flags.push(`--set-string rabbitmq.url=${profile.rabbitmqUrl}`);
-    flags.push(`--set-string global.routing.internalDomain=${profile.internalDomain}`);
-    flags.push(`--set-string global.routing.externalDomain=${profile.externalDomain}`);
-    flags.push(`--set-string global.routing.internalGateway=${profile.internalGateway}`);
-    flags.push(`--set-string global.routing.externalGateway=${profile.externalGateway}`);
-    flags.push(`--set-string minio.endpoint=${profile.minioEndpoint}`);
-    flags.push(`--set-string minio.bucket=${profile.minioBucket}`);
-    flags.push(`--set minio.secure=${profile.minioSecure}`);
-    flags.push(`--set-string staticSite.nginxService=${profile.staticNginxService}`);
-    flags.push(`--set-string staticSite.nginxNamespace=${profile.staticNginxNamespace}`);
-  }
 
   const flagLines = flags.map((flag, index) => `  ${flag}${index < flags.length - 1 ? ' \\' : ''}`);
   return [
@@ -211,7 +188,6 @@ const Workers = () => {
   const [activeRegistration, setActiveRegistration] = useState<WorkerRegistration | null>(null);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [installCommandMode, setInstallCommandMode] = useState<InstallCommandMode>('standard');
   const [registrationName, setRegistrationName] = useState('');
   const [registrationEnvironment, setRegistrationEnvironment] = useState<Environment>('dev');
   const [registrationTags, setRegistrationTags] = useState('dev, build');
@@ -434,7 +410,6 @@ const Workers = () => {
       const savedRegistration = await createWorkerRegistration(nextRegistration);
       setRegistrations((prev) => [savedRegistration, ...prev]);
       setActiveRegistration(savedRegistration);
-      setInstallCommandMode('standard');
       setInstallOpen(true);
       toast({
         title: successTitle,
@@ -1019,7 +994,7 @@ const Workers = () => {
           <DialogHeader>
             <DialogTitle>Install Worker</DialogTitle>
             <DialogDescription>
-              Use standard install for same-cluster workers. Switch to advanced only for remote/custom clusters.
+              Install your worker with the Helm command below.
             </DialogDescription>
           </DialogHeader>
           {activeRegistration && (
@@ -1036,46 +1011,40 @@ const Workers = () => {
               </div>
               <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
                 <p className="text-xs text-muted-foreground">
-                  Shared platform config source: <span className="font-mono text-foreground">{effectiveBootstrapProfile.source?.configMap || 'releasea-worker-bootstrap'}</span>
+                  Need help installing workers in your cluster?
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  Profile mode: <span className="font-medium text-foreground">{effectiveBootstrapProfile.mode}</span> · version <span className="font-medium text-foreground">{effectiveBootstrapProfile.version}</span>
-                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  onClick={() => window.location.assign(getDocsUrl('workers'))}
+                >
+                  Open documentation
+                </Button>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Helm install command</Label>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={installCommandMode === 'standard' ? 'default' : 'outline'}
-                      onClick={() => setInstallCommandMode('standard')}
-                    >
-                      Standard
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={installCommandMode === 'advanced' ? 'default' : 'outline'}
-                      onClick={() => setInstallCommandMode('advanced')}
-                    >
-                      Advanced
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const installCommand = buildInstallCommand(activeRegistration);
+                      navigator.clipboard.writeText(installCommand);
+                      toast({ title: 'Helm command copied', description: 'Install command copied to clipboard.' });
+                    }}
+                  >
+                    Copy command
+                  </Button>
                 </div>
                 <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs font-mono whitespace-pre-wrap overflow-x-auto">
-                  {buildInstallCommand(activeRegistration, effectiveBootstrapProfile, installCommandMode)}
+                  {buildInstallCommand(activeRegistration)}
                 </pre>
-                {installCommandMode === 'standard' ? (
-                  <p className="text-xs text-muted-foreground">
-                    Standard mode reads shared bootstrap config from the platform namespace automatically.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Advanced mode emits explicit overrides for external or customized worker installations.
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Use this command to install and register the worker in the current environment.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Token</Label>
