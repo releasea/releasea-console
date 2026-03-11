@@ -49,44 +49,100 @@ import { TableEmptyRow } from '@/components/layout/EmptyState';
 import { ConfirmActionModal } from '@/components/modals/ConfirmActionModal';
 import { toast } from '@/hooks/use-toast';
 import { useTablePagination } from '@/hooks/use-table-pagination';
-import { Environment, Worker, WorkerRegistration, WorkerStatus } from '@/types/releasea';
+import { Environment, Worker, WorkerBootstrapProfile, WorkerRegistration, WorkerStatus } from '@/types/releasea';
 import { getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { createWorkerRegistration, deleteWorker, fetchWorkerRegistrations, fetchWorkers, restartWorker, updateWorker } from '@/lib/data';
+import {
+  createWorkerRegistration,
+  deleteWorker,
+  deleteWorkerRegistration,
+  fetchWorkerBootstrapProfile,
+  fetchWorkerRegistrations,
+  fetchWorkers,
+  restartWorker,
+  updateWorker,
+} from '@/lib/data';
 
-const defaultInternalDomain = import.meta.env.RELEASEA_INTERNAL_DOMAIN?.trim() || 'releasea.internal';
-const defaultExternalDomain = import.meta.env.RELEASEA_EXTERNAL_DOMAIN?.trim() || 'releasea.external';
-const defaultIstioNamespace = import.meta.env.RELEASEA_ISTIO_NAMESPACE?.trim() || 'istio-system';
-const defaultInternalGatewayName = import.meta.env.RELEASEA_INTERNAL_GATEWAY_NAME?.trim() || 'releasea-internal-gateway';
-const defaultExternalGatewayName = import.meta.env.RELEASEA_EXTERNAL_GATEWAY_NAME?.trim() || 'releasea-external-gateway';
 const defaultPlatformNamespace = import.meta.env.RELEASEA_PLATFORM_NAMESPACE?.trim() || 'releasea-system';
-const defaultWorkerInstallNamespace = defaultPlatformNamespace;
 const defaultWorkerNamespacePrefix = 'releasea-apps';
 const defaultWorkerAPIBaseUrl = import.meta.env.RELEASEA_WORKER_API_BASE_URL?.trim()
   || `http://releasea-api.${defaultPlatformNamespace}.svc.cluster.local:8070/api/v1`;
 
-const buildInstallCommand = (registration: WorkerRegistration) => {
+type InstallCommandMode = 'standard' | 'advanced';
+
+const fallbackBootstrapProfile: WorkerBootstrapProfile = {
+  id: 'worker-bootstrap-profile',
+  mode: 'same-cluster',
+  version: '1',
+  platformNamespace: defaultPlatformNamespace,
+  apiBaseUrl: defaultWorkerAPIBaseUrl,
+  rabbitmqUrl: `amqp://releasea:releasea@releasea-rabbitmq.${defaultPlatformNamespace}.svc.cluster.local:5672/`,
+  internalDomain: 'releasea.internal',
+  externalDomain: 'releasea.external',
+  internalGateway: 'istio-system/releasea-internal-gateway',
+  externalGateway: 'istio-system/releasea-external-gateway',
+  namespacePrefix: defaultWorkerNamespacePrefix,
+  minioEndpoint: `releasea-minio.${defaultPlatformNamespace}.svc.cluster.local:9000`,
+  minioBucket: 'releasea-static',
+  minioSecure: false,
+  staticNginxService: 'releasea-static-nginx',
+  staticNginxNamespace: defaultPlatformNamespace,
+  source: {
+    configMap: 'releasea-worker-bootstrap',
+    secret: 'releasea-worker-bootstrap',
+  },
+};
+
+const normalizeBootstrapProfile = (profile: WorkerBootstrapProfile | null | undefined): WorkerBootstrapProfile => ({
+  ...fallbackBootstrapProfile,
+  ...profile,
+  source: {
+    ...fallbackBootstrapProfile.source,
+    ...(profile?.source ?? {}),
+  },
+});
+
+const buildInstallCommand = (
+  registration: WorkerRegistration,
+  profileInput: WorkerBootstrapProfile | null | undefined,
+  mode: InstallCommandMode,
+) => {
+  const profile = normalizeBootstrapProfile(profileInput);
   const tags = registration.tags.length > 0 ? registration.tags.join(',') : registration.environment;
   const registrationToken = registration.token?.trim() || '<generate-token-first>';
-  const workerNamespace = registration.namespace?.trim() || defaultWorkerInstallNamespace;
-  const namespacePrefix = registration.namespacePrefix?.trim() || defaultWorkerNamespacePrefix;
+  const registrationNamespacePrefix = registration.namespacePrefix?.trim() || profile.namespacePrefix || defaultWorkerNamespacePrefix;
+  const installNamespace = registration.namespace?.trim() || profile.platformNamespace || defaultPlatformNamespace;
+
+  const flags = [
+    `--set token=${registrationToken}`,
+    `--set environment=${registration.environment}`,
+    `--set tags=${tags}`,
+    `--set worker.name=${registration.name}`,
+  ];
+
+  if (mode === 'advanced') {
+    flags.push(`--set bootstrap.mode=external`);
+    flags.push(`--set-string install.namespace=${installNamespace}`);
+    flags.push(`--set namespacePrefix=${registrationNamespacePrefix}`);
+    flags.push(`--set-string api.baseUrl=${profile.apiBaseUrl}`);
+    flags.push(`--set-string rabbitmq.url=${profile.rabbitmqUrl}`);
+    flags.push(`--set-string global.routing.internalDomain=${profile.internalDomain}`);
+    flags.push(`--set-string global.routing.externalDomain=${profile.externalDomain}`);
+    flags.push(`--set-string global.routing.internalGateway=${profile.internalGateway}`);
+    flags.push(`--set-string global.routing.externalGateway=${profile.externalGateway}`);
+    flags.push(`--set-string minio.endpoint=${profile.minioEndpoint}`);
+    flags.push(`--set-string minio.bucket=${profile.minioBucket}`);
+    flags.push(`--set minio.secure=${profile.minioSecure}`);
+    flags.push(`--set-string staticSite.nginxService=${profile.staticNginxService}`);
+    flags.push(`--set-string staticSite.nginxNamespace=${profile.staticNginxNamespace}`);
+  }
+
+  const flagLines = flags.map((flag, index) => `  ${flag}${index < flags.length - 1 ? ' \\' : ''}`);
   return [
     'helm repo add releasea https://releasea.github.io/releasea-charts',
     'helm repo update',
-    `INTERNAL_DOMAIN="\${RELEASEA_INTERNAL_DOMAIN:-$(kubectl -n ${defaultIstioNamespace} get gateway ${defaultInternalGatewayName} -o jsonpath='{.spec.servers[0].hosts[0]}' 2>/dev/null | sed -E 's/^\\*\\.//')}"`,
-    `EXTERNAL_DOMAIN="\${RELEASEA_EXTERNAL_DOMAIN:-$(kubectl -n ${defaultIstioNamespace} get gateway ${defaultExternalGatewayName} -o jsonpath='{.spec.servers[0].hosts[0]}' 2>/dev/null | sed -E 's/^\\*\\.//')}"`,
-    `[ -z "$INTERNAL_DOMAIN" ] && INTERNAL_DOMAIN="${defaultInternalDomain}"`,
-    `[ -z "$EXTERNAL_DOMAIN" ] && EXTERNAL_DOMAIN="${defaultExternalDomain}"`,
-    `helm upgrade --install releasea-worker releasea/releasea-worker \\`,
-    `  --namespace ${workerNamespace} --create-namespace \\`,
-    `  --set token=${registrationToken} \\`,
-    `  --set namespacePrefix=${namespacePrefix} \\`,
-    `  --set environment=${registration.environment} \\`,
-    `  --set tags=${tags} \\`,
-    `  --set worker.name=${registration.name} \\`,
-    `  --set-string api.baseUrl=${defaultWorkerAPIBaseUrl} \\`,
-    `  --set-string global.routing.internalDomain=$INTERNAL_DOMAIN \\`,
-    `  --set-string global.routing.externalDomain=$EXTERNAL_DOMAIN`,
+    'helm upgrade --install releasea-worker releasea/releasea-worker \\',
+    ...flagLines,
   ].join('\n');
 };
 
@@ -155,6 +211,7 @@ const Workers = () => {
   const [activeRegistration, setActiveRegistration] = useState<WorkerRegistration | null>(null);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const [installCommandMode, setInstallCommandMode] = useState<InstallCommandMode>('standard');
   const [registrationName, setRegistrationName] = useState('');
   const [registrationEnvironment, setRegistrationEnvironment] = useState<Environment>('dev');
   const [registrationTags, setRegistrationTags] = useState('dev, build');
@@ -164,7 +221,9 @@ const Workers = () => {
   const [configureOpen, setConfigureOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteRegistrationOpen, setDeleteRegistrationOpen] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
+  const [selectedRegistration, setSelectedRegistration] = useState<WorkerRegistration | null>(null);
   const [configName, setConfigName] = useState('');
   const [configEnvironment, setConfigEnvironment] = useState<Environment>('dev');
   const [configTags, setConfigTags] = useState('');
@@ -172,6 +231,8 @@ const Workers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [environmentFilter, setEnvironmentFilter] = useState<Environment | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<WorkerStatus | 'all'>('all');
+  const [bootstrapProfile, setBootstrapProfile] = useState<WorkerBootstrapProfile>(fallbackBootstrapProfile);
+  const effectiveBootstrapProfile = normalizeBootstrapProfile(bootstrapProfile);
 
   useEffect(() => {
     if (searchParams.get('action') !== 'register') return;
@@ -181,13 +242,23 @@ const Workers = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  useEffect(() => {
+    setRegistrationNamespacePrefix((current) => {
+      if (current.trim() !== '' && current !== defaultWorkerNamespacePrefix) {
+        return current;
+      }
+      return effectiveBootstrapProfile.namespacePrefix || defaultWorkerNamespacePrefix;
+    });
+  }, [effectiveBootstrapProfile.namespacePrefix]);
+
   const environmentOptions = getEnvironmentConfigs();
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [workersData, registrationsData] = await Promise.all([
+      const [workersData, registrationsData, profileData] = await Promise.all([
         fetchWorkers(),
         fetchWorkerRegistrations(),
+        fetchWorkerBootstrapProfile(),
       ]);
       if (!active) return;
       const previousStatuses = workerStatusRef.current;
@@ -203,6 +274,7 @@ const Workers = () => {
       workerStatusRef.current = nextStatuses;
       setWorkers(workersData);
       setRegistrations(registrationsData);
+      setBootstrapProfile(normalizeBootstrapProfile(profileData));
       if (newlyOffline.length === 1) {
         toast({
           title: 'Worker offline',
@@ -351,8 +423,8 @@ const Workers = () => {
         environment: seed.environment,
         tags: seed.tags.length > 0 ? seed.tags : [seed.environment],
         cluster: seed.cluster || 'kubernetes-cluster',
-        namespacePrefix: seed.namespacePrefix?.trim() || defaultWorkerNamespacePrefix,
-        namespace: seed.namespace?.trim() || defaultWorkerInstallNamespace,
+        namespacePrefix: seed.namespacePrefix?.trim() || effectiveBootstrapProfile.namespacePrefix || defaultWorkerNamespacePrefix,
+        namespace: seed.namespace?.trim() || effectiveBootstrapProfile.platformNamespace,
         createdAt: now.toISOString(),
         token: createTokenValue(),
         status: 'unused',
@@ -362,6 +434,7 @@ const Workers = () => {
       const savedRegistration = await createWorkerRegistration(nextRegistration);
       setRegistrations((prev) => [savedRegistration, ...prev]);
       setActiveRegistration(savedRegistration);
+      setInstallCommandMode('standard');
       setInstallOpen(true);
       toast({
         title: successTitle,
@@ -410,11 +483,26 @@ const Workers = () => {
     if (!selectedWorker) return;
     const actionId = getWorkerActionId(selectedWorker);
     await deleteWorker(actionId);
-    const nextWorkers = await fetchWorkers();
+    const [nextWorkers, nextRegistrations] = await Promise.all([
+      fetchWorkers(),
+      fetchWorkerRegistrations(),
+    ]);
     setWorkers(nextWorkers);
+    setRegistrations(nextRegistrations);
     toast({
       title: 'Worker deleted',
-      description: `Worker "${selectedWorker.name}" removed.`,
+      description: `Worker "${selectedWorker.name}" removed and token revoked.`,
+    });
+  };
+
+  const handleDeleteRegistration = async () => {
+    if (!selectedRegistration) return;
+    await deleteWorkerRegistration(selectedRegistration.id);
+    setRegistrations((prev) => prev.filter((registration) => registration.id !== selectedRegistration.id));
+    setDeleteRegistrationOpen(false);
+    toast({
+      title: 'Registration deleted',
+      description: `Registration "${selectedRegistration.name}" removed and token revoked.`,
     });
   };
 
@@ -428,8 +516,8 @@ const Workers = () => {
         environment: registrationEnvironment,
         tags: parsedTags,
         cluster: registrationCluster.trim() || 'kubernetes-cluster',
-        namespacePrefix: registrationNamespacePrefix.trim() || defaultWorkerNamespacePrefix,
-        namespace: defaultWorkerInstallNamespace,
+        namespacePrefix: registrationNamespacePrefix.trim() || effectiveBootstrapProfile.namespacePrefix || defaultWorkerNamespacePrefix,
+        namespace: effectiveBootstrapProfile.platformNamespace,
         notes: registrationNotes.trim() || undefined,
       },
       'Registration token created',
@@ -552,7 +640,7 @@ const Workers = () => {
                     const tags = worker?.tags ?? registration?.tags ?? [];
                     const name = worker?.name ?? registration?.name ?? 'worker-registration';
                     const cluster = worker?.cluster ?? registration?.cluster ?? 'kubernetes-cluster';
-                    const namespace = worker?.namespace ?? registration?.namespace ?? defaultWorkerInstallNamespace;
+                    const namespace = worker?.namespace ?? registration?.namespace ?? effectiveBootstrapProfile.platformNamespace;
                     const environment = worker?.environment ?? registration?.environment ?? 'dev';
 
                     return (
@@ -667,15 +755,28 @@ const Workers = () => {
                                 </>
                               ) : (
                                 registration && (
-                                  <DropdownMenuItem
-                                    onSelect={() => {
-                                      void handleRegistrationTokenFromRow(registration);
-                                    }}
-                                    disabled={isRegeneratingToken}
-                                  >
-                                    <KeyRound className="w-4 h-4 mr-2" />
-                                    {isRegeneratingToken ? 'Generating token...' : 'Generate token & command'}
-                                  </DropdownMenuItem>
+                                  <>
+                                    <DropdownMenuItem
+                                      onSelect={() => {
+                                        void handleRegistrationTokenFromRow(registration);
+                                      }}
+                                      disabled={isRegeneratingToken}
+                                    >
+                                      <KeyRound className="w-4 h-4 mr-2" />
+                                      {isRegeneratingToken ? 'Generating token...' : 'Generate token & command'}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive"
+                                      onSelect={() => {
+                                        setSelectedRegistration(registration);
+                                        setDeleteRegistrationOpen(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete registration
+                                    </DropdownMenuItem>
+                                  </>
                                 )
                               )}
                             </DropdownMenuContent>
@@ -794,7 +895,7 @@ const Workers = () => {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Delete worker"
-        description="This will remove the worker from the platform."
+        description="This will remove the worker from the platform and revoke linked registration tokens."
         details={
           selectedWorker && (
             <p className="text-sm text-muted-foreground">
@@ -806,6 +907,24 @@ const Workers = () => {
         confirmPhrase="delete"
         confirmLabel="Delete worker"
         onConfirm={handleDeleteWorker}
+      />
+
+      <ConfirmActionModal
+        open={deleteRegistrationOpen}
+        onOpenChange={setDeleteRegistrationOpen}
+        title="Delete worker registration"
+        description="This will revoke the worker registration token and remove the entry."
+        details={
+          selectedRegistration && (
+            <p className="text-sm text-muted-foreground">
+              You are about to revoke <span className="font-mono text-foreground">{selectedRegistration.name}</span>.
+            </p>
+          )
+        }
+        variant="destructive"
+        confirmPhrase="delete"
+        confirmLabel="Delete registration"
+        onConfirm={handleDeleteRegistration}
       />
 
       {/* Create Registration Modal */}
@@ -900,7 +1019,7 @@ const Workers = () => {
           <DialogHeader>
             <DialogTitle>Install Worker</DialogTitle>
             <DialogDescription>
-              Run this command in your Kubernetes cluster to register the worker
+              Use standard install for same-cluster workers. Switch to advanced only for remote/custom clusters.
             </DialogDescription>
           </DialogHeader>
           {activeRegistration && (
@@ -909,17 +1028,54 @@ const Workers = () => {
                 <Badge variant="outline">{activeRegistration.name}</Badge>
                 <Badge variant="secondary">{getEnvironmentLabel(activeRegistration.environment)}</Badge>
                 <Badge variant="outline" className="text-xs font-mono">
-                  ns: {activeRegistration.namespace}
+                  ns: {activeRegistration.namespace || effectiveBootstrapProfile.platformNamespace}
                 </Badge>
                 {activeRegistration.tags.map((tag) => (
                   <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                 ))}
               </div>
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  Shared platform config source: <span className="font-mono text-foreground">{effectiveBootstrapProfile.source?.configMap || 'releasea-worker-bootstrap'}</span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Profile mode: <span className="font-medium text-foreground">{effectiveBootstrapProfile.mode}</span> · version <span className="font-medium text-foreground">{effectiveBootstrapProfile.version}</span>
+                </p>
+              </div>
               <div className="space-y-2">
-                <Label>Helm install command</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Helm install command</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={installCommandMode === 'standard' ? 'default' : 'outline'}
+                      onClick={() => setInstallCommandMode('standard')}
+                    >
+                      Standard
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={installCommandMode === 'advanced' ? 'default' : 'outline'}
+                      onClick={() => setInstallCommandMode('advanced')}
+                    >
+                      Advanced
+                    </Button>
+                  </div>
+                </div>
                 <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs font-mono whitespace-pre-wrap overflow-x-auto">
-                  {buildInstallCommand(activeRegistration)}
+                  {buildInstallCommand(activeRegistration, effectiveBootstrapProfile, installCommandMode)}
                 </pre>
+                {installCommandMode === 'standard' ? (
+                  <p className="text-xs text-muted-foreground">
+                    Standard mode reads shared bootstrap config from the platform namespace automatically.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Advanced mode emits explicit overrides for external or customized worker installations.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Token</Label>

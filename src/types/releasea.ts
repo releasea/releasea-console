@@ -388,6 +388,32 @@ export interface WorkerRegistration {
   notes?: string;
 }
 
+export type WorkerBootstrapMode = 'same-cluster' | 'external' | (string & {});
+
+export interface WorkerBootstrapProfile {
+  id: string;
+  mode: WorkerBootstrapMode;
+  version: string;
+  platformNamespace: string;
+  apiBaseUrl: string;
+  rabbitmqUrl: string;
+  internalDomain: string;
+  externalDomain: string;
+  internalGateway: string;
+  externalGateway: string;
+  namespacePrefix: string;
+  minioEndpoint: string;
+  minioBucket: string;
+  minioSecure: boolean;
+  staticNginxService: string;
+  staticNginxNamespace: string;
+  source?: {
+    configMap?: string;
+    secret?: string;
+  };
+  updatedAt?: string;
+}
+
 export type CredentialScope = 'platform' | 'project' | 'service';
 
 export interface ScmCredential {

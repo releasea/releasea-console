@@ -30,6 +30,7 @@ import type {
   TemplateRepoResponse,
   UserProfile,
   Worker,
+  WorkerBootstrapProfile,
   WorkerRegistration,
 } from '@/types/releasea';
 import { getEnvironmentConfigs, saveEnvironmentConfigs } from '@/lib/environments';
@@ -73,6 +74,28 @@ const EMPTY_PROJECTS: Project[] = [];
 const EMPTY_SERVICES: Service[] = [];
 const EMPTY_WORKERS: Worker[] = [];
 const EMPTY_WORKER_REGISTRATIONS: WorkerRegistration[] = [];
+const EMPTY_WORKER_BOOTSTRAP_PROFILE: WorkerBootstrapProfile = {
+  id: 'worker-bootstrap-profile',
+  mode: 'same-cluster',
+  version: '1',
+  platformNamespace: 'releasea-system',
+  apiBaseUrl: 'http://releasea-api.releasea-system.svc.cluster.local:8070/api/v1',
+  rabbitmqUrl: 'amqp://releasea:releasea@releasea-rabbitmq.releasea-system.svc.cluster.local:5672/',
+  internalDomain: 'releasea.internal',
+  externalDomain: 'releasea.external',
+  internalGateway: 'istio-system/releasea-internal-gateway',
+  externalGateway: 'istio-system/releasea-external-gateway',
+  namespacePrefix: 'releasea-apps',
+  minioEndpoint: 'releasea-minio.releasea-system.svc.cluster.local:9000',
+  minioBucket: 'releasea-static',
+  minioSecure: false,
+  staticNginxService: 'releasea-static-nginx',
+  staticNginxNamespace: 'releasea-system',
+  source: {
+    configMap: 'releasea-worker-bootstrap',
+    secret: 'releasea-worker-bootstrap',
+  },
+};
 const EMPTY_DEPLOYS: Deploy[] = [];
 const EMPTY_LOGS: LogEntry[] = [];
 const EMPTY_RULES: ManagedRule[] = [];
@@ -170,6 +193,13 @@ export const fetchWorkerRegistrations = async (): Promise<WorkerRegistration[]> 
     fallback: EMPTY_WORKER_REGISTRATIONS,
     endpoint: '/workers/registrations',
     label: 'fetchWorkerRegistrations',
+  });
+
+export const fetchWorkerBootstrapProfile = async (): Promise<WorkerBootstrapProfile> =>
+  fetchResource({
+    fallback: EMPTY_WORKER_BOOTSTRAP_PROFILE,
+    endpoint: '/workers/bootstrap-profile',
+    label: 'fetchWorkerBootstrapProfile',
   });
 
 export const fetchScmCredentials = async (): Promise<ScmCredential[]> =>
@@ -600,6 +630,9 @@ export const updateWorker = async (workerId: string, payload: Partial<Worker>): 
 
 export const deleteWorker = async (workerId: string): Promise<boolean> =>
   deleteResource(`/workers/${workerId}`, 'deleteWorker');
+
+export const deleteWorkerRegistration = async (registrationId: string): Promise<boolean> =>
+  deleteResource(`/workers/registrations/${encodeURIComponent(registrationId)}`, 'deleteWorkerRegistration');
 
 export const createWorkerRegistration = async (payload: WorkerRegistration): Promise<WorkerRegistration> =>
   postResource({
