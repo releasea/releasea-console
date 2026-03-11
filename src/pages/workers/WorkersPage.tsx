@@ -56,6 +56,9 @@ import { createWorkerRegistration, deleteWorker, fetchWorkerRegistrations, fetch
 
 const defaultInternalDomain = import.meta.env.RELEASEA_INTERNAL_DOMAIN?.trim() || 'releasea.internal';
 const defaultExternalDomain = import.meta.env.RELEASEA_EXTERNAL_DOMAIN?.trim() || 'releasea.external';
+const defaultIstioNamespace = import.meta.env.RELEASEA_ISTIO_NAMESPACE?.trim() || 'istio-system';
+const defaultInternalGatewayName = import.meta.env.RELEASEA_INTERNAL_GATEWAY_NAME?.trim() || 'releasea-internal-gateway';
+const defaultExternalGatewayName = import.meta.env.RELEASEA_EXTERNAL_GATEWAY_NAME?.trim() || 'releasea-external-gateway';
 const defaultPlatformNamespace = import.meta.env.RELEASEA_PLATFORM_NAMESPACE?.trim() || 'releasea-system';
 const defaultWorkerInstallNamespace = defaultPlatformNamespace;
 const defaultWorkerNamespacePrefix = 'releasea-apps';
@@ -64,20 +67,26 @@ const defaultWorkerAPIBaseUrl = import.meta.env.RELEASEA_WORKER_API_BASE_URL?.tr
 
 const buildInstallCommand = (registration: WorkerRegistration) => {
   const tags = registration.tags.length > 0 ? registration.tags.join(',') : registration.environment;
+  const registrationToken = registration.token?.trim() || '<generate-token-first>';
   const workerNamespace = registration.namespace?.trim() || defaultWorkerInstallNamespace;
+  const namespacePrefix = registration.namespacePrefix?.trim() || defaultWorkerNamespacePrefix;
   return [
     'helm repo add releasea https://releasea.github.io/releasea-charts',
     'helm repo update',
+    `INTERNAL_DOMAIN="\${RELEASEA_INTERNAL_DOMAIN:-$(kubectl -n ${defaultIstioNamespace} get gateway ${defaultInternalGatewayName} -o jsonpath='{.spec.servers[0].hosts[0]}' 2>/dev/null | sed -E 's/^\\*\\.//')}"`,
+    `EXTERNAL_DOMAIN="\${RELEASEA_EXTERNAL_DOMAIN:-$(kubectl -n ${defaultIstioNamespace} get gateway ${defaultExternalGatewayName} -o jsonpath='{.spec.servers[0].hosts[0]}' 2>/dev/null | sed -E 's/^\\*\\.//')}"`,
+    `[ -z "$INTERNAL_DOMAIN" ] && INTERNAL_DOMAIN="${defaultInternalDomain}"`,
+    `[ -z "$EXTERNAL_DOMAIN" ] && EXTERNAL_DOMAIN="${defaultExternalDomain}"`,
     `helm upgrade --install releasea-worker releasea/releasea-worker \\`,
     `  --namespace ${workerNamespace} --create-namespace \\`,
-    `  --set token=${registration.token} \\`,
-    `  --set namespacePrefix=${registration.namespacePrefix} \\`,
+    `  --set token=${registrationToken} \\`,
+    `  --set namespacePrefix=${namespacePrefix} \\`,
     `  --set environment=${registration.environment} \\`,
     `  --set tags=${tags} \\`,
     `  --set worker.name=${registration.name} \\`,
     `  --set-string api.baseUrl=${defaultWorkerAPIBaseUrl} \\`,
-    `  --set-string global.routing.internalDomain=${defaultInternalDomain} \\`,
-    `  --set-string global.routing.externalDomain=${defaultExternalDomain}`,
+    `  --set-string global.routing.internalDomain=$INTERNAL_DOMAIN \\`,
+    `  --set-string global.routing.externalDomain=$EXTERNAL_DOMAIN`,
   ].join('\n');
 };
 
@@ -111,6 +120,33 @@ const formatHeartbeat = (value: string) => {
   }
   return format(date, 'MMM dd, HH:mm');
 };
+
+const toWorkerStatus = (status: WorkerRegistration['status']): WorkerStatus => {
+  if (status === 'unused' || status === 'active') return 'pending';
+  return 'offline';
+};
+
+const registrationStatusLabel = (status: WorkerRegistration['status']) => {
+  if (status === 'unused') return 'Registration pending';
+  if (status === 'active') return 'Registration active';
+  if (status === 'inactive') return 'Registration inactive';
+  return 'Registration revoked';
+};
+
+type WorkerListItem =
+  | {
+      kind: 'worker';
+      id: string;
+      status: WorkerStatus;
+      worker: Worker;
+      registration?: WorkerRegistration;
+    }
+  | {
+      kind: 'registration';
+      id: string;
+      status: WorkerStatus;
+      registration: WorkerRegistration;
+    };
 
 const Workers = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -189,14 +225,52 @@ const Workers = () => {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const onlineWorkers = workers.filter((w) => w.status === 'online' || w.status === 'busy').length;
   const totalWorkers = workers.length;
-  
-  const filteredWorkers = workers.filter((worker) => {
+
+  const registrationsByID = new Map(registrations.map((registration) => [registration.id, registration]));
+  const seenRegistrationIDs = new Set<string>();
+  const workerRows: WorkerListItem[] = workers.map((worker) => {
+    const registration =
+      (worker.credentialId ? registrationsByID.get(worker.credentialId) : undefined)
+      ?? (worker.credentialIds ?? []).map((id) => registrationsByID.get(id)).find(Boolean);
+    if (registration) {
+      seenRegistrationIDs.add(registration.id);
+    }
+    return {
+      kind: 'worker',
+      id: worker.id,
+      status: worker.status,
+      worker,
+      registration: registration ?? undefined,
+    };
+  });
+
+  const registrationRows: WorkerListItem[] = registrations
+    .filter((registration) => !seenRegistrationIDs.has(registration.id))
+    .map((registration) => ({
+      kind: 'registration',
+      id: `registration:${registration.id}`,
+      status: toWorkerStatus(registration.status),
+      registration,
+    }));
+
+  const workerListRows = [...workerRows, ...registrationRows];
+
+  const filteredWorkers = workerListRows.filter((row) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || 
-      [worker.name, worker.cluster, worker.namespace, worker.namespacePrefix, worker.environment, ...worker.tags]
-        .join(' ').toLowerCase().includes(query);
-    const matchesEnv = environmentFilter === 'all' || worker.environment === environmentFilter;
-    const matchesStatus = statusFilter === 'all' || worker.status === statusFilter;
+    const worker = row.kind === 'worker' ? row.worker : undefined;
+    const registration = row.registration;
+    const matchesSearch = !query
+      || [
+        worker?.name ?? registration?.name ?? '',
+        worker?.cluster ?? registration?.cluster ?? '',
+        worker?.namespace ?? registration?.namespace ?? '',
+        worker?.namespacePrefix ?? registration?.namespacePrefix ?? '',
+        worker?.environment ?? registration?.environment ?? '',
+        ...(worker?.tags ?? registration?.tags ?? []),
+      ].join(' ').toLowerCase().includes(query);
+    const matchesEnv = environmentFilter === 'all'
+      || (worker?.environment ?? registration?.environment) === environmentFilter;
+    const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
     return matchesSearch && matchesEnv && matchesStatus;
   });
   const workersPagination = useTablePagination(filteredWorkers.length);
@@ -262,39 +336,74 @@ const Workers = () => {
     });
   };
 
-  const handleRegenerateToken = async () => {
-    if (!selectedWorker || isRegeneratingToken) return;
+  const issueRegistrationToken = async (
+    seed: Pick<WorkerRegistration, 'name' | 'environment' | 'tags' | 'cluster' | 'namespacePrefix' | 'namespace' | 'notes'>,
+    successTitle: string,
+    successDescription: string,
+  ) => {
+    if (isRegeneratingToken) return;
     setIsRegeneratingToken(true);
     try {
       const now = new Date();
-
-      const registrationId = `wkr-reg-${now.getTime()}`;
       const nextRegistration: WorkerRegistration = {
-        id: registrationId,
-        name: selectedWorker.name,
-        environment: selectedWorker.environment,
-        tags: selectedWorker.tags.length > 0 ? selectedWorker.tags : [selectedWorker.environment],
-        cluster: selectedWorker.cluster,
-        namespacePrefix: selectedWorker.namespacePrefix || defaultWorkerNamespacePrefix,
-        namespace: selectedWorker.namespace || defaultWorkerInstallNamespace,
+        id: `wkr-reg-${now.getTime()}`,
+        name: seed.name,
+        environment: seed.environment,
+        tags: seed.tags.length > 0 ? seed.tags : [seed.environment],
+        cluster: seed.cluster || 'kubernetes-cluster',
+        namespacePrefix: seed.namespacePrefix?.trim() || defaultWorkerNamespacePrefix,
+        namespace: seed.namespace?.trim() || defaultWorkerInstallNamespace,
         createdAt: now.toISOString(),
         token: createTokenValue(),
         status: 'unused',
-        notes: 'Regenerated from worker settings.',
+        notes: seed.notes,
       };
 
       const savedRegistration = await createWorkerRegistration(nextRegistration);
       setRegistrations((prev) => [savedRegistration, ...prev]);
       setActiveRegistration(savedRegistration);
-      setConfigureOpen(false);
       setInstallOpen(true);
       toast({
-        title: 'Token regenerated',
-        description: `A new registration token is ready for "${selectedWorker.name}".`,
+        title: successTitle,
+        description: successDescription,
       });
     } finally {
       setIsRegeneratingToken(false);
     }
+  };
+
+  const handleRegistrationTokenFromRow = async (registration: WorkerRegistration) => {
+    await issueRegistrationToken(
+      {
+        name: registration.name,
+        environment: registration.environment,
+        tags: registration.tags,
+        cluster: registration.cluster,
+        namespacePrefix: registration.namespacePrefix,
+        namespace: registration.namespace,
+        notes: registration.notes || 'Reissued from worker registrations.',
+      },
+      'Token generated',
+      `A new installation token is ready for "${registration.name}".`,
+    );
+  };
+
+  const handleRegenerateToken = async () => {
+    if (!selectedWorker) return;
+    await issueRegistrationToken(
+      {
+        name: selectedWorker.name,
+        environment: selectedWorker.environment,
+        tags: selectedWorker.tags,
+        cluster: selectedWorker.cluster,
+        namespacePrefix: selectedWorker.namespacePrefix,
+        namespace: selectedWorker.namespace,
+        notes: 'Regenerated from worker settings.',
+      },
+      'Token regenerated',
+      `A new registration token is ready for "${selectedWorker.name}".`,
+    );
+    setConfigureOpen(false);
   };
 
   const handleDeleteWorker = async () => {
@@ -310,43 +419,28 @@ const Workers = () => {
   };
 
   const handleCreateRegistration = async () => {
-    const now = new Date();
-
     const parsedTags = registrationTags.split(',').map((t) => t.trim()).filter(Boolean);
-
-    const registrationId = `wkr-reg-${now.getTime()}`;
-    const namespacePrefix = registrationNamespacePrefix.trim() || defaultWorkerNamespacePrefix;
-    const namespace = defaultWorkerInstallNamespace;
-
-    const nextRegistration: WorkerRegistration = {
-      id: registrationId,
-      name: registrationName.trim() || `${registrationEnvironment}-runner-${now.getTime().toString().slice(-4)}`,
-      environment: registrationEnvironment,
-      tags: parsedTags.length > 0 ? parsedTags : [registrationEnvironment],
-      cluster: registrationCluster.trim() || 'kubernetes-cluster',
-      namespacePrefix,
-      namespace,
-      createdAt: now.toISOString(),
-      token: createTokenValue(),
-      status: 'unused',
-      notes: registrationNotes.trim() || undefined,
-    };
-
-    const savedRegistration = await createWorkerRegistration(nextRegistration);
-    setRegistrations((prev) => [savedRegistration, ...prev]);
-    setActiveRegistration(savedRegistration);
+    const registrationWorkerName =
+      registrationName.trim() || `${registrationEnvironment}-runner-${Date.now().toString().slice(-4)}`;
+    await issueRegistrationToken(
+      {
+        name: registrationWorkerName,
+        environment: registrationEnvironment,
+        tags: parsedTags,
+        cluster: registrationCluster.trim() || 'kubernetes-cluster',
+        namespacePrefix: registrationNamespacePrefix.trim() || defaultWorkerNamespacePrefix,
+        namespace: defaultWorkerInstallNamespace,
+        notes: registrationNotes.trim() || undefined,
+      },
+      'Registration token created',
+      `Worker "${registrationWorkerName}" is ready to be installed.`,
+    );
     setRegisterOpen(false);
-    setInstallOpen(true);
-    
+
     // Reset form
     setRegistrationName('');
     setRegistrationTags('');
     setRegistrationNotes('');
-
-    toast({
-      title: 'Registration token created',
-      description: `Worker "${nextRegistration.name}" is ready to be installed.`,
-    });
   };
 
   const stats = [
@@ -451,105 +545,145 @@ const Workers = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleWorkers.map((worker) => (
-                    <tr key={worker.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <span className="relative flex h-2.5 w-2.5">
-                            {shouldPulseStatus(worker.status) && (
-                              <span
-                                className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${getStatusPulseColor(worker.status)}`}
-                              />
-                            )}
-                            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${getStatusColor(worker.status)}`} />
-                          </span>
-                          <div>
-                            <p className="font-mono font-medium text-foreground text-sm">{worker.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {worker.cluster} · ns: {worker.namespace}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline" className="text-xs">
-                          {getEnvironmentLabel(worker.environment)}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <div className="flex flex-wrap gap-1">
-                          {worker.tags.slice(0, 3).map((tag) => (
-                            <Badge key={tag} variant="secondary" className="text-xs normal-case px-2 py-0.5">
-                              {tag}
-                            </Badge>
-                          ))}
-                          {worker.tags.length > 3 && (
-                            <Badge variant="secondary" className="text-xs px-2 py-0.5">
-                              +{worker.tags.length - 3}
-                            </Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <div className="w-24">
-                          <p className="text-sm text-muted-foreground">
-                            {worker.onlineAgents}/{worker.desiredAgents}
-                          </p>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Agents</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={worker.status} className="normal-case" />
-                        {worker.currentTask && (
-                          <div className="mt-1">
-                            <span className="text-[10px] font-mono text-warning bg-warning/10 px-2 py-0.5 rounded">
-                              {worker.currentTask}
+                  {visibleWorkers.map((row) => {
+                    const worker = row.kind === 'worker' ? row.worker : null;
+                    const registration = row.registration;
+                    const displayStatus = row.status;
+                    const tags = worker?.tags ?? registration?.tags ?? [];
+                    const name = worker?.name ?? registration?.name ?? 'worker-registration';
+                    const cluster = worker?.cluster ?? registration?.cluster ?? 'kubernetes-cluster';
+                    const namespace = worker?.namespace ?? registration?.namespace ?? defaultWorkerInstallNamespace;
+                    const environment = worker?.environment ?? registration?.environment ?? 'dev';
+
+                    return (
+                      <tr key={row.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className="relative flex h-2.5 w-2.5">
+                              {shouldPulseStatus(displayStatus) && (
+                                <span
+                                  className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${getStatusPulseColor(displayStatus)}`}
+                                />
+                              )}
+                              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${getStatusColor(displayStatus)}`} />
                             </span>
+                            <div>
+                              <p className="font-mono font-medium text-foreground text-sm">{name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {cluster} · ns: {namespace}
+                              </p>
+                            </div>
                           </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 hidden lg:table-cell">
-                        <p className="text-xs text-muted-foreground">
-                          {formatHeartbeat(worker.lastHeartbeat)}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                              <MoreVertical className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => handleConfigureWorker(worker)}>
-                              <Settings2 className="w-4 h-4 mr-2" />
-                              Configure worker
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => {
-                                setSelectedWorker(worker);
-                                setRestartOpen(true);
-                              }}
-                            >
-                              <RefreshCw className="w-4 h-4 mr-2" />
-                              Restart worker
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onSelect={() => {
-                                setSelectedWorker(worker);
-                                setDeleteOpen(true);
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className="text-xs">
+                            {getEnvironmentLabel(environment)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          <div className="flex flex-wrap gap-1">
+                            {tags.slice(0, 3).map((tag) => (
+                              <Badge key={tag} variant="secondary" className="text-xs normal-case px-2 py-0.5">
+                                {tag}
+                              </Badge>
+                            ))}
+                            {tags.length > 3 && (
+                              <Badge variant="secondary" className="text-xs px-2 py-0.5">
+                                +{tags.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          <div className="w-24">
+                            {worker ? (
+                              <>
+                                <p className="text-sm text-muted-foreground">
+                                  {worker.onlineAgents}/{worker.desiredAgents}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Agents</p>
+                              </>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">-/-</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={displayStatus} className="normal-case" />
+                          {worker?.currentTask && (
+                            <div className="mt-1">
+                              <span className="text-[10px] font-mono text-warning bg-warning/10 px-2 py-0.5 rounded">
+                                {worker.currentTask}
+                              </span>
+                            </div>
+                          )}
+                          {!worker && registration && (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {registrationStatusLabel(registration.status)}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          <p className="text-xs text-muted-foreground">
+                            {worker
+                              ? formatHeartbeat(worker.lastHeartbeat)
+                              : `Created ${formatHeartbeat(registration?.createdAt ?? '')}`}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {worker ? (
+                                <>
+                                  <DropdownMenuItem onSelect={() => handleConfigureWorker(worker)}>
+                                    <Settings2 className="w-4 h-4 mr-2" />
+                                    Configure worker
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setSelectedWorker(worker);
+                                      setRestartOpen(true);
+                                    }}
+                                  >
+                                    <RefreshCw className="w-4 h-4 mr-2" />
+                                    Restart worker
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onSelect={() => {
+                                      setSelectedWorker(worker);
+                                      setDeleteOpen(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </>
+                              ) : (
+                                registration && (
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      void handleRegistrationTokenFromRow(registration);
+                                    }}
+                                    disabled={isRegeneratingToken}
+                                  >
+                                    <KeyRound className="w-4 h-4 mr-2" />
+                                    {isRegeneratingToken ? 'Generating token...' : 'Generate token & command'}
+                                  </DropdownMenuItem>
+                                )
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredWorkers.length === 0 && (
                     <TableEmptyRow colSpan={7} icon={<Cpu className="h-5 w-5 text-muted-foreground" />} />
                   )}
@@ -791,13 +925,15 @@ const Workers = () => {
                 <Label>Token</Label>
                 <div className="flex gap-2">
                   <Input
-                    value={activeRegistration.token}
+                    value={activeRegistration.token ?? ''}
                     readOnly
                     className="bg-muted/50 font-mono text-xs"
                   />
                   <Button
                     variant="outline"
+                    disabled={!activeRegistration.token}
                     onClick={() => {
+                      if (!activeRegistration.token) return;
                       navigator.clipboard.writeText(activeRegistration.token);
                       toast({ title: 'Token copied', description: 'Token copied to clipboard.' });
                     }}
