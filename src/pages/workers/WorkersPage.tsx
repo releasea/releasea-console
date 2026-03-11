@@ -56,19 +56,26 @@ import { createWorkerRegistration, deleteWorker, fetchWorkerRegistrations, fetch
 
 const defaultInternalDomain = import.meta.env.RELEASEA_INTERNAL_DOMAIN?.trim() || 'releasea.internal';
 const defaultExternalDomain = import.meta.env.RELEASEA_EXTERNAL_DOMAIN?.trim() || 'releasea.external';
+const defaultPlatformNamespace = import.meta.env.RELEASEA_PLATFORM_NAMESPACE?.trim() || 'releasea-system';
+const defaultWorkerInstallNamespace = defaultPlatformNamespace;
+const defaultWorkerNamespacePrefix = 'releasea-apps';
+const defaultWorkerAPIBaseUrl = import.meta.env.RELEASEA_WORKER_API_BASE_URL?.trim()
+  || `http://releasea-api.${defaultPlatformNamespace}.svc.cluster.local:8070/api/v1`;
 
 const buildInstallCommand = (registration: WorkerRegistration) => {
   const tags = registration.tags.length > 0 ? registration.tags.join(',') : registration.environment;
+  const workerNamespace = registration.namespace?.trim() || defaultWorkerInstallNamespace;
   return [
     'helm repo add releasea https://releasea.github.io/releasea-charts',
     'helm repo update',
     `helm upgrade --install releasea-worker releasea/releasea-worker \\`,
-    `  --namespace ${registration.namespace} --create-namespace \\`,
+    `  --namespace ${workerNamespace} --create-namespace \\`,
     `  --set token=${registration.token} \\`,
     `  --set namespacePrefix=${registration.namespacePrefix} \\`,
     `  --set environment=${registration.environment} \\`,
     `  --set tags=${tags} \\`,
     `  --set worker.name=${registration.name} \\`,
+    `  --set-string api.baseUrl=${defaultWorkerAPIBaseUrl} \\`,
     `  --set-string global.routing.internalDomain=${defaultInternalDomain} \\`,
     `  --set-string global.routing.externalDomain=${defaultExternalDomain}`,
   ].join('\n');
@@ -116,7 +123,7 @@ const Workers = () => {
   const [registrationEnvironment, setRegistrationEnvironment] = useState<Environment>('dev');
   const [registrationTags, setRegistrationTags] = useState('dev, build');
   const [registrationCluster, setRegistrationCluster] = useState('dev-aks-01');
-  const [registrationNamespacePrefix, setRegistrationNamespacePrefix] = useState('releasea-workers');
+  const [registrationNamespacePrefix, setRegistrationNamespacePrefix] = useState(defaultWorkerNamespacePrefix);
   const [registrationNotes, setRegistrationNotes] = useState('');
   const [configureOpen, setConfigureOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
@@ -268,8 +275,8 @@ const Workers = () => {
         environment: selectedWorker.environment,
         tags: selectedWorker.tags.length > 0 ? selectedWorker.tags : [selectedWorker.environment],
         cluster: selectedWorker.cluster,
-        namespacePrefix: selectedWorker.namespacePrefix,
-        namespace: selectedWorker.namespace,
+        namespacePrefix: selectedWorker.namespacePrefix || defaultWorkerNamespacePrefix,
+        namespace: selectedWorker.namespace || defaultWorkerInstallNamespace,
         createdAt: now.toISOString(),
         token: createTokenValue(),
         status: 'unused',
@@ -308,8 +315,8 @@ const Workers = () => {
     const parsedTags = registrationTags.split(',').map((t) => t.trim()).filter(Boolean);
 
     const registrationId = `wkr-reg-${now.getTime()}`;
-    const namespacePrefix = registrationNamespacePrefix.trim() || 'releasea-workers';
-    const namespace = `${namespacePrefix}-${registrationId.split('-').slice(-1)[0]}`;
+    const namespacePrefix = registrationNamespacePrefix.trim() || defaultWorkerNamespacePrefix;
+    const namespace = defaultWorkerInstallNamespace;
 
     const nextRegistration: WorkerRegistration = {
       id: registrationId,
@@ -717,7 +724,7 @@ const Workers = () => {
                   value={registrationNamespacePrefix}
                   onChange={(e) => setRegistrationNamespacePrefix(e.target.value)}
                   className="bg-muted/50"
-                  placeholder="e.g., releasea-workers"
+                  placeholder="e.g., releasea-apps"
                 />
               </div>
             </div>

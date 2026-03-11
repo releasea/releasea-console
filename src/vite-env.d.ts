@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly RELEASEA_WORKER_STALE_SECONDS?: string;
   readonly RELEASEA_INTERNAL_DOMAIN?: string;
   readonly RELEASEA_EXTERNAL_DOMAIN?: string;
+  readonly RELEASEA_PLATFORM_NAMESPACE?: string;
+  readonly RELEASEA_WORKER_API_BASE_URL?: string;
 }
 
 interface ImportMeta {
