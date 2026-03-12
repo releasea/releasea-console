@@ -372,11 +372,11 @@ const IdentityProvider = () => {
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">Entity ID:</span>{' '}
-                        <code className="text-xs">https://api.releasea.dev/auth/saml/metadata</code>
+                        <code className="text-xs">https://api.releasea.io/auth/saml/metadata</code>
                       </p>
                       <p className="text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">ACS URL:</span>{' '}
-                        <code className="text-xs">https://api.releasea.dev/auth/saml/callback</code>
+                        <code className="text-xs">https://api.releasea.io/auth/saml/callback</code>
                       </p>
                     </div>
                   </div>

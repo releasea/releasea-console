@@ -22,8 +22,10 @@ import {
   checkGithubTemplateRepoAvailability,
   createGithubTemplateRepo,
   createService,
+  fetchEnvironments,
   performAction,
   updateService,
+  fetchWorkers,
   fetchPlatformSettings,
   fetchProjects,
   fetchRegistryCredentials,
@@ -31,7 +33,13 @@ import {
   fetchServiceTemplates,
   fetchRuntimeProfiles,
 } from '@/lib/data';
-import type { Project, SecretProvider, ServiceTemplate as ServiceTemplatePayload } from '@/types/releasea';
+import type {
+  EnvironmentConfig,
+  Project,
+  SecretProvider,
+  ServiceTemplate as ServiceTemplatePayload,
+  Worker,
+} from '@/types/releasea';
 import type { CatalogTemplate, EnvVar, RepoMode, SourceType } from './create-service/catalog';
 import { frameworks, mapCatalogTemplates } from './create-service/catalog';
 import {
@@ -56,6 +64,8 @@ export default function CreateService() {
   const [searchParams] = useSearchParams();
   const originProjectId = searchParams.get('project');
   const [projects, setProjects] = useState<Project[]>([]);
+  const [environments, setEnvironments] = useState<EnvironmentConfig[]>([]);
+  const [workers, setWorkers] = useState<Worker[]>([]);
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const originProject = originProjectId
     ? projects.find((project) => project.id === originProjectId)
@@ -129,8 +139,10 @@ export default function CreateService() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [projectsData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
+      const [projectsData, environmentsData, workersData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
         fetchProjects(),
+        fetchEnvironments(),
+        fetchWorkers(),
         fetchScmCredentials(),
         fetchRegistryCredentials(),
         fetchPlatformSettings(),
@@ -139,6 +151,8 @@ export default function CreateService() {
       ]);
       if (!active) return;
       setProjects(projectsData);
+      setEnvironments(environmentsData);
+      setWorkers(workersData);
       setScmCredentials(scmData);
       setRegistryCredentials(registryData);
       setServiceTemplates(templatesData);
@@ -245,7 +259,16 @@ export default function CreateService() {
   const isTemplateMode: boolean = repoMode === 'template';
   const isTemplateRepoChecking = isTemplateMode && templateRepoAvailability === 'checking';
   const isTemplateRepoAlreadyExists = isTemplateMode && templateRepoAvailability === 'exists';
-  const isSubmitDisabled = isLoading || isTemplateRepoChecking || isTemplateRepoAlreadyExists;
+  const hasConfiguredEnvironments = environments.length > 0;
+  const hasRegisteredWorkers = workers.length > 0;
+  const isCreationPrerequisiteReady = hasConfiguredEnvironments && hasRegisteredWorkers;
+  const creationBlockedMessage = !hasConfiguredEnvironments
+    ? 'Create at least one environment before creating services.'
+    : !hasRegisteredWorkers
+      ? 'Register at least one worker before creating services.'
+      : '';
+  const isSubmitDisabled =
+    isLoading || isTemplateRepoChecking || isTemplateRepoAlreadyExists || !isCreationPrerequisiteReady;
 
   const pickLatestCredential = <T extends { createdAt?: string; updatedAt?: string }>(items: T[]) => {
     if (items.length === 0) return null;
@@ -511,6 +534,22 @@ export default function CreateService() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedType) return;
+    if (!hasConfiguredEnvironments) {
+      toast({
+        title: 'Environment required',
+        description: 'Create at least one environment before creating a service.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!hasRegisteredWorkers) {
+      toast({
+        title: 'Worker required',
+        description: 'Register at least one worker before creating a service.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (isTemplateRepoChecking) {
       toast({
         title: 'Checking repository',
@@ -858,6 +897,11 @@ export default function CreateService() {
                 <p className="text-sm text-muted-foreground max-w-2xl">
                   Select a service template and configure runtime, scaling, and deployment settings.
                 </p>
+                {!isCreationPrerequisiteReady && (
+                  <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                    {creationBlockedMessage}
+                  </div>
+                )}
               </div>
             </div>
           </div>

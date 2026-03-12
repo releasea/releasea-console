@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Trash2,
   CheckCircle,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
@@ -123,7 +125,7 @@ const buildInstallCommand = (
   const flagLines = flags.map((flag, index) => `  ${flag}${index < flags.length - 1 ? ' \\' : ''}`);
   return [
     'helm repo add releasea https://releasea.github.io/releasea-charts',
-    'helm repo update',
+    'helm repo update releasea',
     'helm upgrade --install releasea-worker releasea/releasea-worker \\',
     ...flagLines,
   ].join('\n');
@@ -336,6 +338,7 @@ const Workers = () => {
   );
 
   const pendingRegistrations = registrations.filter((r) => r.status === 'unused').length;
+  const workerDocsUrl = getDocsUrl('environments-and-workers');
 
   const getWorkerActionId = (worker: Worker) => worker.primaryId ?? worker.id;
 
@@ -1017,17 +1020,18 @@ const Workers = () => {
               </div>
               <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1">
                 <p className="text-xs text-muted-foreground">
-                  Need help installing workers in your cluster?
+                  If you have questions about workers and multi-environment setup, check the{' '}
+                  <a
+                    href={workerDocsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    documentation
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  .
                 </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7"
-                  onClick={() => window.location.assign(getDocsUrl('workers'))}
-                >
-                  Open documentation
-                </Button>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
@@ -1041,7 +1045,9 @@ const Workers = () => {
                       navigator.clipboard.writeText(installCommand);
                       toast({ title: 'Helm command copied', description: 'Install command copied to clipboard.' });
                     }}
+                    className="gap-2"
                   >
+                    <Copy className="w-4 h-4" />
                     Copy command
                   </Button>
                 </div>
