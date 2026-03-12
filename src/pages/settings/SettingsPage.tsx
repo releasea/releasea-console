@@ -85,7 +85,7 @@ const SettingsPage = () => {
   // Organization settings
   const [orgName, setOrgName] = useState('Releasea');
   const [orgSlug, setOrgSlug] = useState('releasea');
-  const [apiUrl, setApiUrl] = useState('https://api.releasea.dev');
+  const [apiUrl, setApiUrl] = useState('https://api.releasea.io');
 
   // Notifications
   const [notifications, setNotifications] = useState({

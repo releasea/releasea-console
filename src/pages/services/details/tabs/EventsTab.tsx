@@ -6,6 +6,11 @@ import { TabsContent } from '@/components/ui/tabs';
 import type { Deploy, RuleDeploy } from '@/types/releasea';
 import { AlertTriangle, FileText, GitBranch, Rocket, Route as RouteIcon } from 'lucide-react';
 
+const logsActionButtonClassName =
+  'gap-2 border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 hover:text-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-500/25';
+const logsActionIconWrapClassName =
+  'inline-flex h-5 w-5 items-center justify-center rounded-sm bg-cyan-500/20 text-cyan-700 dark:text-cyan-200';
+
 type PaginationState = {
   page: number;
   pageSize: number;
@@ -143,23 +148,27 @@ export const EventsTab = ({
               <td className="px-4 py-3 text-right">
                 {event.kind === 'deploy' ? (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="gap-2"
+                    className={logsActionButtonClassName}
                     onClick={() => onOpenDeployLog(event.deploy)}
                   >
-                    <FileText className="w-4 h-4" />
-                    View logs
+                    <span className={logsActionIconWrapClassName}>
+                      <FileText className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="font-medium">View logs</span>
                   </Button>
                 ) : (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="gap-2"
+                    className={logsActionButtonClassName}
                     onClick={onOpenRuleRuntimeLogs}
                   >
-                    <FileText className="w-4 h-4" />
-                    Runtime logs
+                    <span className={logsActionIconWrapClassName}>
+                      <FileText className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="font-medium">Runtime logs</span>
                   </Button>
                 )}
               </td>

@@ -117,6 +117,13 @@ function readContainerName(metadata?: Record<string, unknown>): string {
   return '';
 }
 
+function isWorkerRegisteredForEnvironment(worker: Worker, environment: string): boolean {
+  if (!worker || !environment) return false;
+  const workerEnvironment = worker.environment?.trim();
+  if (!workerEnvironment) return false;
+  return environmentsShareNamespace(workerEnvironment, environment);
+}
+
 function isWorkerAvailableForEnvironment(worker: Worker, environment: string): boolean {
   if (!worker || !environment) return false;
   if (!['online', 'busy', 'pending'].includes(worker.status)) return false;
@@ -338,6 +345,22 @@ const ServiceDetails = () => {
   const backLink = backTarget?.pathname ?? '/services';
   const backLabel = backTarget?.label ?? 'Services';
   const environmentOptions = getEnvironmentConfigs();
+  const selectableEnvironmentOptions = useMemo(
+    () =>
+      environmentOptions.filter((option) =>
+        workers.some((worker) => isWorkerRegisteredForEnvironment(worker, option.id)),
+      ),
+    [environmentOptions, workers],
+  );
+  const hasSelectableEnvironment = selectableEnvironmentOptions.length > 0;
+
+  useEffect(() => {
+    if (selectableEnvironmentOptions.length === 0) return;
+    const envStillAllowed = selectableEnvironmentOptions.some((option) => option.id === viewEnv);
+    if (!envStillAllowed) {
+      setViewEnv(selectableEnvironmentOptions[0].id);
+    }
+  }, [selectableEnvironmentOptions, viewEnv]);
 
   useEffect(() => {
     setActiveTab('summary');
@@ -2278,12 +2301,16 @@ const ServiceDetails = () => {
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Environment</Label>
-              <Select value={viewEnv} onValueChange={(value) => setViewEnv(value as Environment)}>
-                <SelectTrigger className="w-full sm:w-[200px] bg-card">
+              <Select
+                value={hasSelectableEnvironment ? viewEnv : undefined}
+                onValueChange={(value) => setViewEnv(value as Environment)}
+                disabled={!hasSelectableEnvironment}
+              >
+                <SelectTrigger className="w-full sm:w-[200px] bg-card" disabled={!hasSelectableEnvironment}>
                   <SelectValue placeholder="Select env" />
                 </SelectTrigger>
                 <SelectContent>
-                  {environmentOptions.map((env) => (
+                  {selectableEnvironmentOptions.map((env) => (
                     <SelectItem key={env.id} value={env.id}>
                       {env.name}
                     </SelectItem>
@@ -2292,6 +2319,11 @@ const ServiceDetails = () => {
               </Select>
             </div>
           </div>
+          {!hasSelectableEnvironment && (
+            <p className="mt-2 text-xs text-warning">
+              No environment has a registered worker yet. Register a worker to enable environment selection.
+            </p>
+          )}
         </div>
 
         {/* Tabs */}
