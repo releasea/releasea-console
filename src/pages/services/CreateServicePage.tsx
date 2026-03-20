@@ -17,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential } from '@/types/releasea';
 import { toast } from '@/hooks/use-toast';
+import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { cn } from '@/lib/utils';
 import {
   checkGithubTemplateRepoAvailability,
@@ -26,6 +27,7 @@ import {
   performAction,
   updateService,
   fetchWorkers,
+  fetchWorkerRegistrations,
   fetchPlatformSettings,
   fetchProjects,
   fetchRegistryCredentials,
@@ -39,6 +41,7 @@ import type {
   SecretProvider,
   ServiceTemplate as ServiceTemplatePayload,
   Worker,
+  WorkerRegistration,
 } from '@/types/releasea';
 import type { CatalogTemplate, EnvVar, RepoMode, SourceType } from './create-service/catalog';
 import { frameworks, mapCatalogTemplates } from './create-service/catalog';
@@ -66,6 +69,7 @@ export default function CreateService() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [environments, setEnvironments] = useState<EnvironmentConfig[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workerRegistrations, setWorkerRegistrations] = useState<WorkerRegistration[]>([]);
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const originProject = originProjectId
     ? projects.find((project) => project.id === originProjectId)
@@ -139,10 +143,11 @@ export default function CreateService() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [projectsData, environmentsData, workersData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
+      const [projectsData, environmentsData, workersData, registrationsData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
         fetchProjects(),
         fetchEnvironments(),
         fetchWorkers(),
+        fetchWorkerRegistrations(),
         fetchScmCredentials(),
         fetchRegistryCredentials(),
         fetchPlatformSettings(),
@@ -153,6 +158,7 @@ export default function CreateService() {
       setProjects(projectsData);
       setEnvironments(environmentsData);
       setWorkers(workersData);
+      setWorkerRegistrations(registrationsData);
       setScmCredentials(scmData);
       setRegistryCredentials(registryData);
       setServiceTemplates(templatesData);
@@ -260,7 +266,19 @@ export default function CreateService() {
   const isTemplateRepoChecking = isTemplateMode && templateRepoAvailability === 'checking';
   const isTemplateRepoAlreadyExists = isTemplateMode && templateRepoAvailability === 'exists';
   const hasConfiguredEnvironments = environments.length > 0;
-  const hasRegisteredWorkers = workers.length > 0;
+  const hasRegisteredWorkers = workers.length > 0 || workerRegistrations.length > 0;
+  const bootstrapReadyEnvironments = useMemo(
+    () =>
+      environments.filter((environment) =>
+        hasRegisteredWorkerForEnvironment(environment.id, workers, workerRegistrations),
+      ),
+    [environments, workers, workerRegistrations],
+  );
+  const preferredFirstDeployEnvironment = useMemo(() => {
+    const devOption = bootstrapReadyEnvironments.find((environment) => environment.id === 'dev');
+    if (devOption) return devOption.id;
+    return bootstrapReadyEnvironments[0]?.id ?? 'prod';
+  }, [bootstrapReadyEnvironments]);
   const isCreationPrerequisiteReady = hasConfiguredEnvironments && hasRegisteredWorkers;
   const creationBlockedMessage = !hasConfiguredEnvironments
     ? 'Create at least one environment before creating services.'
@@ -777,7 +795,7 @@ export default function CreateService() {
           endpoint: `/services/${createdService.id}/deploys`,
           method: 'POST',
           payload: {
-            environment: 'prod',
+            environment: preferredFirstDeployEnvironment,
             version: 'head',
             trigger: 'auto',
           },

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowUpRight, Cpu, Github, Package } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchRegistryCredentials, fetchScmCredentials, fetchWorkers } from '@/lib/data';
+import { fetchRegistryCredentials, fetchScmCredentials, fetchWorkerRegistrations, fetchWorkers } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 
 type PendingCheckKey = 'scm' | 'registry' | 'workers';
@@ -38,17 +38,18 @@ export function PlatformReadinessBanner() {
     let mounted = true;
 
     const refresh = async () => {
-      const [scmCredentials, registryCredentials, workers] = await Promise.all([
+      const [scmCredentials, registryCredentials, workers, workerRegistrations] = await Promise.all([
         fetchScmCredentials(),
         fetchRegistryCredentials(),
         fetchWorkers(),
+        fetchWorkerRegistrations(),
       ]);
       if (!mounted) return;
 
       const next: PendingCheckKey[] = [];
       if (scmCredentials.length === 0) next.push('scm');
       if (registryCredentials.length === 0) next.push('registry');
-      if (workers.length === 0) next.push('workers');
+      if (workers.length === 0 && workerRegistrations.length === 0) next.push('workers');
 
       setPendingChecks(next);
       setIsLoaded(true);
