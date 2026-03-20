@@ -25,6 +25,7 @@ import {
   fetchScmCredentials,
   fetchServices,
   fetchWorkers,
+  fetchWorkerRegistrations,
   fetchPlatformSettings,
   performAction,
   promoteCanary,
@@ -68,7 +69,9 @@ import type {
   ServiceStatus,
   ServiceStatusSnapshot,
   Worker,
+  WorkerRegistration,
 } from '@/types/releasea';
+import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
 import { EventsTab, type ServiceEvent } from './tabs/EventsTab';
@@ -115,13 +118,6 @@ function readContainerName(metadata?: Record<string, unknown>): string {
   if (typeof metadata?.container === 'string') return metadata.container;
   if (typeof metadata?.containerName === 'string') return metadata.containerName;
   return '';
-}
-
-function isWorkerRegisteredForEnvironment(worker: Worker, environment: string): boolean {
-  if (!worker || !environment) return false;
-  const workerEnvironment = worker.environment?.trim();
-  if (!workerEnvironment) return false;
-  return environmentsShareNamespace(workerEnvironment, environment);
 }
 
 function isWorkerAvailableForEnvironment(worker: Worker, environment: string): boolean {
@@ -307,6 +303,7 @@ const ServiceDetails = () => {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workerRegistrations, setWorkerRegistrations] = useState<WorkerRegistration[]>([]);
   const [deploysData, setDeploysData] = useState<Deploy[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [rules, setRules] = useState<ManagedRule[]>([]);
@@ -348,9 +345,9 @@ const ServiceDetails = () => {
   const selectableEnvironmentOptions = useMemo(
     () =>
       environmentOptions.filter((option) =>
-        workers.some((worker) => isWorkerRegisteredForEnvironment(worker, option.id)),
+        hasRegisteredWorkerForEnvironment(option.id, workers, workerRegistrations),
       ),
-    [environmentOptions, workers],
+    [environmentOptions, workers, workerRegistrations],
   );
   const hasSelectableEnvironment = selectableEnvironmentOptions.length > 0;
 
@@ -387,6 +384,7 @@ const ServiceDetails = () => {
       const [
         servicesData,
         workersData,
+        workerRegistrationsData,
         deploysData,
         rulesData,
         ruleDeploysResult,
@@ -398,6 +396,7 @@ const ServiceDetails = () => {
       ] = await Promise.all([
         fetchServices(),
         fetchWorkers(),
+        fetchWorkerRegistrations(),
         fetchDeploys(),
         fetchRules(),
         fetchRuleDeploys(),
@@ -410,6 +409,7 @@ const ServiceDetails = () => {
       if (!active) return;
       setServices(servicesData);
       setWorkers(workersData);
+      setWorkerRegistrations(workerRegistrationsData);
       setDeploysData(deploysData);
       setRuleDeploysData(ruleDeploysResult);
       setLogs([]);
@@ -467,8 +467,12 @@ const ServiceDetails = () => {
   }, [fetchRealtimeResource]);
 
   const refreshWorkers = useCallback(async () => {
-    const nextWorkers = await fetchRealtimeResource<Worker[]>('/workers?view=summary', 'load workers');
+    const [nextWorkers, nextRegistrations] = await Promise.all([
+      fetchRealtimeResource<Worker[]>('/workers?view=summary', 'load workers'),
+      fetchWorkerRegistrations(),
+    ]);
     setWorkers(nextWorkers);
+    setWorkerRegistrations(nextRegistrations);
   }, [fetchRealtimeResource]);
 
   const applyServiceStatusSnapshot = useCallback(
