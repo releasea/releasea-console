@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react';
 import { createContext, useContext } from 'react';
-import type { DeployStrategyType, Project, RegistryCredential, ScmCredential, SecretProvider, Service } from '@/types/releasea';
+import type {
+  DeployStrategyType,
+  Project,
+  RegistryCredential,
+  ScmCredential,
+  SecretProvider,
+  Service,
+  ServiceManagementMode,
+} from '@/types/releasea';
 import type { RuntimeProfile } from '@/types/runtime-profile';
 import type { EnvVar } from '@/forms/types';
 
@@ -9,6 +17,14 @@ export type ServiceSettingsFormStore = {
   projects: Project[];
   projectId: string;
   onProjectChange: (value: string) => void;
+  management: {
+    mode: ServiceManagementMode;
+    setMode: (value: ServiceManagementMode) => void;
+    requiresManagedTransitionReview: boolean;
+    blockingRequirementCount: number;
+    currentEnvironmentLabel: string;
+    openReadinessDialog: () => void;
+  };
   source: {
     type: 'git' | 'docker';
     setType: (value: 'git' | 'docker') => void;

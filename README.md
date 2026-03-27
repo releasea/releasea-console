@@ -12,9 +12,12 @@ The Console is the primary UI for service lifecycle, deploy workflows, observabi
 
 - Installation guide: [docs.releasea.io/?doc=installation](https://docs.releasea.io/?doc=installation)
 - Installation modes: [docs.releasea.io/?doc=installation-modes](https://docs.releasea.io/?doc=installation-modes)
+- Quickstart validation: [docs.releasea.io/?doc=smoke-checks](https://docs.releasea.io/?doc=smoke-checks)
 - Environments and workers: [docs.releasea.io/?doc=environments-and-workers](https://docs.releasea.io/?doc=environments-and-workers)
 - Public components: [docs.releasea.io/?doc=public-components](https://docs.releasea.io/?doc=public-components)
 - Templates guide: [docs.releasea.io/?doc=templates](https://docs.releasea.io/?doc=templates)
+- Contribution guide: [../CONTRIBUTING.md](../CONTRIBUTING.md)
+- Public roadmap: [../ROADMAP.md](../ROADMAP.md)
 
 ## Running Locally
 

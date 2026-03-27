@@ -97,6 +97,7 @@ export const SummaryTab = ({
   liveSyncError,
 }: SummaryTabProps) => {
   const safeRepositoryURL = repositoryUrl ? sanitizeExternalURL(repositoryUrl) : null;
+  const managementMode = service.managementMode ?? 'managed';
 
   return (
     <TabsContent value="summary" className="space-y-6">
@@ -128,6 +129,9 @@ export const SummaryTab = ({
             </Badge>
             <Badge variant="outline" className="text-xs normal-case">
               {serviceTypeLabel}
+            </Badge>
+            <Badge variant={managementMode === 'observed' ? 'secondary' : 'outline'} className="text-xs normal-case">
+              {managementMode === 'observed' ? 'Observed' : 'Managed'}
             </Badge>
           </div>
         </div>
@@ -185,6 +189,12 @@ export const SummaryTab = ({
         </div>
 
         <div className="pt-3 border-t border-border/60 space-y-2">
+          {managementMode === 'observed' && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              This service is currently observed only. Releasea keeps visibility and settings, but deploy actions stay
+              disabled until you switch it to managed mode.
+            </div>
+          )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex flex-wrap gap-2">
               {deployDisabled && deployRestrictionMessage ? (

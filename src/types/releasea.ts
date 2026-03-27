@@ -29,9 +29,96 @@ export type Environment = 'dev' | 'staging' | 'prod' | (string & {});
 export type WorkerStatus = 'online' | 'offline' | 'busy' | 'pending';
 export type DeployStrategyType = 'rolling' | 'canary' | 'blue-green';
 export type ServiceSourceType = 'git' | 'registry';
+export type ServiceManagementMode = 'managed' | 'observed';
 export type SecretProviderType = 'vault' | 'aws' | 'gcp';
 export type TemplateKind = 'service' | 'scheduled-job';
 export type TemplateRepoMode = 'template' | 'existing';
+export type ProviderCategoryKind = 'scm' | 'registry' | 'secrets' | 'identity' | 'notifications';
+export type ProviderStatusState = 'configured' | 'partial' | 'not-configured' | 'disabled';
+export type ProviderHealthState = 'healthy' | 'unhealthy' | 'unsupported' | 'disabled';
+
+export interface ProviderDefinition {
+  id: string;
+  label: string;
+  description?: string;
+  authModes?: string[];
+  capabilities?: string[];
+  scopeSupport?: string[];
+  configFields?: string[];
+  implementation?: string;
+}
+
+export interface ProviderCategory {
+  kind: ProviderCategoryKind;
+  label: string;
+  description?: string;
+  defaultProvider?: string;
+  providers: ProviderDefinition[];
+}
+
+export interface ProviderCatalog {
+  version: string;
+  scm: ProviderCategory;
+  registry: ProviderCategory;
+  secrets: ProviderCategory;
+  identity: ProviderCategory;
+  notifications: ProviderCategory;
+}
+
+export interface ProviderStatus {
+  id: string;
+  label: string;
+  state: ProviderStatusState;
+  message?: string;
+  configured: boolean;
+  default?: boolean;
+  resourceCount?: number;
+  implementation?: string;
+}
+
+export interface ProviderStatusCategory {
+  kind: ProviderCategoryKind;
+  providers: ProviderStatus[];
+}
+
+export interface ProviderStatusCatalog {
+  version: string;
+  scm: ProviderStatusCategory;
+  registry: ProviderStatusCategory;
+  secrets: ProviderStatusCategory;
+  identity: ProviderStatusCategory;
+  notifications: ProviderStatusCategory;
+}
+
+export interface ProviderHealthCheck {
+  providerId: string;
+  providerLabel: string;
+  resourceId?: string;
+  resourceLabel?: string;
+  scope?: string;
+  state: ProviderHealthState;
+  message?: string;
+  default?: boolean;
+  implementation?: string;
+}
+
+export interface ProviderHealthCategory {
+  kind: ProviderCategoryKind;
+  healthy: number;
+  unhealthy: number;
+  unsupported?: number;
+  disabled?: number;
+  checks: ProviderHealthCheck[];
+}
+
+export interface ProviderHealthCatalog {
+  version: string;
+  scm: ProviderHealthCategory;
+  registry: ProviderHealthCategory;
+  secrets: ProviderHealthCategory;
+  identity: ProviderHealthCategory;
+  notifications: ProviderHealthCategory;
+}
 
 export interface TemplateSource {
   provider?: string;
@@ -187,6 +274,7 @@ export interface Service {
   registryCredentialId?: string;
   deployTemplateId?: string;
   secretProviderId?: string;
+  managementMode?: ServiceManagementMode;
   runtime?: Record<string, ServiceRuntimeState>;
   repoManaged?: boolean;
   scheduleCron?: string;
@@ -386,6 +474,27 @@ export interface WorkerRegistration {
   token?: string;
   status: 'unused' | 'active' | 'inactive' | 'revoked';
   notes?: string;
+}
+
+export interface DiscoveredWorkload {
+  id: string;
+  workerId: string;
+  workerName: string;
+  environment: Environment;
+  cluster: string;
+  namespace: string;
+  kind: 'Deployment' | 'StatefulSet' | 'CronJob' | (string & {});
+  name: string;
+  images: string[];
+  primaryImage?: string;
+  ports: number[];
+  port?: number;
+  replicas?: number;
+  scheduleCron?: string;
+  healthCheckPath?: string;
+  serviceType?: ServiceType;
+  templateKind?: TemplateKind;
+  sourceType?: ServiceSourceType;
 }
 
 export type WorkerBootstrapMode = 'same-cluster' | 'external' | (string & {});

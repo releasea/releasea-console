@@ -13,7 +13,7 @@ import {
   createRule,
   deleteRule,
   fetchDeploys,
-  fetchGithubCommits,
+  fetchScmCommits,
   fetchRuleDeploys,
   fetchServiceLogs,
   fetchServicePods,
@@ -31,7 +31,7 @@ import {
   promoteCanary,
   updateRule,
 } from '@/lib/data';
-import type { GitCommit } from '@/lib/data';
+import type { ScmCommit } from '@/lib/data';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { environmentsShareNamespace, getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
@@ -66,6 +66,7 @@ import type {
   ScmCredential,
   SecretProvider,
   Service,
+  ServiceManagementMode,
   ServiceStatus,
   ServiceStatusSnapshot,
   Worker,
@@ -74,6 +75,7 @@ import type {
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
+import { ManagementModeTransitionDialog, type ManagementTransitionRequirement } from './ManagementModeTransitionDialog';
 import { EventsTab, type ServiceEvent } from './tabs/EventsTab';
 import { LogsTab } from './tabs/LogsTab';
 import { MetricsTab } from './tabs/MetricsTab';
@@ -101,11 +103,6 @@ function errorMessage(error: unknown, fallback: string): string {
     return error.trim();
   }
   return fallback;
-}
-
-function parseGithubUrl(url: string): { owner: string; repo: string } {
-  const match = url.match(/github\.com\/([^/]+)\/([^/.]+)/);
-  return { owner: match?.[1] ?? '', repo: match?.[2] ?? '' };
 }
 
 function readReplicaName(metadata?: Record<string, unknown>): string {
@@ -155,6 +152,7 @@ function buildServiceSettingsHydrationKey(service: Service): string {
     replicas: service.replicas ?? null,
     isActive: service.isActive ?? true,
     autoDeploy: service.autoDeploy ?? true,
+    managementMode: service.managementMode ?? 'managed',
     pauseOnIdle: service.pauseOnIdle ?? false,
     pauseIdleTimeoutSeconds: service.pauseIdleTimeoutSeconds ?? 3600,
     profileId: service.profileId ?? '',
@@ -215,7 +213,7 @@ const ServiceDetails = () => {
   const [deployVersion, setDeployVersion] = useState('');
   const [confirmDeployOpen, setConfirmDeployOpen] = useState(false);
   const [pendingDeployVersion, setPendingDeployVersion] = useState<string | null>(null);
-  const [commits, setCommits] = useState<GitCommit[]>([]);
+  const [commits, setCommits] = useState<ScmCommit[]>([]);
   const [deployLogOpen, setDeployLogOpen] = useState(false);
   const [selectedDeployLog, setSelectedDeployLog] = useState<Deploy | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -256,6 +254,7 @@ const ServiceDetails = () => {
   const [serviceScmCredentialId, setServiceScmCredentialId] = useState('inherit');
   const [serviceRegistryCredentialId, setServiceRegistryCredentialId] = useState('inherit');
   const [serviceSecretProviderId, setServiceSecretProviderId] = useState('inherit');
+  const [managementMode, setManagementMode] = useState<ServiceManagementMode>('managed');
   const [autoDeploy, setAutoDeploy] = useState(true);
   const [deployStrategyType, setDeployStrategyType] = useState<DeployStrategyType>('rolling');
   const [canaryPercent, setCanaryPercent] = useState('10');
@@ -275,6 +274,7 @@ const ServiceDetails = () => {
   const settingsHydrationKeyRef = useRef('');
   const [projectId, setProjectId] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [managementTransitionDialogOpen, setManagementTransitionDialogOpen] = useState(false);
 
   const [buildCommand, setBuildCommand] = useState('npm run build');
   const [installCommand, setInstallCommand] = useState('npm install');
@@ -542,26 +542,67 @@ const ServiceDetails = () => {
 
   const service = services.find((item) => item.id === id);
   const projectForService = projects.find((project) => project.id === service?.projectId);
+  const activeProjectId = projectId || service?.projectId;
+  const selectedProjectForSettings = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? projectForService ?? null,
+    [activeProjectId, projectForService, projects],
+  );
   const scopedScmCredentials = useMemo(
     () =>
       scmCredentials.filter(
         (cred) =>
           cred.scope === 'platform' ||
-          (cred.scope === 'project' && cred.projectId === projectForService?.id) ||
+          (cred.scope === 'project' && cred.projectId === activeProjectId) ||
           (cred.scope === 'service' && cred.serviceId === service?.id)
       ),
-    [scmCredentials, projectForService?.id, service?.id]
+    [activeProjectId, scmCredentials, service?.id]
   );
   const scopedRegistryCredentials = useMemo(
     () =>
       registryCredentials.filter(
         (cred) =>
           cred.scope === 'platform' ||
-          (cred.scope === 'project' && cred.projectId === projectForService?.id) ||
+          (cred.scope === 'project' && cred.projectId === activeProjectId) ||
           (cred.scope === 'service' && cred.serviceId === service?.id)
       ),
-    [registryCredentials, projectForService?.id, service?.id]
+    [activeProjectId, registryCredentials, service?.id]
   );
+  const selectedServiceScmCredential = useMemo(
+    () =>
+      serviceScmCredentialId === 'inherit'
+        ? null
+        : scopedScmCredentials.find((cred) => cred.id === serviceScmCredentialId) ?? null,
+    [scopedScmCredentials, serviceScmCredentialId],
+  );
+  const selectedServiceRegistryCredential = useMemo(
+    () =>
+      serviceRegistryCredentialId === 'inherit'
+        ? null
+        : scopedRegistryCredentials.find((cred) => cred.id === serviceRegistryCredentialId) ?? null,
+    [scopedRegistryCredentials, serviceRegistryCredentialId],
+  );
+  const inheritedServiceScmCredential = useMemo(
+    () =>
+      scopedScmCredentials.find((cred) => cred.id === selectedProjectForSettings?.scmCredentialId) ?? null,
+    [scopedScmCredentials, selectedProjectForSettings?.scmCredentialId],
+  );
+  const inheritedServiceRegistryCredential = useMemo(
+    () =>
+      scopedRegistryCredentials.find((cred) => cred.id === selectedProjectForSettings?.registryCredentialId) ?? null,
+    [scopedRegistryCredentials, selectedProjectForSettings?.registryCredentialId],
+  );
+  const platformServiceScmCredential = useMemo(
+    () => scopedScmCredentials.find((cred) => cred.scope === 'platform') ?? null,
+    [scopedScmCredentials],
+  );
+  const platformServiceRegistryCredential = useMemo(
+    () => scopedRegistryCredentials.find((cred) => cred.scope === 'platform') ?? null,
+    [scopedRegistryCredentials],
+  );
+  const effectiveServiceScmCredential =
+    selectedServiceScmCredential ?? inheritedServiceScmCredential ?? platformServiceScmCredential;
+  const effectiveServiceRegistryCredential =
+    selectedServiceRegistryCredential ?? inheritedServiceRegistryCredential ?? platformServiceRegistryCredential;
 
   useEffect(() => {
     if (servicePoller.current) {
@@ -657,10 +698,14 @@ const ServiceDetails = () => {
     () => workers.some((worker) => isWorkerAvailableForEnvironment(worker, viewEnv)),
     [workers, viewEnv],
   );
+  const isObservedManagementMode = (service?.managementMode ?? 'managed') === 'observed';
   const isServiceCreating = service?.status === 'creating';
   const deployBusy = hasPendingDeploys || deployLoading || hasOptimisticQueuedDeploy;
-  const deployActionTemporarilyBlocked = isServiceCreating || !hasActiveWorkerForViewEnv || deployBusy;
-  const deployBlockedMessage = isServiceCreating
+  const deployActionTemporarilyBlocked =
+    isObservedManagementMode || isServiceCreating || !hasActiveWorkerForViewEnv || deployBusy;
+  const deployBlockedMessage = isObservedManagementMode
+    ? 'Observed services cannot be deployed by Releasea. Switch the service to managed mode in Settings first.'
+    : isServiceCreating
     ? 'Service creation is still in progress. Deploy is disabled until creation finishes.'
     : !hasActiveWorkerForViewEnv
       ? `No active worker is available for ${getEnvironmentLabel(viewEnv)}. Register and start a worker in this environment before deploying.`
@@ -1083,6 +1128,7 @@ const ServiceDetails = () => {
     setDockerCommand(service.dockerCommand ?? '');
     setPreDeployCommand(service.preDeployCommand ?? '');
     setHealthCheckPath(service.healthCheckPath ?? '/healthz');
+    setManagementMode(service.managementMode ?? 'managed');
     setAutoDeploy(service.autoDeploy ?? true);
     setPauseOnIdle(service.type === 'microservice' ? (service.pauseOnIdle ?? false) : false);
     setPauseIdleTimeoutMinutes(
@@ -1124,6 +1170,12 @@ const ServiceDetails = () => {
       { id: `env-${service.id}-0`, key: '', value: '', type: 'plain' as const },
     ]);
   }, [service, deploysData]);
+
+  useEffect(() => {
+    if (managementMode === 'observed' && autoDeploy) {
+      setAutoDeploy(false);
+    }
+  }, [managementMode, autoDeploy]);
 
   // Reset stale state when environment changes - ensures tabs show fresh data.
   useEffect(() => {
@@ -1326,6 +1378,115 @@ const ServiceDetails = () => {
   const dockerfileLabel = dockerfilePath;
   const dockerContextLabel = dockerContext;
   const healthPath = healthCheckPath || '/healthz';
+  const requiresManagedTransitionReview =
+    (service.managementMode ?? 'managed') === 'observed' && managementMode === 'managed';
+  const managementTransitionRequirements: ManagementTransitionRequirement[] = [
+    {
+      id: 'worker',
+      label: `Worker available in ${viewEnvLabel}`,
+      description: hasActiveWorkerForViewEnv
+        ? `An active worker is available for ${viewEnvLabel}.`
+        : `Bring at least one worker online in ${viewEnvLabel} before switching this service to managed mode.`,
+      ready: hasActiveWorkerForViewEnv,
+    },
+  ];
+
+  if (sourceType === 'git') {
+    managementTransitionRequirements.push(
+      {
+        id: 'repo-url',
+        label: 'Repository configured',
+        description: repoUrl.trim()
+          ? `Repository URL is set to ${repoUrl.trim()}.`
+          : 'Define a repository URL so Releasea can clone and build the service.',
+        ready: repoUrl.trim().length > 0,
+      },
+      {
+        id: 'scm-credential',
+        label: 'SCM credential available',
+        description: effectiveServiceScmCredential
+          ? `Using ${effectiveServiceScmCredential.name} for repository access.`
+          : 'Select a service, project, or platform SCM credential with repository access.',
+        ready: Boolean(effectiveServiceScmCredential),
+      },
+    );
+  } else {
+    managementTransitionRequirements.push({
+      id: 'docker-image',
+      label: 'Container image configured',
+      description: dockerImage.trim()
+        ? `Image ${dockerImage.trim()} is ready to deploy.`
+        : 'Define the container image Releasea should deploy.',
+      ready: dockerImage.trim().length > 0,
+    });
+  }
+
+  if (service.type === 'microservice' && !isScheduledJob) {
+    managementTransitionRequirements.push(
+      {
+        id: 'runtime-port',
+        label: 'Runtime port configured',
+        description: Number(servicePort) > 0
+          ? `Service port is set to ${servicePort}.`
+          : 'Set the port your service listens on.',
+        ready: Number.isFinite(Number(servicePort)) && Number(servicePort) > 0,
+      },
+      {
+        id: 'health-check',
+        label: 'Health check path configured',
+        description: healthCheckPath.trim()
+          ? `Health checks will use ${healthCheckPath.trim()}.`
+          : 'Set a health check path so Releasea can validate rollouts.',
+        ready: healthCheckPath.trim().length > 0,
+      },
+    );
+    if (sourceType === 'git') {
+      managementTransitionRequirements.push(
+        {
+          id: 'target-image',
+          label: 'Target image configured',
+          description: dockerImage.trim()
+            ? `Built images will be pushed to ${dockerImage.trim()}.`
+            : 'Define the target image that Releasea should publish after build.',
+          ready: dockerImage.trim().length > 0,
+        },
+        {
+          id: 'registry-credential',
+          label: 'Registry credential available',
+          description: effectiveServiceRegistryCredential
+            ? `Using ${effectiveServiceRegistryCredential.name} for image publishing.`
+            : 'Select a service, project, or platform registry credential with push access.',
+          ready: Boolean(effectiveServiceRegistryCredential),
+        },
+      );
+    }
+  }
+
+  if (isScheduledJob) {
+    managementTransitionRequirements.push({
+      id: 'schedule',
+      label: 'Schedule configured',
+      description: scheduleCron.trim()
+        ? `Cron schedule is set to ${scheduleCron.trim()}.`
+        : 'Provide a cron expression before letting Releasea manage the job.',
+      ready: scheduleCron.trim().length > 0,
+    });
+  }
+
+  if (service.type === 'static-site') {
+    managementTransitionRequirements.push({
+      id: 'build-output',
+      label: 'Build output configured',
+      description: outputDir.trim()
+        ? `Static output directory is set to ${outputDir.trim()}.`
+        : 'Define the output directory produced by the static site build.',
+      ready: outputDir.trim().length > 0,
+    });
+  }
+
+  const blockingManagementTransitionRequirements = managementTransitionRequirements.filter(
+    (requirement) => !requirement.ready,
+  );
 
   const average = (values: number[]) =>
     values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -1441,8 +1602,7 @@ const ServiceDetails = () => {
       return acc;
     }, {});
 
-  const handleSettingsSave = async (event?: React.FormEvent) => {
-    if (event) event.preventDefault();
+  const persistSettings = async () => {
     setSettingsSaving(true);
     const previousStrategyType = service?.deploymentStrategy?.type ?? 'rolling';
     const previousCanaryPercent = Number(service?.deploymentStrategy?.canaryPercent ?? 10);
@@ -1472,6 +1632,7 @@ const ServiceDetails = () => {
       payload: {
         port: portValue,
         sourceType: resolvedSourceType,
+        managementMode,
         repoUrl,
         branch,
         rootDir,
@@ -1502,7 +1663,7 @@ const ServiceDetails = () => {
         registryCredentialId,
         secretProviderId,
         deployTemplateId,
-        autoDeploy,
+        autoDeploy: managementMode === 'observed' ? false : autoDeploy,
         deployStrategyType,
         canaryPercent,
         blueGreenPrimary,
@@ -1519,6 +1680,7 @@ const ServiceDetails = () => {
       label: 'updateServiceSettings',
     });
     setSettingsSaving(false);
+    setManagementTransitionDialogOpen(false);
     void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh service settings state.');
     const replicasChanged =
       String(service?.minReplicas ?? 1) !== minReplicas ||
@@ -1542,6 +1704,22 @@ const ServiceDetails = () => {
         description: 'Routing is being updated to the new deploy strategy and may show brief instability.',
       });
     }
+  };
+
+  const handleConfirmManagedTransition = async () => {
+    if (blockingManagementTransitionRequirements.length > 0) {
+      return;
+    }
+    await persistSettings();
+  };
+
+  const handleSettingsSave = async (event?: React.FormEvent) => {
+    if (event) event.preventDefault();
+    if (requiresManagedTransitionReview) {
+      setManagementTransitionDialogOpen(true);
+      return;
+    }
+    await persistSettings();
   };
 
   const handleDeleteService = async () => {
@@ -1947,12 +2125,9 @@ const ServiceDetails = () => {
     const isRegistrySource = service?.sourceType === 'registry' || sourceType === 'docker';
     let latestValue = isRegistrySource ? 'latest' : latestDeploy?.commit?.trim() ?? '';
     if (!isRegistrySource && !latestValue && service?.repoUrl) {
-      const { owner, repo } = parseGithubUrl(service.repoUrl);
-      if (owner && repo) {
-        const result = await fetchGithubCommits(owner, repo, service.branch, service.projectId);
-        setCommits(result);
-        latestValue = result[0]?.sha?.trim() ?? '';
-      }
+      const result = await fetchScmCommits(service.repoUrl, service.branch, service.projectId);
+      setCommits(result);
+      latestValue = result[0]?.sha?.trim() ?? '';
     }
     if (!isRegistrySource && !latestValue && service?.repoUrl) {
       latestValue = 'head';
@@ -2018,18 +2193,15 @@ const ServiceDetails = () => {
 
   const handleOpenVersionPicker = async () => {
     if (service?.repoUrl) {
-      const { owner, repo } = parseGithubUrl(service.repoUrl);
-      if (owner && repo) {
-        const result = await fetchGithubCommits(owner, repo, service.branch, service.projectId);
-        setCommits(result);
-        if (result.length > 0) {
-          setDeployVersion(result[0].sha);
-        } else {
-          setDeployVersion('');
-        }
-        setDeployVersionOpen(true);
-        return;
+      const result = await fetchScmCommits(service.repoUrl, service.branch, service.projectId);
+      setCommits(result);
+      if (result.length > 0) {
+        setDeployVersion(result[0].sha);
+      } else {
+        setDeployVersion('');
       }
+      setDeployVersionOpen(true);
+      return;
     }
     if (versionOptions.length > 0) {
       setDeployVersion(versionOptions[0].value);
@@ -2147,6 +2319,14 @@ const ServiceDetails = () => {
     projects,
     projectId,
     onProjectChange: setProjectId,
+    management: {
+      mode: managementMode,
+      setMode: setManagementMode,
+      requiresManagedTransitionReview,
+      blockingRequirementCount: blockingManagementTransitionRequirements.length,
+      currentEnvironmentLabel: viewEnvLabel,
+      openReadinessDialog: () => setManagementTransitionDialogOpen(true),
+    },
     source: {
       type: sourceType,
       setType: setSourceType,
@@ -2166,7 +2346,7 @@ const ServiceDetails = () => {
       setDockerCommand,
       preDeployCommand,
       setPreDeployCommand,
-      autoDeploy,
+      autoDeploy: managementMode === 'observed' ? false : autoDeploy,
       setAutoDeploy,
     },
     runtime: {
@@ -2267,6 +2447,12 @@ const ServiceDetails = () => {
                         {deployStrategyLabel}
                       </Badge>
                     )}
+                    <Badge
+                      variant={(service.managementMode ?? 'managed') === 'observed' ? 'secondary' : 'outline'}
+                      className="text-xs normal-case"
+                    >
+                      {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
+                    </Badge>
                     {servicePublicURL.href ? (
                       <a
                         href={servicePublicURL.href}
@@ -2562,6 +2748,16 @@ const ServiceDetails = () => {
           onError: handleDeploySubmitError,
           onConfirm: handleConfirmDeploy,
         }}
+      />
+
+      <ManagementModeTransitionDialog
+        open={managementTransitionDialogOpen}
+        onOpenChange={setManagementTransitionDialogOpen}
+        serviceName={service?.name ?? ''}
+        environmentLabel={viewEnvLabel}
+        requirements={managementTransitionRequirements}
+        onConfirm={handleConfirmManagedTransition}
+        isSaving={settingsSaving}
       />
 
       <ConfirmPromoteCanaryModal

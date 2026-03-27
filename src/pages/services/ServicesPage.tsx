@@ -5,6 +5,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { DataTable, Column } from '@/components/layout/DataTable';
 import { TableFiltersBar } from '@/components/layout/TableFiltersBar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ServiceTypeIcon } from '@/components/ui/service-type-icon';
@@ -26,6 +27,7 @@ import { apiClient } from '@/lib/api-client';
 import { useSSEStream } from '@/lib/use-sse-stream';
 
 type ServiceFilter = Exclude<ServiceType, 'worker'> | 'all';
+type ServiceManagementFilter = 'all' | 'managed' | 'observed';
 
 const serviceTypes: { value: ServiceFilter; label: string }[] = [
   { value: 'all', label: 'All types' },
@@ -57,6 +59,7 @@ const Services = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<ServiceFilter>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [managementFilter, setManagementFilter] = useState<ServiceManagementFilter>('all');
   const [services, setServices] = useState<Service[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [deploys, setDeploys] = useState<Deploy[]>([]);
@@ -148,6 +151,11 @@ const Services = () => {
     microservice: visibleServices.filter(s => s.type === 'microservice').length,
     'static-site': visibleServices.filter(s => s.type === 'static-site').length,
   };
+  const managementCounts: Record<ServiceManagementFilter, number> = {
+    all: visibleServices.length,
+    managed: visibleServices.filter((service) => (service.managementMode ?? 'managed') === 'managed').length,
+    observed: visibleServices.filter((service) => (service.managementMode ?? 'managed') === 'observed').length,
+  };
 
   const activeDeployStatusByService = useMemo(() => {
     const latestActiveDeployByService = new Map<string, Deploy>();
@@ -188,9 +196,11 @@ const Services = () => {
       const matchesType = typeFilter === 'all' || service.type === typeFilter;
       const displayStatus = displayStatusByService.get(service.id) ?? service.status;
       const matchesStatus = statusFilter === 'all' || displayStatus === statusFilter;
-      return matchesSearch && matchesType && matchesStatus;
+      const currentManagementMode = service.managementMode ?? 'managed';
+      const matchesManagement = managementFilter === 'all' || currentManagementMode === managementFilter;
+      return matchesSearch && matchesType && matchesStatus && matchesManagement;
     });
-  }, [displayStatusByService, searchQuery, statusFilter, typeFilter, visibleServices]);
+  }, [displayStatusByService, managementFilter, searchQuery, statusFilter, typeFilter, visibleServices]);
 
   const metricsTargets = useMemo(
     () => filteredServices.filter((service) => service.type === 'microservice'),
@@ -243,7 +253,15 @@ const Services = () => {
           <ServiceTypeIcon type={service.type} />
           <div>
             <p className="font-mono font-medium text-foreground">{service.name}</p>
-            <p className="text-xs text-muted-foreground capitalize">{service.type.replace('-', ' ')}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-muted-foreground capitalize">{service.type.replace('-', ' ')}</p>
+              <Badge
+                variant={(service.managementMode ?? 'managed') === 'observed' ? 'secondary' : 'outline'}
+                className="text-[10px] normal-case"
+              >
+                {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
+              </Badge>
+            </div>
           </div>
         </div>
       ),
@@ -425,6 +443,17 @@ const Services = () => {
                 { value: 'deleting', label: 'Deleting' },
                 { value: 'idle', label: 'Not deployed' },
                 { value: 'error', label: 'Error' },
+              ],
+            },
+            {
+              id: 'management',
+              value: managementFilter,
+              onValueChange: (value) => setManagementFilter(value as ServiceManagementFilter),
+              placeholder: 'Management',
+              options: [
+                { value: 'all', label: `All modes (${managementCounts.all})` },
+                { value: 'managed', label: `Managed (${managementCounts.managed})` },
+                { value: 'observed', label: `Observed (${managementCounts.observed})` },
               ],
             },
           ]}

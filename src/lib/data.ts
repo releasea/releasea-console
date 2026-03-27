@@ -12,11 +12,15 @@ import {
 } from '@/platform/http/contracts/contracts';
 import type {
   AuthUser,
+  DiscoveredWorkload,
   Deploy,
   ExternalEndpoint,
   EnvironmentConfig,
   LogEntry,
   Metrics,
+  ProviderCatalog,
+  ProviderHealthCatalog,
+  ProviderStatusCatalog,
   PlatformSettings,
   Project,
   RegistryCredential,
@@ -74,6 +78,7 @@ const EMPTY_PROJECTS: Project[] = [];
 const EMPTY_SERVICES: Service[] = [];
 const EMPTY_WORKERS: Worker[] = [];
 const EMPTY_WORKER_REGISTRATIONS: WorkerRegistration[] = [];
+const EMPTY_DISCOVERED_WORKLOADS: DiscoveredWorkload[] = [];
 const EMPTY_WORKER_BOOTSTRAP_PROFILE: WorkerBootstrapProfile = {
   id: 'worker-bootstrap-profile',
   mode: 'same-cluster',
@@ -95,6 +100,169 @@ const EMPTY_WORKER_BOOTSTRAP_PROFILE: WorkerBootstrapProfile = {
     configMap: 'releasea-worker-bootstrap',
     secret: 'releasea-worker-bootstrap',
   },
+};
+const EMPTY_PROVIDER_CATALOG: ProviderCatalog = {
+  version: '1',
+  scm: {
+    kind: 'scm',
+    label: 'SCM',
+    description: 'Source control providers used for repository access and template operations.',
+    defaultProvider: 'github',
+    providers: [
+      {
+        id: 'github',
+        label: 'GitHub',
+        description: 'Built-in GitHub support used by templates, commit lookup and repository cloning.',
+        authModes: ['token', 'ssh'],
+        capabilities: ['repo-clone', 'template-repos', 'commit-history'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'gitlab',
+        label: 'GitLab',
+        description: 'Credential option for repository cloning in worker build flows.',
+        authModes: ['token', 'ssh'],
+        capabilities: ['repo-clone'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'bitbucket',
+        label: 'Bitbucket',
+        description: 'Credential option for repository cloning in worker build flows.',
+        authModes: ['token', 'ssh'],
+        capabilities: ['repo-clone'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+    ],
+  },
+  registry: {
+    kind: 'registry',
+    label: 'Registry',
+    description: 'Container registries available to build and deploy pipelines.',
+    defaultProvider: 'docker',
+    providers: [
+      {
+        id: 'docker',
+        label: 'Docker Registry',
+        description: 'Generic OCI registry using username and password authentication.',
+        authModes: ['basic'],
+        capabilities: ['image-push', 'image-pull'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'ghcr',
+        label: 'GitHub Container Registry',
+        description: 'OCI registry hosted by GitHub with standard basic credentials.',
+        authModes: ['basic'],
+        capabilities: ['image-push', 'image-pull'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'ecr',
+        label: 'AWS ECR',
+        description: 'AWS Elastic Container Registry using generated username and password credentials.',
+        authModes: ['basic'],
+        capabilities: ['image-push', 'image-pull'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'gcr',
+        label: 'Google Container Registry',
+        description: 'Google-hosted registry using standard username and password credentials.',
+        authModes: ['basic'],
+        capabilities: ['image-push', 'image-pull'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+      {
+        id: 'acr',
+        label: 'Azure Container Registry',
+        description: 'Azure-hosted registry using standard username and password credentials.',
+        authModes: ['basic'],
+        capabilities: ['image-push', 'image-pull'],
+        scopeSupport: ['platform', 'project', 'service'],
+      },
+    ],
+  },
+  secrets: {
+    kind: 'secrets',
+    label: 'Secrets',
+    description: 'Secrets managers available for resolving secret references during deploys.',
+    defaultProvider: 'vault',
+    providers: [
+      {
+        id: 'vault',
+        label: 'Vault',
+        description: 'HashiCorp Vault backed secret resolution.',
+        capabilities: ['secret-read', 'secret-reference'],
+        configFields: ['address', 'token'],
+      },
+      {
+        id: 'aws',
+        label: 'AWS Secrets Manager',
+        description: 'AWS-hosted secret resolution using access key credentials.',
+        capabilities: ['secret-read', 'secret-reference'],
+        configFields: ['accessKeyId', 'secretAccessKey', 'region'],
+      },
+      {
+        id: 'gcp',
+        label: 'GCP Secret Manager',
+        description: 'Google Cloud secret resolution using service account credentials.',
+        capabilities: ['secret-read', 'secret-reference'],
+        configFields: ['projectId', 'serviceAccountJson'],
+      },
+    ],
+  },
+  identity: {
+    kind: 'identity',
+    label: 'Identity',
+    description: 'Identity protocols supported by Releasea. Providers such as Keycloak, Okta, Azure AD, Google and Microsoft typically connect through OIDC.',
+    providers: [
+      {
+        id: 'saml',
+        label: 'SAML',
+        description: 'SAML 2.0 single sign-on with group mapping and audit events.',
+        capabilities: ['single-sign-on', 'group-mapping', 'session-revocation'],
+        implementation: 'saml',
+      },
+      {
+        id: 'oidc',
+        label: 'OIDC',
+        description: 'Generic OpenID Connect support for providers such as Keycloak, Okta, Azure AD and Google.',
+        capabilities: ['single-sign-on', 'group-mapping', 'session-revocation'],
+        implementation: 'oidc',
+      },
+    ],
+  },
+  notifications: {
+    kind: 'notifications',
+    label: 'Notifications',
+    description: 'Built-in platform event notifications currently configurable in platform settings.',
+    defaultProvider: 'platform-events',
+    providers: [
+      {
+        id: 'platform-events',
+        label: 'Platform Events',
+        description: 'Built-in notification toggles for deploy, service, worker and approval events.',
+        capabilities: ['deploy-success', 'deploy-failed', 'service-down', 'worker-offline', 'approval-required', 'approval-completed'],
+      },
+    ],
+  },
+};
+const EMPTY_PROVIDER_STATUS: ProviderStatusCatalog = {
+  version: '1',
+  scm: { kind: 'scm', providers: [] },
+  registry: { kind: 'registry', providers: [] },
+  secrets: { kind: 'secrets', providers: [] },
+  identity: { kind: 'identity', providers: [] },
+  notifications: { kind: 'notifications', providers: [] },
+};
+const EMPTY_PROVIDER_HEALTH: ProviderHealthCatalog = {
+  version: '1',
+  scm: { kind: 'scm', healthy: 0, unhealthy: 0, checks: [] },
+  registry: { kind: 'registry', healthy: 0, unhealthy: 0, checks: [] },
+  secrets: { kind: 'secrets', healthy: 0, unhealthy: 0, checks: [] },
+  identity: { kind: 'identity', healthy: 0, unhealthy: 0, checks: [] },
+  notifications: { kind: 'notifications', healthy: 0, unhealthy: 0, checks: [] },
 };
 const EMPTY_DEPLOYS: Deploy[] = [];
 const EMPTY_LOGS: LogEntry[] = [];
@@ -195,11 +363,45 @@ export const fetchWorkerRegistrations = async (): Promise<WorkerRegistration[]> 
     label: 'fetchWorkerRegistrations',
   });
 
+export const fetchDiscoveredWorkloads = async (environment?: string): Promise<DiscoveredWorkload[]> => {
+  const query = new URLSearchParams();
+  if (environment) {
+    query.set('environment', environment);
+  }
+  const suffix = query.toString();
+  return fetchResource({
+    fallback: EMPTY_DISCOVERED_WORKLOADS,
+    endpoint: suffix ? `/workers/discovered-workloads?${suffix}` : '/workers/discovered-workloads',
+    label: 'fetchDiscoveredWorkloads',
+  });
+};
+
 export const fetchWorkerBootstrapProfile = async (): Promise<WorkerBootstrapProfile> =>
   fetchResource({
     fallback: EMPTY_WORKER_BOOTSTRAP_PROFILE,
     endpoint: '/workers/bootstrap-profile',
     label: 'fetchWorkerBootstrapProfile',
+  });
+
+export const fetchProviderCatalog = async (): Promise<ProviderCatalog> =>
+  fetchResource({
+    fallback: EMPTY_PROVIDER_CATALOG,
+    endpoint: '/settings/providers/catalog',
+    label: 'fetchProviderCatalog',
+  });
+
+export const fetchProviderStatus = async (): Promise<ProviderStatusCatalog> =>
+  fetchResource({
+    fallback: EMPTY_PROVIDER_STATUS,
+    endpoint: '/settings/providers/status',
+    label: 'fetchProviderStatus',
+  });
+
+export const fetchProviderHealth = async (): Promise<ProviderHealthCatalog> =>
+  fetchResource({
+    fallback: EMPTY_PROVIDER_HEALTH,
+    endpoint: '/settings/providers/health',
+    label: 'fetchProviderHealth',
   });
 
 export const fetchScmCredentials = async (): Promise<ScmCredential[]> =>
@@ -317,28 +519,26 @@ export const createGithubTemplateRepo = async (
 export const fetchDeploys = async (): Promise<Deploy[]> =>
   fetchResource({ fallback: EMPTY_DEPLOYS, endpoint: '/deploys', label: 'fetchDeploys' });
 
-export type GitCommit = {
+export type ScmCommit = {
   sha: string;
   message: string;
   author: string;
   date: string;
 };
 
-export const fetchGithubCommits = async (
-  owner: string,
-  repo: string,
+export const fetchScmCommits = async (
+  repoUrl: string,
   branch?: string,
   projectId?: string,
-): Promise<GitCommit[]> => {
+): Promise<ScmCommit[]> => {
   const query = new URLSearchParams();
-  query.set('owner', owner);
-  query.set('repo', repo);
+  query.set('repoUrl', repoUrl);
   if (branch) query.set('branch', branch);
   if (projectId) query.set('projectId', projectId);
   return fetchResource({
-    fallback: [] as GitCommit[],
-    endpoint: `/scm/github/commits?${query.toString()}`,
-    label: 'fetchGithubCommits',
+    fallback: [] as ScmCommit[],
+    endpoint: `/scm/commits?${query.toString()}`,
+    label: 'fetchScmCommits',
   });
 };
 
@@ -574,6 +774,7 @@ export const createService = async (payload: Partial<Service>): Promise<Service>
     name: payload.name ?? 'new-service',
     type: payload.type ?? 'microservice',
     status: payload.status ?? 'pending',
+    managementMode: payload.managementMode ?? 'managed',
     projectId: payload.projectId ?? 'proj-1',
     replicas: payload.replicas ?? 1,
     cpu: payload.cpu ?? 40,
@@ -593,6 +794,7 @@ export const updateService = async (serviceId: string, payload: Partial<Service>
     name: payload.name ?? '',
     type: payload.type ?? 'microservice',
     status: payload.status ?? 'pending',
+    managementMode: payload.managementMode ?? 'managed',
     projectId: payload.projectId ?? '',
     replicas: payload.replicas ?? 1,
     cpu: payload.cpu ?? 40,

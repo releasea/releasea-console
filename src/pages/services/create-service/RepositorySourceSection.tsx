@@ -69,8 +69,8 @@ export function RepositorySourceSection({
                   : 'border-border bg-muted/30 text-muted-foreground'
               )}
             >
-              <span className="text-sm font-medium">Use existing repo</span>
-              <p className="text-xs text-muted-foreground mt-1">Connect a repository you already manage</p>
+              <span className="text-sm font-medium">Adopt existing repo</span>
+              <p className="text-xs text-muted-foreground mt-1">Connect a repository you already manage outside Releasea</p>
             </button>
           </div>
         </div>
