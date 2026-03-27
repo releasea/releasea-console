@@ -9,7 +9,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { DangerZone } from '@/components/service/DangerZone';
 import { EnvironmentVariablesSection } from '@/forms/components/EnvironmentVariablesSection';
 import { useServiceSettingsFormStore } from '@/forms/store/service-settings-form-store';
-import type { DeployStrategyType } from '@/types/releasea';
+import type { DeployStrategyType, ServiceManagementMode } from '@/types/releasea';
 import { Power } from 'lucide-react';
 import { frameworkOptions } from '../constants';
 import {
@@ -25,6 +25,7 @@ export const SettingsTab = () => {
     projects,
     projectId,
     onProjectChange,
+    management,
     source,
     runtime,
     deployment,
@@ -132,6 +133,66 @@ export const SettingsTab = () => {
               </SelectContent>
             </Select>
           </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Management mode"
+        description="Choose whether Releasea actively deploys this service or only tracks it."
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {([
+              {
+                value: 'managed',
+                title: 'Managed by Releasea',
+                description: 'Releasea can build, deploy, and operate this service.',
+              },
+              {
+                value: 'observed',
+                title: 'Observed only',
+                description: 'Releasea tracks this service, but deploy actions stay disabled.',
+              },
+            ] as const).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => management.setMode(option.value as ServiceManagementMode)}
+                className={`h-full rounded-lg border px-4 py-3 text-left transition-colors ${
+                  management.mode === option.value
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border bg-muted/30 text-muted-foreground'
+                }`}
+              >
+                <span className="text-sm font-medium">{option.title}</span>
+                <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
+              </button>
+            ))}
+          </div>
+          {management.mode === 'observed' && (
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Releasea will keep service settings and runtime visibility, but deploy and promote actions stay blocked
+              until you switch this service back to managed mode.
+            </div>
+          )}
+          {management.mode === 'managed' && management.requiresManagedTransitionReview && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground space-y-3">
+              <p>
+                This service is currently observed in production state. Before switching it back to managed mode,
+                review the readiness checklist for <span className="font-medium text-foreground">{management.currentEnvironmentLabel}</span>.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-foreground">
+                  {management.blockingRequirementCount > 0
+                    ? `${management.blockingRequirementCount} requirement${management.blockingRequirementCount === 1 ? '' : 's'} still missing`
+                    : 'All required checks are ready'}
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={management.openReadinessDialog}>
+                  Review readiness
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </SettingsSection>
 
@@ -528,11 +589,15 @@ export const SettingsTab = () => {
                   />
                 </div>
                 <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3 md:col-span-2">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
-                    <p className="text-xs text-muted-foreground">Trigger deploys on repository updates.</p>
-                  </div>
-                  <Switch checked={source.autoDeploy} onCheckedChange={source.setAutoDeploy} />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
+                  <p className="text-xs text-muted-foreground">Trigger deploys on repository updates.</p>
+                </div>
+                  <Switch
+                    checked={source.autoDeploy}
+                    onCheckedChange={source.setAutoDeploy}
+                    disabled={management.mode === 'observed'}
+                  />
                 </div>
               </div>
             ) : (
@@ -711,7 +776,11 @@ export const SettingsTab = () => {
                   <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
                   <p className="text-xs text-muted-foreground">Deploy a new build on updates.</p>
                 </div>
-                <Switch checked={source.autoDeploy} onCheckedChange={source.setAutoDeploy} />
+                <Switch
+                  checked={source.autoDeploy}
+                  onCheckedChange={source.setAutoDeploy}
+                  disabled={management.mode === 'observed'}
+                />
               </div>
             </div>
           </SettingsSection>

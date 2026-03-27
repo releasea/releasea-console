@@ -39,6 +39,9 @@ import {
   deleteRegistryCredential,
   deleteScmCredential,
   fetchPlatformSettings,
+  fetchProviderCatalog,
+  fetchProviderHealth,
+  fetchProviderStatus,
   fetchProjects,
   fetchRegistryCredentials,
   fetchScmCredentials,
@@ -53,6 +56,12 @@ import { usePlatformPreferences, type PlatformPreferences } from '@/contexts/Pla
 import type {
   CredentialScope,
   PlatformIntegration,
+  ProviderCatalog,
+  ProviderHealthCatalog,
+  ProviderHealthCheck,
+  ProviderDefinition,
+  ProviderStatusCatalog,
+  ProviderStatus,
   PlatformSettings,
   Project,
   RegistryCredential,
@@ -110,6 +119,10 @@ const SettingsPage = () => {
   });
 
   const [integrations, setIntegrations] = useState<PlatformIntegration[]>([]);
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalog | null>(null);
+  const [providerHealth, setProviderHealth] = useState<ProviderHealthCatalog | null>(null);
+  const [providerStatus, setProviderStatus] = useState<ProviderStatusCatalog | null>(null);
+  const [isRunningProviderHealth, setIsRunningProviderHealth] = useState(false);
   const [secretProviders, setSecretProviders] = useState<SecretProvider[]>([]);
   const [defaultSecretProviderId, setDefaultSecretProviderId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -179,8 +192,14 @@ const SettingsPage = () => {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const data = await fetchPlatformSettings();
+      const [data, catalog, status] = await Promise.all([
+        fetchPlatformSettings(),
+        fetchProviderCatalog(),
+        fetchProviderStatus(),
+      ]);
       if (!active) return;
+      setProviderCatalog(catalog);
+      setProviderStatus(status);
       setOrgName(data.organization?.name ?? '');
       setOrgSlug(data.organization?.slug ?? '');
       setApiUrl(data.organization?.apiUrl ?? '');
@@ -201,6 +220,34 @@ const SettingsPage = () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!providerCatalog) return;
+
+    const nextScmProvider =
+      providerCatalog.scm.providers.find((provider) => provider.id === scmProvider)?.id ??
+      providerCatalog.scm.defaultProvider ??
+      providerCatalog.scm.providers[0]?.id;
+    if (nextScmProvider && nextScmProvider !== scmProvider) {
+      setScmProvider(nextScmProvider);
+    }
+
+    const nextRegistryProvider =
+      providerCatalog.registry.providers.find((provider) => provider.id === registryProvider)?.id ??
+      providerCatalog.registry.defaultProvider ??
+      providerCatalog.registry.providers[0]?.id;
+    if (nextRegistryProvider && nextRegistryProvider !== registryProvider) {
+      setRegistryProvider(nextRegistryProvider);
+    }
+
+    const nextSecretProvider =
+      providerCatalog.secrets.providers.find((provider) => provider.id === secretProviderType)?.id ??
+      providerCatalog.secrets.defaultProvider ??
+      providerCatalog.secrets.providers[0]?.id;
+    if (nextSecretProvider && nextSecretProvider !== secretProviderType) {
+      setSecretProviderType(nextSecretProvider as SecretProviderType);
+    }
+  }, [providerCatalog, registryProvider, scmProvider, secretProviderType]);
 
   useEffect(() => {
     let active = true;
@@ -256,6 +303,139 @@ const SettingsPage = () => {
     return '';
   };
 
+  const formatCapabilityLabel = (value: string) =>
+    value
+      .split('-')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+
+  const providerStatusSections = providerStatus
+    ? [
+        providerStatus.scm,
+        providerStatus.registry,
+        providerStatus.secrets,
+        providerStatus.identity,
+        providerStatus.notifications,
+      ]
+    : [];
+  const providerHealthSections = providerHealth
+    ? [
+        providerHealth.scm,
+        providerHealth.registry,
+        providerHealth.secrets,
+        providerHealth.identity,
+        providerHealth.notifications,
+      ]
+    : [];
+
+  const resolveProviderStatus = (kind: 'scm' | 'registry' | 'secrets' | 'identity' | 'notifications', providerId?: string) =>
+    providerStatus?.[kind].providers.find((provider) => provider.id === providerId) ?? null;
+  const resolveCatalogProviderStatus = (kind: ProviderCatalog['scm']['kind'], providerId: string) =>
+    providerStatusSections.find((section) => section.kind === kind)?.providers.find((provider) => provider.id === providerId) ?? null;
+
+  const formatProviderState = (state: ProviderStatus['state']) =>
+    state
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+
+  const providerStateBadgeClass = (state: ProviderStatus['state']) => {
+    if (state === 'configured') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+    if (state === 'partial') return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
+    if (state === 'disabled') return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+    return 'border-border/60 bg-muted/30 text-muted-foreground';
+  };
+
+  const formatProviderHealthState = (state: ProviderHealthCheck['state']) =>
+    state
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+
+  const providerHealthBadgeClass = (state: ProviderHealthCheck['state']) => {
+    if (state === 'healthy') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+    if (state === 'unhealthy') return 'border-red-500/30 bg-red-500/10 text-red-300';
+    if (state === 'unsupported') return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
+    return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+  };
+
+  const selectedScmProviderMeta =
+    providerCatalog?.scm.providers.find((provider) => provider.id === scmProvider) ?? null;
+  const selectedRegistryProviderMeta =
+    providerCatalog?.registry.providers.find((provider) => provider.id === registryProvider) ?? null;
+  const selectedSecretProviderMeta =
+    providerCatalog?.secrets.providers.find((provider) => provider.id === secretProviderType) ?? null;
+  const selectedScmProviderStatus = resolveProviderStatus('scm', scmProvider);
+  const selectedRegistryProviderStatus = resolveProviderStatus('registry', registryProvider);
+  const selectedSecretProviderStatus = resolveProviderStatus('secrets', secretProviderType);
+  const providerCatalogSections = providerCatalog
+    ? [
+        providerCatalog.scm,
+        providerCatalog.registry,
+        providerCatalog.secrets,
+        providerCatalog.identity,
+        providerCatalog.notifications,
+      ]
+    : [];
+
+  const renderProviderMeta = (provider: ProviderDefinition | null, status: ProviderStatus | null, emptyMessage: string) => (
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+      {status ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className={`text-[10px] ${providerStateBadgeClass(status.state)}`}>
+            {formatProviderState(status.state)}
+          </Badge>
+          {status.default ? (
+            <Badge variant="outline" className="text-[10px]">
+              Default
+            </Badge>
+          ) : null}
+          {typeof status.resourceCount === 'number' && status.resourceCount > 0 ? (
+            <Badge variant="outline" className="text-[10px]">
+              {status.resourceCount} configured
+            </Badge>
+          ) : null}
+        </div>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {provider?.description ?? emptyMessage}
+      </p>
+      {status?.message ? (
+        <p className="text-xs text-muted-foreground/90">
+          {status.message}
+        </p>
+      ) : null}
+      {provider?.authModes?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {provider.authModes.map((mode) => (
+            <Badge key={mode} variant="outline" className="text-[10px]">
+              Auth: {formatCapabilityLabel(mode)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      {provider?.configFields?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {provider.configFields.map((field) => (
+            <Badge key={field} variant="outline" className="text-[10px]">
+              Config: {formatCapabilityLabel(field)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      {provider?.capabilities?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {provider.capabilities.map((capability) => (
+            <Badge key={capability} variant="outline" className="text-[10px]">
+              {formatCapabilityLabel(capability)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
   const refreshCredentials = async () => {
     const [scmData, registryData] = await Promise.all([
       fetchScmCredentials(),
@@ -263,6 +443,30 @@ const SettingsPage = () => {
     ]);
     setScmCredentials(Array.isArray(scmData) ? scmData : []);
     setRegistryCredentials(Array.isArray(registryData) ? registryData : []);
+    setProviderHealth(null);
+    const status = await fetchProviderStatus();
+    setProviderStatus(status);
+  };
+
+  const refreshProviderStatus = async () => {
+    setProviderHealth(null);
+    const status = await fetchProviderStatus();
+    setProviderStatus(status);
+  };
+
+  const handleRunProviderHealthChecks = async () => {
+    setIsRunningProviderHealth(true);
+    const health = await fetchProviderHealth();
+    setProviderHealth(health);
+    setIsRunningProviderHealth(false);
+
+    const categories = [health.scm, health.registry, health.secrets, health.identity, health.notifications];
+    const healthy = categories.reduce((sum, category) => sum + category.healthy, 0);
+    const unhealthy = categories.reduce((sum, category) => sum + category.unhealthy, 0);
+    toast({
+      title: 'Provider health checks completed',
+      description: `${healthy} healthy, ${unhealthy} unhealthy.`,
+    });
   };
 
   const refreshTemplates = async () => {
@@ -444,6 +648,7 @@ const SettingsPage = () => {
     };
     await updatePlatformSettings(payload);
     setIsSaving(false);
+    await refreshProviderStatus();
     toast({
       title: 'Settings saved',
       description: 'Your platform settings have been updated.',
@@ -925,9 +1130,11 @@ const SettingsPage = () => {
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="github">GitHub</SelectItem>
-                        <SelectItem value="gitlab">GitLab</SelectItem>
-                        <SelectItem value="bitbucket">Bitbucket</SelectItem>
+                        {(providerCatalog?.scm.providers ?? []).map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            {provider.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -990,6 +1197,13 @@ const SettingsPage = () => {
                       </Select>
                     </div>
                   )}
+                  <div className="space-y-2 md:col-span-2">
+                    {renderProviderMeta(
+                      selectedScmProviderMeta,
+                      selectedScmProviderStatus,
+                      'Select an SCM provider to review supported authentication modes and capabilities.',
+                    )}
+                  </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label>{scmAuthType === 'token' ? 'Access Token' : 'SSH Private Key'}</Label>
                     <Input
@@ -1108,11 +1322,11 @@ const SettingsPage = () => {
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="docker">Docker Registry</SelectItem>
-                        <SelectItem value="ghcr">GitHub Container Registry</SelectItem>
-                        <SelectItem value="ecr">AWS ECR</SelectItem>
-                        <SelectItem value="gcr">Google GCR</SelectItem>
-                        <SelectItem value="acr">Azure ACR</SelectItem>
+                        {(providerCatalog?.registry.providers ?? []).map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            {provider.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1137,6 +1351,13 @@ const SettingsPage = () => {
                         <SelectItem value="service">Service</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    {renderProviderMeta(
+                      selectedRegistryProviderMeta,
+                      selectedRegistryProviderStatus,
+                      'Select a registry provider to review supported auth and delivery capabilities.',
+                    )}
                   </div>
                   {registryScope === 'project' && (
                     <div className="space-y-2 md:col-span-2">
@@ -1306,11 +1527,20 @@ const SettingsPage = () => {
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="vault">Vault</SelectItem>
-                        <SelectItem value="aws">AWS Secrets Manager</SelectItem>
-                        <SelectItem value="gcp">GCP Secret Manager</SelectItem>
+                        {(providerCatalog?.secrets.providers ?? []).map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            {provider.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    {renderProviderMeta(
+                      selectedSecretProviderMeta,
+                      selectedSecretProviderStatus,
+                      'Select a secrets provider to review required configuration fields and capabilities.',
+                    )}
                   </div>
                   {secretProviderType === 'vault' && (
                     <>
@@ -1439,6 +1669,144 @@ const SettingsPage = () => {
                   onChange={(e) => setApiUrl(e.target.value)}
                   className="bg-muted/40 font-mono"
                 />
+              </div>
+            </SettingsSection>
+
+            {providerCatalogSections.length > 0 && (
+              <SettingsSection
+                title="Provider catalog"
+                description="Built-in provider families currently available in this Releasea installation."
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {providerCatalogSections.map((category) => (
+                    <div key={category.kind} className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">{category.label}</p>
+                        <p className="text-xs text-muted-foreground">{category.description}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {category.providers.map((provider) => {
+                          const status = resolveCatalogProviderStatus(category.kind, provider.id);
+                          return (
+                            <div
+                              key={`${category.kind}-${provider.id}`}
+                              className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5 text-[10px] space-y-1"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-foreground">{provider.label}</span>
+                                {status ? (
+                                  <Badge variant="outline" className={providerStateBadgeClass(status.state)}>
+                                    {formatProviderState(status.state)}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              {status?.message ? (
+                                <p className="text-[10px] text-muted-foreground">{status.message}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SettingsSection>
+            )}
+
+            <SettingsSection
+              title="Provider health checks"
+              description="Run live validation against configured providers. This does not run automatically to avoid slowing down the settings page."
+            >
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Live provider validation</p>
+                    <p className="text-xs text-muted-foreground">
+                      Checks reachability and credential validity for configured SCM, registry, secrets and identity providers.
+                    </p>
+                  </div>
+                  <Button onClick={() => void handleRunProviderHealthChecks()} disabled={isRunningProviderHealth} className="gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    {isRunningProviderHealth ? 'Running checks...' : 'Run health checks'}
+                  </Button>
+                </div>
+
+                {providerHealthSections.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                    Run the checks to inspect the current provider connectivity and configuration health.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    {providerHealthSections.map((category) => {
+                      const catalogCategory = providerCatalogSections.find((section) => section.kind === category.kind);
+                      return (
+                        <div key={`health-${category.kind}`} className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground">{catalogCategory?.label ?? category.kind}</p>
+                              <p className="text-xs text-muted-foreground">{catalogCategory?.description}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                {category.healthy} healthy
+                              </Badge>
+                              <Badge variant="outline" className="border-red-500/30 bg-red-500/10 text-red-300">
+                                {category.unhealthy} unhealthy
+                              </Badge>
+                              {typeof category.unsupported === 'number' && category.unsupported > 0 ? (
+                                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                  {category.unsupported} unsupported
+                                </Badge>
+                              ) : null}
+                              {typeof category.disabled === 'number' && category.disabled > 0 ? (
+                                <Badge variant="outline" className="border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                  {category.disabled} disabled
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {category.checks.length === 0 ? (
+                            <div className="rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+                              No configured resources to validate in this category.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {category.checks.map((check) => (
+                                <div key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`} className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium text-foreground">
+                                      {check.resourceLabel || check.providerLabel}
+                                    </span>
+                                    <Badge variant="outline" className={`text-[10px] ${providerHealthBadgeClass(check.state)}`}>
+                                      {formatProviderHealthState(check.state)}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {check.providerLabel}
+                                    </Badge>
+                                    {check.scope ? (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {scopeLabel(check.scope as CredentialScope)}
+                                      </Badge>
+                                    ) : null}
+                                    {check.default ? (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        Default
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  {check.message ? (
+                                    <p className="text-xs text-muted-foreground">{check.message}</p>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </SettingsSection>
           </TabsContent>

@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential } from '@/types/releasea';
+import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential, ServiceManagementMode } from '@/types/releasea';
 import { toast } from '@/hooks/use-toast';
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ import {
   checkGithubTemplateRepoAvailability,
   createGithubTemplateRepo,
   createService,
+  fetchDiscoveredWorkloads,
   fetchEnvironments,
   performAction,
   updateService,
@@ -37,6 +38,7 @@ import {
 } from '@/lib/data';
 import type {
   EnvironmentConfig,
+  DiscoveredWorkload,
   Project,
   SecretProvider,
   ServiceTemplate as ServiceTemplatePayload,
@@ -70,6 +72,7 @@ export default function CreateService() {
   const [environments, setEnvironments] = useState<EnvironmentConfig[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [workerRegistrations, setWorkerRegistrations] = useState<WorkerRegistration[]>([]);
+  const [discoveredWorkloads, setDiscoveredWorkloads] = useState<DiscoveredWorkload[]>([]);
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const originProject = originProjectId
     ? projects.find((project) => project.id === originProjectId)
@@ -96,6 +99,8 @@ export default function CreateService() {
   const [dockerfilePath, setDockerfilePath] = useState('./Dockerfile');
 
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
+  const [managementMode, setManagementMode] = useState<ServiceManagementMode>('managed');
+  const [selectedDiscoveredWorkloadId, setSelectedDiscoveredWorkloadId] = useState('');
 
   const [port, setPort] = useState('3000');
   const [healthCheckPath, setHealthCheckPath] = useState('/healthz');
@@ -143,11 +148,12 @@ export default function CreateService() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [projectsData, environmentsData, workersData, registrationsData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
+      const [projectsData, environmentsData, workersData, registrationsData, discoveredWorkloadsData, scmData, registryData, settingsData, templatesData, profileData] = await Promise.all([
         fetchProjects(),
         fetchEnvironments(),
         fetchWorkers(),
         fetchWorkerRegistrations(),
+        fetchDiscoveredWorkloads(),
         fetchScmCredentials(),
         fetchRegistryCredentials(),
         fetchPlatformSettings(),
@@ -159,6 +165,7 @@ export default function CreateService() {
       setEnvironments(environmentsData);
       setWorkers(workersData);
       setWorkerRegistrations(registrationsData);
+      setDiscoveredWorkloads(discoveredWorkloadsData);
       setScmCredentials(scmData);
       setRegistryCredentials(registryData);
       setServiceTemplates(templatesData);
@@ -197,6 +204,18 @@ export default function CreateService() {
       setSourceType('git');
     }
   }, [repoMode, sourceType]);
+
+  useEffect(() => {
+    if (repoMode === 'template' && managementMode !== 'managed') {
+      setManagementMode('managed');
+    }
+  }, [repoMode, managementMode]);
+
+  useEffect(() => {
+    if (managementMode === 'observed' && autoDeploy) {
+      setAutoDeploy(false);
+    }
+  }, [managementMode, autoDeploy]);
 
   const serviceOptions = useMemo<CatalogTemplate[]>(
     () => mapCatalogTemplates(serviceTemplates),
@@ -263,6 +282,7 @@ export default function CreateService() {
 
   const templateRepoNameSuggestion = useMemo(() => normalizeRepoName(serviceName), [serviceName]);
   const isTemplateMode: boolean = repoMode === 'template';
+  const isObservedManagementMode = managementMode === 'observed';
   const isTemplateRepoChecking = isTemplateMode && templateRepoAvailability === 'checking';
   const isTemplateRepoAlreadyExists = isTemplateMode && templateRepoAvailability === 'exists';
   const hasConfiguredEnvironments = environments.length > 0;
@@ -341,6 +361,30 @@ export default function CreateService() {
   );
   const defaultTemplateRepoOwner =
     selectedProjectForForm?.owner?.trim() || projectRepoRef?.owner || TEMPLATE_OWNER;
+  const importableClusterWorkloads = useMemo(() => {
+    if (selectedType !== 'microservice' || isTemplateMode) {
+      return [] as DiscoveredWorkload[];
+    }
+    const expectedTemplateKind = selectedTemplateKind === 'scheduled-job' ? 'scheduled-job' : 'service';
+    return discoveredWorkloads.filter((workload) => {
+      const workloadTemplateKind = workload.templateKind ?? (workload.kind === 'CronJob' ? 'scheduled-job' : 'service');
+      return workloadTemplateKind === expectedTemplateKind;
+    });
+  }, [discoveredWorkloads, isTemplateMode, selectedTemplateKind, selectedType]);
+  const selectedDiscoveredWorkload = useMemo(
+    () => importableClusterWorkloads.find((workload) => workload.id === selectedDiscoveredWorkloadId) ?? null,
+    [importableClusterWorkloads, selectedDiscoveredWorkloadId],
+  );
+
+  useEffect(() => {
+    if (!selectedDiscoveredWorkloadId) {
+      return;
+    }
+    const stillAvailable = importableClusterWorkloads.some((workload) => workload.id === selectedDiscoveredWorkloadId);
+    if (!stillAvailable) {
+      setSelectedDiscoveredWorkloadId('');
+    }
+  }, [importableClusterWorkloads, selectedDiscoveredWorkloadId]);
 
   const gitBaseUrl = resolveGitBaseUrl(effectiveScmCredential?.provider);
   const templateRepoUrl = templateRepoNameSuggestion
@@ -526,6 +570,30 @@ export default function CreateService() {
     setRootDir('.');
   };
 
+  const applyDiscoveredWorkload = (workload: DiscoveredWorkload | null) => {
+    if (!workload) {
+      return;
+    }
+    setSelectedDiscoveredWorkloadId(workload.id);
+    setServiceName((current) => (current === 'my-service' || current.trim() === '' ? workload.name : current));
+    setSourceType('docker');
+    setRepoMode('existing');
+    setDockerImage(workload.primaryImage ?? workload.images[0] ?? '');
+    if (workload.port && workload.port > 0) {
+      setPort(String(workload.port));
+    }
+    if (workload.healthCheckPath?.trim()) {
+      setHealthCheckPath(workload.healthCheckPath.trim());
+    }
+    if (workload.replicas && workload.replicas > 0) {
+      setMinReplicas(String(workload.replicas));
+      setMaxReplicas(String(workload.replicas));
+    }
+    if ((workload.templateKind ?? 'service') === 'scheduled-job') {
+      setScheduleCron(workload.scheduleCron?.trim() || scheduleCron);
+    }
+  };
+
   const createServiceFormStore = {
     sourceType,
     setSourceType,
@@ -548,6 +616,51 @@ export default function CreateService() {
     updateEnvVar,
     removeEnvVar,
   };
+
+  const managementModeSection = !isTemplateMode ? (
+    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Management Mode</h3>
+        <p className="text-xs text-muted-foreground">
+          Choose whether Releasea actively deploys this service or only keeps visibility and settings.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {([
+          {
+            value: 'managed',
+            title: 'Managed by Releasea',
+            description: 'Releasea can build, deploy, and operate this service.',
+          },
+          {
+            value: 'observed',
+            title: 'Observed only',
+            description: 'Releasea tracks the service, but deploy actions stay disabled.',
+          },
+        ] as const).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setManagementMode(option.value)}
+            className={cn(
+              'h-full rounded-lg border px-4 py-3 text-left transition-colors',
+              managementMode === option.value
+                ? 'border-primary bg-primary/10 text-foreground'
+                : 'border-border bg-muted/30 text-muted-foreground',
+            )}
+          >
+            <span className="text-sm font-medium">{option.title}</span>
+            <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
+          </button>
+        ))}
+      </div>
+      {isObservedManagementMode && (
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Auto-deploy is turned off for observed services. You can switch to managed mode later from the service settings.
+        </div>
+      )}
+    </section>
+  ) : null;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -629,6 +742,7 @@ export default function CreateService() {
       secretProviderId === 'inherit' ? '' : secretProviderId;
 
     const resolvedSourceType = isTemplateMode ? 'git' : (sourceType === 'docker' ? 'registry' : 'git');
+    const resolvedManagementMode: ServiceManagementMode = isTemplateMode ? 'managed' : managementMode;
     const isScheduledJob = selectedTemplateKind === 'scheduled-job';
     const deployTemplateId = isScheduledJob
       ? 'tpl-cronjob'
@@ -705,6 +819,7 @@ export default function CreateService() {
         dockerCommand,
         preDeployCommand,
         repoManaged: true,
+        managementMode: 'managed',
         ...(isScheduledJob
           ? {
             scheduleCron,
@@ -837,6 +952,7 @@ export default function CreateService() {
       dockerfilePath,
       dockerCommand,
       preDeployCommand,
+      managementMode: resolvedManagementMode,
       ...(isScheduledJob
         ? {
           scheduleCron,
@@ -864,15 +980,22 @@ export default function CreateService() {
       minReplicas: Number(minReplicas),
       maxReplicas: Number(maxReplicas),
       profileId: profileId || undefined,
-      autoDeploy,
+      autoDeploy: resolvedManagementMode === 'observed' ? false : autoDeploy,
       pauseOnIdle: selectedType === 'microservice' ? pauseOnIdle : false,
       pauseIdleTimeoutSeconds: selectedType === 'microservice' ? pauseIdleTimeoutSeconds : undefined,
     });
 
-    toast({
-      title: 'Service created',
-      description: `Service "${serviceName}" was created successfully.`,
-    });
+    toast(
+      resolvedManagementMode === 'observed'
+        ? {
+            title: 'Service adopted in observed mode',
+            description: `Releasea will track "${serviceName}" without triggering deploys.`,
+          }
+        : {
+            title: 'Service created',
+            description: `Service "${serviceName}" was created successfully.`,
+          },
+    );
 
     setIsLoading(false);
     navigate(`/services/${createdService.id}`);
@@ -1082,6 +1205,59 @@ export default function CreateService() {
                         </div>
                       )}
                     </section>
+
+                    {managementModeSection}
+
+                    {!isTemplateMode && (
+                      <section className="rounded-lg border border-border bg-card p-5 space-y-4">
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">Import From Cluster</h3>
+                          <p className="text-xs text-muted-foreground">
+                            Pre-fill this service from a workload discovered by an active worker in the application namespace.
+                          </p>
+                        </div>
+                        {importableClusterWorkloads.length > 0 ? (
+                          <div className="space-y-3">
+                            <div className="space-y-2">
+                              <Label>Detected workload</Label>
+                              <Select
+                                value={selectedDiscoveredWorkloadId || 'manual'}
+                                onValueChange={(value) => {
+                                  if (value === 'manual') {
+                                    setSelectedDiscoveredWorkloadId('');
+                                    return;
+                                  }
+                                  const nextWorkload = importableClusterWorkloads.find((workload) => workload.id === value) ?? null;
+                                  applyDiscoveredWorkload(nextWorkload);
+                                }}
+                              >
+                                <SelectTrigger className="bg-muted/50">
+                                  <SelectValue placeholder="Select a discovered workload..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="manual">Manual configuration</SelectItem>
+                                  {importableClusterWorkloads.map((workload) => (
+                                    <SelectItem key={workload.id} value={workload.id}>
+                                      {workload.name} · {workload.environment} · {workload.kind}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {selectedDiscoveredWorkload && (
+                              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                {selectedDiscoveredWorkload.cluster} · ns: {selectedDiscoveredWorkload.namespace}
+                                {selectedDiscoveredWorkload.primaryImage ? ` · image: ${selectedDiscoveredWorkload.primaryImage}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            No compatible workloads were discovered yet. Keep the form manual or wait for a worker heartbeat to sync the cluster inventory.
+                          </div>
+                        )}
+                      </section>
+                    )}
 
                     <section className="rounded-lg border border-border bg-card p-5 space-y-4">
                       <h3 className="text-sm font-semibold text-foreground">Runtime Settings</h3>
@@ -1413,7 +1589,11 @@ export default function CreateService() {
                                 <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
                                 <p className="text-xs text-muted-foreground">Trigger deploys on repository updates.</p>
                               </div>
-                              <Switch checked={autoDeploy} onCheckedChange={setAutoDeploy} />
+                              <Switch
+                                checked={autoDeploy}
+                                onCheckedChange={setAutoDeploy}
+                                disabled={isObservedManagementMode}
+                              />
                             </div>
                           </>
                         )}
@@ -1436,6 +1616,8 @@ export default function CreateService() {
                         />
                       </div>
                     </section>
+
+                    {managementModeSection}
 
                     <section className="rounded-lg border border-border bg-card p-5 space-y-4">
                       <h3 className="text-sm font-semibold text-foreground">Build Settings</h3>
@@ -1502,7 +1684,11 @@ export default function CreateService() {
                             <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
                             <p className="text-xs text-muted-foreground">Deploy a new build on updates.</p>
                           </div>
-                          <Switch checked={autoDeploy} onCheckedChange={setAutoDeploy} />
+                          <Switch
+                            checked={autoDeploy}
+                            onCheckedChange={setAutoDeploy}
+                            disabled={isObservedManagementMode}
+                          />
                         </div>
                       </div>
                     </section>
