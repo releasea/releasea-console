@@ -26,7 +26,9 @@ type SummaryTabProps = {
   isServiceActive: boolean;
   instanceLabel: string;
   viewEnvLabel: string;
+  /** General status shown to users (runtime + active deploy phase). */
   displayStatus: ServiceStatus | DeployStatusValue;
+  /** Strategy phase summary (e.g. "Deploying", "Validating") when deploy is in progress. */
   latestDeployStrategySummary?: string;
   repositoryUrl: string | null;
   dockerImageLabel: string | null;
@@ -45,6 +47,7 @@ type SummaryTabProps = {
   onOpenVersionPicker: () => void;
   isCanaryStrategy?: boolean;
   canaryPercent?: number;
+  /** True when the latest deploy in this env completed successfully (canary has a version to promote). */
   canPromoteCanary?: boolean;
   onPromoteCanary?: () => void;
   promoteCanaryInProgress?: boolean;
@@ -125,418 +128,457 @@ export const SummaryTab = ({
           : 'border-border/60 text-muted-foreground';
 
   return (
-    <TabsContent value="summary" className="space-y-5">
-      {/* Deploy Action Strip */}
-      <div className="rounded-lg border border-border bg-card px-4 py-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={displayStatus} className="normal-case" />
-            {latestDeployStrategySummary && (
-              <span className="text-xs text-muted-foreground">{latestDeployStrategySummary}</span>
-            )}
-            <Badge variant={isServiceActive ? 'secondary' : 'outline'} className="text-[10px] normal-case h-5">
-              {isServiceActive ? 'Active' : 'Inactive'}
-            </Badge>
-            <span className="text-xs text-muted-foreground/40">·</span>
-            <span className="text-xs text-muted-foreground">{instanceLabel}</span>
-            <span className="text-xs text-muted-foreground/40">·</span>
-            <span className="text-xs text-muted-foreground">{viewEnvLabel}</span>
-            {/* Live indicator */}
-            <span className="text-xs text-muted-foreground/40">·</span>
-            {liveSyncError ? (
-              <span className="inline-flex items-center gap-1 text-xs text-yellow-500">
-                <AlertTriangle className="w-3 h-3" />
-                Sync delayed
-              </span>
-            ) : isLive ? (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                </span>
-                Live
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-                Idle
-              </span>
-            )}
+    <TabsContent value="summary" className="space-y-6">
+    <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-6 items-stretch">
+      <div className="rounded-lg border border-border bg-card p-5 space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Summary</p>
+            <h3 className="text-lg font-semibold text-foreground">{serviceTypeLabel}</h3>
+            <p className="text-sm text-muted-foreground">
+              {service.name} • {runtimeLabel}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {deployDisabled && deployRestrictionMessage ? (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex cursor-not-allowed">
-                      <Button size="sm" className="gap-2 pointer-events-none" disabled aria-busy={deployBusy}>
-                        {deployBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                        {deployBusy ? `Deploying...` : `Deploy to ${viewEnvLabel}`}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs bg-yellow-50 border-yellow-200 text-yellow-900 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200">
-                    {deployRestrictionMessage}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="gap-2" disabled={deployDisabled} aria-busy={deployBusy}>
-                    {deployBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                    {deployBusy ? `Deploying...` : `Deploy to ${viewEnvLabel}`}
-                    <ChevronDown className="w-3 h-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem onClick={onDeployLatest}>
-                    <Rocket className="w-4 h-4 mr-2" />
-                    Deploy latest version
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onOpenVersionPicker}>
-                    <ListOrdered className="w-4 h-4 mr-2" />
-                    Deploy specific version
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    Versions are loaded from deployment history.
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <StatusBadge
+              status={displayStatus}
+              className="normal-case"
+            />
+            {latestDeployStrategySummary && (
+              <span className="text-xs text-muted-foreground">
+                {latestDeployStrategySummary}
+              </span>
             )}
-            {isCanaryStrategy && onPromoteCanary && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-2"
-                onClick={onPromoteCanary}
-                disabled={!canPromoteCanary || promoteCanaryInProgress || deployDisabled}
-                aria-busy={promoteCanaryInProgress}
-                title={!canPromoteCanary ? 'Complete a canary deploy successfully to enable promote' : undefined}
-              >
-                {promoteCanaryInProgress ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
-                {promoteCanaryInProgress ? 'Promoting...' : 'Promote 100%'}
-              </Button>
-            )}
+            <Badge
+              variant={isServiceActive ? 'secondary' : 'outline'}
+              className="text-xs normal-case"
+            >
+              {isServiceActive ? 'Active' : 'Inactive'}
+            </Badge>
+            <Badge variant="outline" className="text-xs normal-case">
+              {serviceTypeLabel}
+            </Badge>
+            <Badge variant={managementMode === 'observed' ? 'secondary' : 'outline'} className="text-xs normal-case">
+              {managementMode === 'observed' ? 'Observed' : 'Managed'}
+            </Badge>
           </div>
         </div>
 
-        {/* Policy warnings inline */}
-        {deployPolicyPreflightLoading && (
-          <div className="mt-2 text-xs text-muted-foreground">Checking deploy policy for {viewEnvLabel}...</div>
-        )}
-        {!deployPolicyPreflightLoading && deployPolicyViolations.length > 0 && (
-          <div className="mt-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2.5 text-xs">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-              <div className="space-y-0.5">
-                <p className="font-medium text-foreground">Deploy policy has blockers</p>
-                <ul className="space-y-0.5 text-muted-foreground">
-                  {deployPolicyViolations.map((violation, index) => (
-                    <li key={`${violation.code}-${index}`}>{violation.message}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Instance</p>
+            <p className="font-medium text-foreground">{instanceLabel}</p>
           </div>
-        )}
-        {managementMode === 'observed' && (
-          <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">Observed mode</p>
-            <ul className="list-disc pl-5 space-y-0.5">
-              {OBSERVED_MODE_RESTRICTIONS.slice(0, 3).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+          <div>
+            <p className="text-xs text-muted-foreground">Environment</p>
+            <p className="font-medium text-foreground">{viewEnvLabel}</p>
           </div>
-        )}
-      </div>
-
-      {/* Metrics + Service Info Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-5">
-        {/* Service Info */}
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/20">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Service Configuration</h3>
-              <span className="text-xs text-muted-foreground">{runtimeLabel}</span>
-            </div>
-          </div>
-          <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Repository</p>
-              {safeRepositoryURL?.href ? (
+          <div>
+            <p className="text-xs text-muted-foreground">Repository</p>
+            {safeRepositoryURL?.href ? (
+              <div className="flex flex-wrap items-center gap-2">
                 <a
                   href={safeRepositoryURL.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-mono text-xs text-primary hover:underline inline-flex items-center gap-1 mt-0.5"
+                  className="font-mono text-xs text-primary hover:underline inline-flex items-center gap-1"
                 >
                   {safeRepositoryURL.display}
                   <ExternalLink className="w-3 h-3" />
                 </a>
-              ) : dockerImageLabel ? (
-                <p className="text-xs font-mono text-foreground mt-0.5 truncate">{dockerImageLabel}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">Managed</p>
-              )}
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Branch</p>
-              <p className="font-mono text-xs text-foreground mt-0.5">{branchName}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Dockerfile</p>
-              <p className="font-mono text-xs text-foreground mt-0.5">{dockerfileLabel}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Context</p>
-              <p className="font-mono text-xs text-foreground mt-0.5">{dockerContextLabel}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Env Vars</p>
-              <p className="text-xs text-foreground mt-0.5">{envCountLabel}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Health</p>
-              <p className="font-mono text-xs text-foreground mt-0.5">{healthPath}</p>
-            </div>
+                <Badge variant="secondary" className="text-xs font-mono">
+                  {branchName}
+                </Badge>
+              </div>
+            ) : safeRepositoryURL?.display ? (
+              <p className="text-sm font-mono text-muted-foreground">{safeRepositoryURL.display}</p>
+            ) : dockerImageLabel ? (
+              <p className="text-sm font-mono text-foreground">{dockerImageLabel}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Managed by Releasea</p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Dockerfile</p>
+            <p className="font-mono text-sm text-foreground">{dockerfileLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Context</p>
+            <p className="font-mono text-sm text-foreground">{dockerContextLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Environment Variables</p>
+            <p className="text-sm text-foreground">{envCountLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Health Path</p>
+            <p className="font-mono text-sm text-foreground">{healthPath}</p>
           </div>
         </div>
 
-        {/* Metrics Cards */}
-        <div className="grid grid-cols-2 xl:grid-cols-1 gap-3 xl:w-56">
-          {service.type === 'static-site' ? (
-            <>
-              <div className="rounded-lg border border-border bg-card p-3.5">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Rocket className="w-3.5 h-3.5" />
-                  <span className="text-[11px] uppercase tracking-wider">Requests/min</span>
-                </div>
-                <div className="mt-1.5 text-lg font-semibold text-foreground tabular-nums">{requestsAvgLabel}</div>
-                <p className="text-[11px] text-muted-foreground">Peak {requestsPeakLabel}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-3.5">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Timer className="w-3.5 h-3.5" />
-                  <span className="text-[11px] uppercase tracking-wider">Latency p95</span>
-                </div>
-                <div className="mt-1.5 text-lg font-semibold text-foreground tabular-nums">{latencyAvgLabel}</div>
-                <p className="text-[11px] text-muted-foreground">Peak {latencyPeakLabel}</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="rounded-lg border border-border bg-card p-3.5">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Cpu className="w-3.5 h-3.5" />
-                  <span className="text-[11px] uppercase tracking-wider">CPU</span>
-                </div>
-                <div className="mt-1.5 text-lg font-semibold text-foreground tabular-nums">{cpuAvgLabel}</div>
-                <p className="text-[11px] text-muted-foreground">Peak {cpuPeakLabel}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-3.5">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <HardDrive className="w-3.5 h-3.5" />
-                  <span className="text-[11px] uppercase tracking-wider">RAM</span>
-                </div>
-                <div className="mt-1.5 text-lg font-semibold text-foreground tabular-nums">{memoryAvgLabel}</div>
-                <p className="text-[11px] text-muted-foreground">Peak {memoryPeakLabel}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-3.5 col-span-2 xl:col-span-1">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Timer className="w-3.5 h-3.5" />
-                  <span className="text-[11px] uppercase tracking-wider">Latency p95</span>
-                </div>
-                <div className="mt-1.5 text-lg font-semibold text-foreground tabular-nums">{latencyAvgLabel}</div>
-                <p className="text-[11px] text-muted-foreground">Avg last hour</p>
-              </div>
-            </>
+        <div className="pt-3 border-t border-border/60 space-y-2">
+          {managementMode === 'observed' && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground space-y-2">
+              <p className="font-medium text-foreground">Observed mode operating rules</p>
+              <p>
+                This service is currently observed only. Releasea keeps visibility and settings, but operating control
+                stays locked until you switch it to managed mode.
+              </p>
+              <ul className="list-disc space-y-1 pl-5">
+                {OBSERVED_MODE_RESTRICTIONS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
           )}
+          {deployPolicyPreflightLoading && (
+            <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              Checking deploy policy for {viewEnvLabel}...
+            </div>
+          )}
+          {!deployPolicyPreflightLoading && deployPolicyViolations.length > 0 && (
+            <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-3 text-xs">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <div className="space-y-1">
+                  <p className="font-medium text-foreground">Deploy policy preflight has blockers</p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {deployPolicyViolations.map((violation, index) => (
+                      <li key={`${violation.code}-${index}`}>{violation.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {deployDisabled && deployRestrictionMessage ? (
+                <TooltipProvider delayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-not-allowed">
+                        <Button size="sm" className="gap-2 pointer-events-none" disabled aria-busy={deployBusy}>
+                          {deployBusy ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Rocket className="w-4 h-4" />
+                          )}
+                          {deployBusy ? `Deploying to ${viewEnvLabel}` : `Deploy to ${viewEnvLabel}`}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs bg-yellow-50 border-yellow-200 text-yellow-900 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200">
+                      {deployRestrictionMessage}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="gap-2" disabled={deployDisabled} aria-busy={deployBusy}>
+                      {deployBusy ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Rocket className="w-4 h-4" />
+                      )}
+                      {deployBusy ? `Deploying to ${viewEnvLabel}` : `Deploy to ${viewEnvLabel}`}
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuItem onClick={onDeployLatest}>
+                      <Rocket className="w-4 h-4 mr-2" />
+                      Deploy latest version
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onOpenVersionPicker}>
+                      <ListOrdered className="w-4 h-4 mr-2" />
+                      Deploy specific version
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                      Versions are loaded from deployment history.
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {isCanaryStrategy && onPromoteCanary && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={onPromoteCanary}
+                  disabled={!canPromoteCanary || promoteCanaryInProgress || deployDisabled}
+                  aria-busy={promoteCanaryInProgress}
+                  title={!canPromoteCanary ? 'Complete a canary deploy successfully to enable promote' : undefined}
+                >
+                  {promoteCanaryInProgress ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <TrendingUp className="w-4 h-4" />
+                  )}
+                  {promoteCanaryInProgress ? 'Promoting...' : 'Promote to 100%'}
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs">
+              {liveSyncError ? (
+                <span className="inline-flex items-center gap-1.5 text-yellow-500">
+                  <AlertTriangle className="w-3 h-3" />
+                  Live sync delayed
+                </span>
+              ) : isLive ? (
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  Live
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+                  Idle
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Release Intelligence */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border bg-muted/20 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
+      <div className="flex h-full flex-col gap-4">
+        {service.type === 'static-site' ? (
+          <>
+            <div className="flex flex-1 flex-col rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Rocket className="w-4 h-4" />
+                <span className="text-xs">Requests/min (avg)</span>
+              </div>
+              <div className="mt-2 text-xl font-semibold text-foreground">{requestsAvgLabel}</div>
+              <p className="text-xs text-muted-foreground mt-1">Peak {requestsPeakLabel}</p>
+            </div>
+            <div className="flex flex-1 flex-col rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Timer className="w-4 h-4" />
+              <span className="text-xs">Latency p95 (avg)</span>
+            </div>
+            <div className="mt-2 text-xl font-semibold text-foreground">{latencyAvgLabel}</div>
+            <p className="text-xs text-muted-foreground mt-1">Peak {latencyPeakLabel}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-1 flex-col rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Cpu className="w-4 h-4" />
+                <span className="text-xs">CPU (1h avg)</span>
+              </div>
+              <div className="mt-2 text-xl font-semibold text-foreground">{cpuAvgLabel}</div>
+              <p className="text-xs text-muted-foreground mt-1">Peak {cpuPeakLabel}</p>
+            </div>
+            <div className="flex flex-1 flex-col rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <HardDrive className="w-4 h-4" />
+                <span className="text-xs">RAM (used)</span>
+              </div>
+              <div className="mt-2 text-xl font-semibold text-foreground">{memoryAvgLabel}</div>
+              <p className="text-xs text-muted-foreground mt-1">Peak {memoryPeakLabel}</p>
+            </div>
+            <div className="flex flex-1 flex-col rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Timer className="w-4 h-4" />
+              <span className="text-xs">Latency p95</span>
+            </div>
+            <div className="mt-2 text-xl font-semibold text-foreground">{latencyAvgLabel}</div>
+            <p className="text-xs text-muted-foreground mt-1">Avg last hour</p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="rounded-lg border border-border bg-card p-4 space-y-4 lg:col-span-2">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-1">
             <h3 className="text-sm font-semibold text-foreground">Release Intelligence</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Compares latest release with current telemetry and previous successful deploy.
+            <p className="text-sm text-muted-foreground">
+              Compares the latest managed release with current telemetry and the immediately previous successful deploy.
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge variant="outline" className={`text-[10px] normal-case h-5 ${overallSloClasses}`}>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className={`text-xs normal-case ${overallSloClasses}`}>
               SLO: {overallSloState === 'unknown' ? 'unknown' : overallSloState}
             </Badge>
-            <Badge variant="outline" className={`text-[10px] normal-case h-5 ${rollbackClasses}`}>
+            <Badge variant="outline" className={`text-xs normal-case ${rollbackClasses}`}>
               Rollback: {rollbackState.replace('-', ' ')}
             </Badge>
           </div>
         </div>
-        <div className="p-4">
-          {releaseIntelligence ? (
-            <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-              <div className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <ShieldCheck className="w-4 h-4" />
-                  <span className="text-xs font-medium">SLO Snapshot</span>
+
+        {releaseIntelligence ? (
+          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-xs">SLO Snapshot</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Availability</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {releaseIntelligence.slo.availabilityPct == null ? '--' : `${releaseIntelligence.slo.availabilityPct}%`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Target {releaseIntelligence.slo.availabilityTargetPct}%
+                  </p>
                 </div>
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Availability</p>
-                    <p className="text-lg font-semibold text-foreground tabular-nums">
-                      {releaseIntelligence.slo.availabilityPct == null ? '--' : `${releaseIntelligence.slo.availabilityPct}%`}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">Target {releaseIntelligence.slo.availabilityTargetPct}%</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">5xx rate</p>
-                    <p className="text-lg font-semibold text-foreground tabular-nums">
-                      {releaseIntelligence.slo.errorRatePct == null ? '--' : `${releaseIntelligence.slo.errorRatePct}%`}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">Current window</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Latency p95</p>
-                    <p className="text-lg font-semibold text-foreground tabular-nums">
-                      {releaseIntelligence.slo.latencyP95AvgMs == null ? '--' : `${releaseIntelligence.slo.latencyP95AvgMs} ms`}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">Target {releaseIntelligence.slo.latencyTargetMs} ms</p>
-                  </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">5xx error rate</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {releaseIntelligence.slo.errorRatePct == null ? '--' : `${releaseIntelligence.slo.errorRatePct}%`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Current telemetry window</p>
                 </div>
-                <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
-                  Release <span className="font-mono text-foreground">{releaseIntelligence.latestReleaseLabel}</span>
-                  {releaseIntelligence.previousReleaseLabel ? (
-                    <> vs <span className="font-mono text-foreground">{releaseIntelligence.previousReleaseLabel}</span></>
-                  ) : (
-                    '. No previous release for comparison.'
-                  )}
+                <div>
+                  <p className="text-xs text-muted-foreground">Latency p95</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {releaseIntelligence.slo.latencyP95AvgMs == null ? '--' : `${releaseIntelligence.slo.latencyP95AvgMs} ms`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Target {releaseIntelligence.slo.latencyTargetMs} ms
+                  </p>
                 </div>
               </div>
-
-              <div className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <TrendingUp className="w-4 h-4" />
-                  <span className="text-xs font-medium">Deploy Baseline</span>
-                </div>
-                {releaseIntelligence.baseline.available ? (
-                  <div className="space-y-3 text-sm">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Latency before</p>
-                        <p className="font-semibold text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.latencyBeforeMs == null ? '--' : `${releaseIntelligence.baseline.latencyBeforeMs} ms`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Latency after</p>
-                        <p className="font-semibold text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.latencyAfterMs == null ? '--' : `${releaseIntelligence.baseline.latencyAfterMs} ms`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">5xx before</p>
-                        <p className="font-semibold text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.errorRateBeforePct == null ? '--' : `${releaseIntelligence.baseline.errorRateBeforePct}%`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">5xx after</p>
-                        <p className="font-semibold text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.errorRateAfterPct == null ? '--' : `${releaseIntelligence.baseline.errorRateAfterPct}%`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-[11px] text-muted-foreground">
-                      <div>
-                        Latency change:{' '}
-                        <span className="font-medium text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.latencyChangePct == null ? '--' : `${releaseIntelligence.baseline.latencyChangePct}%`}
-                        </span>
-                      </div>
-                      <div>
-                        5xx change:{' '}
-                        <span className="font-medium text-foreground tabular-nums">
-                          {releaseIntelligence.baseline.errorRateChangePct == null ? '--' : `${releaseIntelligence.baseline.errorRateChangePct}%`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+              <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                Latest release <span className="font-mono text-foreground">{releaseIntelligence.latestReleaseLabel}</span>
+                {releaseIntelligence.previousReleaseLabel ? (
+                  <>
+                    {' '}is compared with previous successful release{' '}
+                    <span className="font-mono text-foreground">{releaseIntelligence.previousReleaseLabel}</span>.
+                  </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Not enough telemetry to compute a baseline yet.
-                  </p>
+                  '. There is no previous successful release available for direct comparison.'
                 )}
-                <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
-                  {releaseIntelligence.rollback.message}
-                </div>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Release intelligence needs at least one successful deploy and a metrics window with telemetry.
-            </p>
-          )}
-        </div>
-      </div>
 
-      {/* App URL + Health */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/20">
-            <h3 className="text-sm font-semibold text-foreground">App URLs</h3>
-          </div>
-          <div className="p-4 space-y-2">
-            {appUrls.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {appUrls.map((url) => (
-                  <div key={url.id} className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary" className="text-[10px] font-mono h-5">
-                      {url.protocolLabel}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px] h-5">
-                      {url.targetLabel}
-                    </Badge>
-                    {url.href ? (
-                      <a
-                        href={url.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                      >
-                        {url.display}
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{url.display}</span>
-                    )}
-                  </div>
-                ))}
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <TrendingUp className="w-4 h-4" />
+                <span className="text-xs">Deploy Baseline</span>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No published URLs for this environment.</p>
-            )}
-            <p className="text-[11px] text-muted-foreground pt-1">
-              URLs are available based on published rules and gateways.
-            </p>
+              {releaseIntelligence.baseline.available ? (
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Latency before</p>
+                      <p className="font-semibold text-foreground">
+                        {releaseIntelligence.baseline.latencyBeforeMs == null ? '--' : `${releaseIntelligence.baseline.latencyBeforeMs} ms`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Latency after</p>
+                      <p className="font-semibold text-foreground">
+                        {releaseIntelligence.baseline.latencyAfterMs == null ? '--' : `${releaseIntelligence.baseline.latencyAfterMs} ms`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">5xx before</p>
+                      <p className="font-semibold text-foreground">
+                        {releaseIntelligence.baseline.errorRateBeforePct == null ? '--' : `${releaseIntelligence.baseline.errorRateBeforePct}%`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">5xx after</p>
+                      <p className="font-semibold text-foreground">
+                        {releaseIntelligence.baseline.errorRateAfterPct == null ? '--' : `${releaseIntelligence.baseline.errorRateAfterPct}%`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                    <div>
+                      Latency change:{' '}
+                      <span className="font-medium text-foreground">
+                        {releaseIntelligence.baseline.latencyChangePct == null ? '--' : `${releaseIntelligence.baseline.latencyChangePct}%`}
+                      </span>
+                    </div>
+                    <div>
+                      5xx change:{' '}
+                      <span className="font-medium text-foreground">
+                        {releaseIntelligence.baseline.errorRateChangePct == null ? '--' : `${releaseIntelligence.baseline.errorRateChangePct}%`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Not enough telemetry exists before and after the latest deploy to compute a baseline yet.
+                </p>
+              )}
+              <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                {releaseIntelligence.rollback.message}
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Health Checks</h3>
-            <Badge variant="outline" className="text-[10px] font-mono h-5">{healthPath}</Badge>
-          </div>
-          <div className="p-4 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Path: <span className="font-mono text-foreground">{healthPath}</span>
-            </p>
-            <p className="text-[11px] text-muted-foreground">Last probe info unavailable.</p>
-          </div>
-        </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Release intelligence needs at least one successful deploy and a metrics window with telemetry.
+          </p>
+        )}
       </div>
+
+      <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">App URL</h3>
+        </div>
+        {appUrls.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {appUrls.map((url) => (
+              <div key={url.id} className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="text-xs font-mono">
+                  {url.protocolLabel}
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {url.targetLabel}
+                </Badge>
+                {url.href ? (
+                  <a
+                    href={url.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    {url.display}
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <span className="text-sm text-muted-foreground">{url.display}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No published URLs for this environment.</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          URLs are available based on published rules and gateways.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Health Checks</h3>
+          <Badge variant="outline" className="text-xs font-mono">
+            {healthPath}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Path: <span className="font-mono text-foreground">{healthPath}</span>
+        </p>
+        <p className="text-xs text-muted-foreground">Last probe info unavailable.</p>
+      </div>
+    </div>
     </TabsContent>
   );
 };
