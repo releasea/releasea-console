@@ -131,7 +131,7 @@ export const LogsTab = ({
 
     </div>
 
-    <div className="terminal-bg p-4 max-h-[560px] overflow-auto">
+    <div className="terminal-bg p-4 max-h-[500px] overflow-auto">
       <div className="space-y-1 font-mono text-[13px] leading-5">
         {!logsLoaded && (
           <p className="text-muted-foreground">
@@ -162,8 +162,8 @@ export const LogsTab = ({
       </div>
     </div>
 
-    <div className="rounded-lg border border-border bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
-      Containers are listed from the last 3 hours of runtime logs. Showing the last {LOG_LINE_LIMIT} lines. Narrow filters to reduce load.
+    <div className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
+      Containers are listed from the last 3 hours of runtime logs. Showing the last {LOG_LINE_LIMIT} lines for performance. Narrow filters to reduce load.
     </div>
   </TabsContent>
 );
