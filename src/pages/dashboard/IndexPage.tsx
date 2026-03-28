@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderKanban, Server, Cpu, Rocket, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { FirstDeployGuide } from '@/components/dashboard/FirstDeployGuide';
 import { GettingStartedChecklist } from '@/components/dashboard/GettingStartedChecklist';
@@ -108,13 +109,10 @@ const Dashboard = () => {
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Real-time overview of services and operations</p>
-          </div>
-        </div>
+        <ListPageHeader
+          title="Dashboard"
+          description="Real-time overview of services and operations"
+        />
 
         {/* Banner */}
         {showGettingStartedChecklist ? (
@@ -187,7 +185,7 @@ const Dashboard = () => {
         {/* Operational summary */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
               <h2 className="text-sm font-semibold text-foreground">Operational summary</h2>
               <span className="text-xs text-muted-foreground">Updated now</span>
             </div>
@@ -243,7 +241,7 @@ const Dashboard = () => {
           </div>
 
           <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
               <h2 className="text-sm font-semibold text-foreground">Deploy reliability</h2>
               <Rocket className="h-4 w-4 text-success" />
             </div>

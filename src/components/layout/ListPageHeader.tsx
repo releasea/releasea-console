@@ -10,9 +10,9 @@ interface ListPageHeaderProps {
 
 export function ListPageHeader({ title, description, actions, className }: ListPageHeaderProps) {
   return (
-    <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4', className)}>
+    <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border/50', className)}>
       <div>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+        <h1 className="text-xl font-semibold text-foreground tracking-tight">{title}</h1>
         {description && <p className="text-muted-foreground text-sm mt-0.5">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

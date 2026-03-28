@@ -180,7 +180,7 @@ const Projects = () => {
                     navigate(`/projects/${project.id}`);
                   }
                 }}
-                className="group flex h-full min-h-[280px] flex-col rounded-xl border border-border/70 bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
+                className="group flex h-full min-h-[280px] flex-col rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary/40 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">

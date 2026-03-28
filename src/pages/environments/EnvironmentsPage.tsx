@@ -213,7 +213,7 @@ const Environments = () => {
           {environments.map((env) => (
             <div
               key={env.id}
-              className="bg-card border border-border rounded-lg p-5 hover:border-primary/50 transition-colors cursor-pointer group"
+              className="bg-card border border-border rounded-lg p-5 hover:border-primary/40 transition-colors cursor-pointer group"
               onClick={() => handleEdit(env)}
             >
               <div className="flex items-start justify-between mb-4">

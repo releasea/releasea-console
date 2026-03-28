@@ -290,7 +290,7 @@ const Teams = () => {
 
         <div className="rounded-lg border border-border/60 bg-card overflow-hidden">
           {/* Table Header */}
-          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_auto] items-center gap-4 px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50 bg-muted/30">
+          <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_auto] items-center gap-4 px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50 bg-muted/20">
             <span>Team</span>
             <span className="text-center">Members</span>
             <span className="text-center">Projects</span>

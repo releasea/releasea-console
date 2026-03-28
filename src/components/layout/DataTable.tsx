@@ -40,7 +40,7 @@ export function DataTable<T>({
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border bg-muted/30">
+               <tr className="border-b border-border bg-muted/20">
                 {columns.map((col) => (
                   <th
                     key={col.key}
@@ -77,7 +77,7 @@ export function DataTable<T>({
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-border bg-muted/30">
+            <tr className="border-b border-border bg-muted/20">
               {columns.map((col) => (
                 <th
                   key={col.key}

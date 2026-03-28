@@ -46,7 +46,7 @@ interface TableFiltersBarProps {
 export function TableFiltersBar({ search, selects = [], pills = [], className }: TableFiltersBarProps) {
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="flex items-center gap-4 rounded-lg border border-border bg-card p-4 overflow-x-auto">
+      <div className="flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3 overflow-x-auto">
         {search && (
           <SearchInput
             value={search.value}

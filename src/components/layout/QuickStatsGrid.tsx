@@ -24,7 +24,7 @@ export function QuickStatsGrid({ stats, columns = 4, className }: QuickStatsGrid
   return (
     <div className={cn('grid gap-3', columnClasses[columns], className)}>
       {stats.map((stat, index) => (
-        <div key={index} className="rounded-lg border border-border bg-card p-3">
+        <div key={index} className="rounded-lg border border-border bg-card p-3 transition-colors hover:border-border/80">
           <div className="flex items-center gap-2">
             {stat.icon && <span className="text-muted-foreground">{stat.icon}</span>}
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{stat.label}</p>

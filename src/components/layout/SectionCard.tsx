@@ -34,7 +34,7 @@ export function SectionCard({
     )}>
       <div className={cn(
         'px-4 py-3 border-b flex items-center justify-between',
-        isDestructive ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/30'
+        isDestructive ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/20'
       )}>
         <div className="flex items-center gap-3">
           {icon && (
