@@ -9,6 +9,7 @@ interface DangerZoneProps {
   actionDescription: string;
   onAction: () => void;
   isLoading?: boolean;
+  disabled?: boolean;
 }
 
 export function DangerZone({
@@ -18,6 +19,7 @@ export function DangerZone({
   actionDescription,
   onAction,
   isLoading,
+  disabled,
 }: DangerZoneProps) {
   return (
     <SettingsSection title={title} description={description} variant="danger">
@@ -26,7 +28,7 @@ export function DangerZone({
           <p className="text-sm font-medium text-foreground">{actionLabel}</p>
           <p className="text-xs text-muted-foreground">{actionDescription}</p>
         </div>
-        <Button variant="destructive" size="sm" onClick={onAction} disabled={isLoading} className="gap-2">
+        <Button variant="destructive" size="sm" onClick={onAction} disabled={isLoading || disabled} className="gap-2">
           <Trash2 className="w-4 h-4" />
           {isLoading ? 'Processing...' : actionLabel}
         </Button>

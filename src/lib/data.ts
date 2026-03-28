@@ -14,6 +14,7 @@ import type {
   AuthUser,
   DiscoveredWorkload,
   Deploy,
+  Environment,
   ExternalEndpoint,
   EnvironmentConfig,
   LogEntry,
@@ -28,6 +29,9 @@ import type {
   RuleDeploy,
   ScmCredential,
   Service,
+  ServiceGitOpsDriftStatus,
+  ServiceGitOpsPullRequest,
+  ServiceDesiredStateExport,
   ServicePodList,
   ServiceTemplate,
   Team,
@@ -35,8 +39,16 @@ import type {
   UserProfile,
   Worker,
   WorkerBootstrapProfile,
+  WorkerPool,
   WorkerRegistration,
 } from '@/types/releasea';
+import type {
+  AuditLogEntry,
+  DeployPolicyPreflight,
+  DeployPolicyViolation,
+  RulePublishPolicyPreflight,
+} from '@/types/governance';
+import { extractDeployPolicyViolations } from '@/lib/deploy-policy';
 import { getEnvironmentConfigs, saveEnvironmentConfigs } from '@/lib/environments';
 
 const EMPTY_PLATFORM_SETTINGS: PlatformSettings = {
@@ -77,6 +89,7 @@ const EMPTY_TEAMS: Team[] = [];
 const EMPTY_PROJECTS: Project[] = [];
 const EMPTY_SERVICES: Service[] = [];
 const EMPTY_WORKERS: Worker[] = [];
+const EMPTY_WORKER_POOLS: WorkerPool[] = [];
 const EMPTY_WORKER_REGISTRATIONS: WorkerRegistration[] = [];
 const EMPTY_DISCOVERED_WORKLOADS: DiscoveredWorkload[] = [];
 const EMPTY_WORKER_BOOTSTRAP_PROFILE: WorkerBootstrapProfile = {
@@ -114,7 +127,7 @@ const EMPTY_PROVIDER_CATALOG: ProviderCatalog = {
         label: 'GitHub',
         description: 'Built-in GitHub support used by templates, commit lookup and repository cloning.',
         authModes: ['token', 'ssh'],
-        capabilities: ['repo-clone', 'template-repos', 'commit-history'],
+        capabilities: ['repo-clone', 'template-repos', 'commit-history', 'pull-requests'],
         scopeSupport: ['platform', 'project', 'service'],
       },
       {
@@ -356,6 +369,9 @@ export const fetchServices = async (): Promise<Service[]> =>
 export const fetchWorkers = async (): Promise<Worker[]> =>
   fetchResource({ fallback: EMPTY_WORKERS, endpoint: '/workers?view=summary', label: 'fetchWorkers' });
 
+export const fetchWorkerPools = async (): Promise<WorkerPool[]> =>
+  fetchResource({ fallback: EMPTY_WORKER_POOLS, endpoint: '/workers/pools', label: 'fetchWorkerPools' });
+
 export const fetchWorkerRegistrations = async (): Promise<WorkerRegistration[]> =>
   fetchResource({
     fallback: EMPTY_WORKER_REGISTRATIONS,
@@ -542,7 +558,11 @@ export const fetchScmCommits = async (
   });
 };
 
-export type PromoteCanaryResult = { operation?: { id: string; status: string }; error?: string };
+export type PromoteCanaryResult = {
+  operation?: { id: string; status: string };
+  error?: string;
+  violations?: DeployPolicyViolation[];
+};
 
 export const promoteCanary = async (
   serviceId: string,
@@ -557,14 +577,194 @@ export const promoteCanary = async (
     },
   );
   if (response.error) {
-    return { error: response.error };
+    return {
+      error: response.error,
+      violations: extractDeployPolicyViolations(response.errorBody),
+    };
   }
   const operation = response.data?.operation;
   return operation ? { operation } : { error: 'No operation returned' };
 };
 
+export type PublishRuleTargetsResult = {
+  success: boolean;
+  error?: string;
+  violations?: DeployPolicyViolation[];
+};
+
+export const publishRuleTargets = async (
+  ruleId: string,
+  payload: { internal: boolean; external: boolean; environment: string },
+): Promise<PublishRuleTargetsResult> => {
+  const response = await apiClient.post(`/rules/${ruleId}/publish`, payload);
+  if (response.error) {
+    return {
+      success: false,
+      error: response.error,
+      violations: extractDeployPolicyViolations(response.errorBody),
+    };
+  }
+  return { success: true };
+};
+
 export const fetchRuleDeploys = async (): Promise<RuleDeploy[]> =>
   fetchResource({ fallback: [] as RuleDeploy[], endpoint: '/rule-deploys', label: 'fetchRuleDeploys' });
+
+export const fetchServiceGovernanceEvents = async (serviceId: string): Promise<AuditLogEntry[]> =>
+  fetchResource({
+    fallback: [] as AuditLogEntry[],
+    endpoint: `/services/${serviceId}/governance-events`,
+    label: 'fetchServiceGovernanceEvents',
+  });
+
+export const fetchServiceDeployPolicyCheck = async (
+  serviceId: string,
+  environment: string,
+  version?: string,
+): Promise<DeployPolicyPreflight | null> => {
+  const query = new URLSearchParams();
+  query.set('environment', environment);
+  if (version) {
+    query.set('version', version);
+  }
+  return fetchResource({
+    fallback: null,
+    endpoint: `/services/${serviceId}/deploy-policy-check?${query.toString()}`,
+    label: 'fetchServiceDeployPolicyCheck',
+  });
+};
+
+export type ServiceDesiredStateExportResult = {
+  exportData: ServiceDesiredStateExport | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export const fetchServiceDesiredStateExport = async (
+  serviceId: string,
+): Promise<ServiceDesiredStateExportResult> => {
+  const response = await apiClient.get<ServiceDesiredStateExport>(`/services/${serviceId}/desired-state`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceDesiredStateExport', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      exportData: null,
+      error: response.error || 'Failed to export desired state',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { exportData: response.data, error: null, code: null };
+};
+
+export type ServiceGitOpsPullRequestResult = {
+  pullRequest: ServiceGitOpsPullRequest | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export const createServiceGitOpsPullRequest = async (
+  serviceId: string,
+  payload?: {
+    baseBranch?: string;
+    filePath?: string;
+    title?: string;
+    body?: string;
+    commitMessage?: string;
+  },
+): Promise<ServiceGitOpsPullRequestResult> => {
+  const response = await apiClient.post<ServiceGitOpsPullRequest>(
+    `/services/${serviceId}/gitops/pull-requests`,
+    payload ?? {},
+  );
+  if (response.error || !response.data) {
+    clientLogger.warn('api.createServiceGitOpsPullRequest', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      pullRequest: null,
+      error: response.error || 'Failed to create GitOps pull request',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { pullRequest: response.data, error: null, code: null };
+};
+
+export const createServiceArgoCDGitOpsPullRequest = async (
+  serviceId: string,
+  payload?: {
+    baseBranch?: string;
+    title?: string;
+    body?: string;
+    commitMessage?: string;
+  },
+): Promise<ServiceGitOpsPullRequestResult> => {
+  const response = await apiClient.post<ServiceGitOpsPullRequest>(
+    `/services/${serviceId}/gitops/argocd/pull-requests`,
+    payload ?? {},
+  );
+  if (response.error || !response.data) {
+    clientLogger.warn('api.createServiceArgoCDGitOpsPullRequest', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      pullRequest: null,
+      error: response.error || 'Failed to create Argo CD GitOps pull request',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { pullRequest: response.data, error: null, code: null };
+};
+
+export type ServiceGitOpsDriftResult = {
+  drift: ServiceGitOpsDriftStatus | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export const fetchServiceGitOpsDrift = async (
+  serviceId: string,
+): Promise<ServiceGitOpsDriftResult> => {
+  const response = await apiClient.get<ServiceGitOpsDriftStatus>(`/services/${serviceId}/gitops/drift`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceGitOpsDrift', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      drift: null,
+      error: response.error || 'Failed to check GitOps drift',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { drift: response.data, error: null, code: null };
+};
+
+export const fetchRulePublishPolicyCheck = async (
+  ruleId: string,
+  payload: { environment: string; internal: boolean; external: boolean },
+): Promise<RulePublishPolicyPreflight | null> => {
+  const query = new URLSearchParams();
+  query.set('environment', payload.environment);
+  if (payload.internal) {
+    query.set('internal', 'true');
+  }
+  if (payload.external) {
+    query.set('external', 'true');
+  }
+  return fetchResource({
+    fallback: null,
+    endpoint: `/rules/${ruleId}/publish-policy-check?${query.toString()}`,
+    label: 'fetchRulePublishPolicyCheck',
+  });
+};
 
 export const fetchRules = async (): Promise<ManagedRule[]> =>
   fetchResource({ fallback: EMPTY_RULES, endpoint: '/rules', label: 'fetchRules' });
@@ -752,6 +952,14 @@ export const createProject = async (payload: {
   slug: string;
   description: string;
   teamId: string;
+  runbookUrl?: string;
+  alertChannel?: string;
+  costCenter?: string;
+  defaultEnvironment?: Environment;
+  dataClassification?: 'public' | 'internal' | 'confidential' | 'restricted';
+  serviceTier?: 'standard' | 'business-critical' | 'mission-critical';
+  scmCredentialId?: string;
+  registryCredentialId?: string;
 }): Promise<Project> => {
   const now = new Date().toISOString();
   const fallback: Project = {
@@ -760,6 +968,14 @@ export const createProject = async (payload: {
     slug: payload.slug,
     description: payload.description,
     teamId: payload.teamId,
+    runbookUrl: payload.runbookUrl,
+    alertChannel: payload.alertChannel,
+    costCenter: payload.costCenter,
+    defaultEnvironment: payload.defaultEnvironment,
+    dataClassification: payload.dataClassification,
+    serviceTier: payload.serviceTier,
+    scmCredentialId: payload.scmCredentialId,
+    registryCredentialId: payload.registryCredentialId,
     createdAt: now,
     updatedAt: now,
     services: [],

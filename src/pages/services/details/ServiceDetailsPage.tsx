@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Activity, ExternalLink, FileText, Rocket, Settings, ShieldCheck, Terminal } from 'lucide-react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Activity, Copy, Download, ExternalLink, FileText, GitPullRequest, Rocket, Settings, ShieldCheck, Terminal } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Badge } from '@/components/ui/badge';
@@ -10,16 +10,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ServiceTypeIcon } from '@/components/ui/service-type-icon';
 import {
+  createServiceArgoCDGitOpsPullRequest,
   createRule,
+  createServiceGitOpsPullRequest,
   deleteRule,
   fetchDeploys,
   fetchScmCommits,
   fetchRuleDeploys,
+  fetchServiceDeployPolicyCheck,
+  fetchServiceGitOpsDrift,
+  fetchServiceDesiredStateExport,
+  fetchServiceGovernanceEvents,
   fetchServiceLogs,
   fetchServicePods,
   fetchMetrics,
   fetchProjects,
   fetchRegistryCredentials,
+  fetchRulePublishPolicyCheck,
   fetchRules,
   fetchRuntimeProfiles,
   fetchScmCredentials,
@@ -27,7 +34,7 @@ import {
   fetchWorkers,
   fetchWorkerRegistrations,
   fetchPlatformSettings,
-  performAction,
+  publishRuleTargets,
   promoteCanary,
   updateRule,
 } from '@/lib/data';
@@ -35,6 +42,8 @@ import type { ScmCommit } from '@/lib/data';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { environmentsShareNamespace, getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
+import { summarizeDeployPolicyViolations } from '@/lib/deploy-policy';
+import { buildReleaseIntelligenceSummary } from '@/lib/release-intelligence';
 import { useTablePagination } from '@/hooks/use-table-pagination';
 import { apiClient } from '@/lib/api-client';
 import { useSSEStream } from '@/lib/use-sse-stream';
@@ -66,12 +75,20 @@ import type {
   ScmCredential,
   SecretProvider,
   Service,
+  ServiceGitOpsDriftStatus,
+  ServiceDesiredStateExport,
   ServiceManagementMode,
   ServiceStatus,
   ServiceStatusSnapshot,
   Worker,
   WorkerRegistration,
 } from '@/types/releasea';
+import type {
+  AuditLogEntry,
+  DeployPolicyPreflight,
+  DeployPolicyViolation,
+  RulePublishPolicyPreflight,
+} from '@/types/governance';
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
@@ -117,7 +134,38 @@ function readContainerName(metadata?: Record<string, unknown>): string {
   return '';
 }
 
-function isWorkerAvailableForEnvironment(worker: Worker, environment: string): boolean {
+function readGovernanceEventMessage(details?: Record<string, unknown>): string {
+  const violations = Array.isArray(details?.violations) ? details.violations : [];
+  const firstViolation = violations[0];
+  if (
+    firstViolation &&
+    typeof firstViolation === 'object' &&
+    firstViolation !== null &&
+    typeof (firstViolation as { message?: unknown }).message === 'string'
+  ) {
+    return String((firstViolation as { message: string }).message).trim();
+  }
+  return '';
+}
+
+function readGovernanceEventEnvironment(details?: Record<string, unknown>): string | undefined {
+  return typeof details?.environment === 'string' && details.environment.trim().length > 0
+    ? details.environment.trim()
+    : undefined;
+}
+
+function normalizeWorkerTagsInput(value: string | string[] | undefined | null): string[] {
+  const parts = Array.isArray(value) ? value : String(value ?? '').split(',');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed || normalized.includes(trimmed)) continue;
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function isWorkerAvailableForEnvironment(worker: Worker, environment: string, requiredTags: string[] = []): boolean {
   if (!worker || !environment) return false;
   if (!['online', 'busy', 'pending'].includes(worker.status)) return false;
   if ((worker.onlineAgents ?? 0) <= 0) return false;
@@ -127,7 +175,9 @@ function isWorkerAvailableForEnvironment(worker: Worker, environment: string): b
   const lastHeartbeatMs = Date.parse(worker.lastHeartbeat ?? '');
   if (Number.isNaN(lastHeartbeatMs)) return false;
   const thresholdMs = Date.now() - WORKER_STALE_SECONDS * 1000;
-  return lastHeartbeatMs >= thresholdMs;
+  if (lastHeartbeatMs < thresholdMs) return false;
+  const availableTags = new Set((worker.tags ?? []).map((tag) => tag.trim()).filter(Boolean));
+  return normalizeWorkerTagsInput(requiredTags).every((tag) => availableTags.has(tag));
 }
 
 function buildServiceSettingsHydrationKey(service: Service): string {
@@ -170,6 +220,7 @@ function buildServiceSettingsHydrationKey(service: Service): string {
     scmCredentialId: service.scmCredentialId ?? '',
     registryCredentialId: service.registryCredentialId ?? '',
     secretProviderId: service.secretProviderId ?? '',
+    workerTags: service.workerTags ?? [],
     environment: service.environment ?? {},
   });
 }
@@ -209,11 +260,15 @@ const ServiceDetails = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [deployVersionOpen, setDeployVersionOpen] = useState(false);
   const [deployVersion, setDeployVersion] = useState('');
   const [confirmDeployOpen, setConfirmDeployOpen] = useState(false);
   const [pendingDeployVersion, setPendingDeployVersion] = useState<string | null>(null);
   const [commits, setCommits] = useState<ScmCommit[]>([]);
+  const [desiredStateExportBusy, setDesiredStateExportBusy] = useState(false);
+  const [gitOpsArgoCDPullRequestBusy, setGitOpsArgoCDPullRequestBusy] = useState(false);
+  const [gitOpsPullRequestBusy, setGitOpsPullRequestBusy] = useState(false);
   const [deployLogOpen, setDeployLogOpen] = useState(false);
   const [selectedDeployLog, setSelectedDeployLog] = useState<Deploy | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -264,6 +319,7 @@ const ServiceDetails = () => {
   const [pauseOnIdle, setPauseOnIdle] = useState(false);
   const [pauseIdleTimeoutMinutes, setPauseIdleTimeoutMinutes] = useState('60');
   const [profileId, setProfileId] = useState('');
+  const [workerTags, setWorkerTags] = useState('');
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [minReplicas, setMinReplicas] = useState('1');
   const [maxReplicas, setMaxReplicas] = useState('3');
@@ -307,6 +363,13 @@ const ServiceDetails = () => {
   const [deploysData, setDeploysData] = useState<Deploy[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [rules, setRules] = useState<ManagedRule[]>([]);
+  const [governanceEventsData, setGovernanceEventsData] = useState<AuditLogEntry[]>([]);
+  const [deployPolicyPreflight, setDeployPolicyPreflight] = useState<DeployPolicyPreflight | null>(null);
+  const [deployPolicyPreflightLoading, setDeployPolicyPreflightLoading] = useState(false);
+  const [gitOpsDrift, setGitOpsDrift] = useState<ServiceGitOpsDriftStatus | null>(null);
+  const [gitOpsDriftLoading, setGitOpsDriftLoading] = useState(false);
+  const [publishPolicyPreflight, setPublishPolicyPreflight] = useState<RulePublishPolicyPreflight | null>(null);
+  const [publishPolicyPreflightLoading, setPublishPolicyPreflightLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [scmCredentials, setScmCredentials] = useState<ScmCredential[]>([]);
   const [registryCredentials, setRegistryCredentials] = useState<RegistryCredential[]>([]);
@@ -328,6 +391,7 @@ const ServiceDetails = () => {
   const [ruleDeploysData, setRuleDeploysData] = useState<RuleDeploy[]>([]);
   const [promoteCanaryInProgress, setPromoteCanaryInProgress] = useState(false);
   const [promoteCanaryOpen, setPromoteCanaryOpen] = useState(false);
+  const [promoteCanaryViolations, setPromoteCanaryViolations] = useState<DeployPolicyViolation[]>([]);
   const [deployLoading, setDeployLoading] = useState(false);
   const [isFastPolling, setIsFastPolling] = useState(false);
   const [runtimeRefreshNonce, setRuntimeRefreshNonce] = useState(0);
@@ -388,6 +452,7 @@ const ServiceDetails = () => {
         deploysData,
         rulesData,
         ruleDeploysResult,
+        governanceEventsResult,
         projectsData,
         scmData,
         registryData,
@@ -400,6 +465,7 @@ const ServiceDetails = () => {
         fetchDeploys(),
         fetchRules(),
         fetchRuleDeploys(),
+        id ? fetchServiceGovernanceEvents(id) : Promise.resolve([]),
         fetchProjects(),
         fetchScmCredentials(),
         fetchRegistryCredentials(),
@@ -412,6 +478,7 @@ const ServiceDetails = () => {
       setWorkerRegistrations(workerRegistrationsData);
       setDeploysData(deploysData);
       setRuleDeploysData(ruleDeploysResult);
+      setGovernanceEventsData(governanceEventsResult);
       setLogs([]);
       setRules(rulesData);
       setProjects(projectsData);
@@ -428,7 +495,7 @@ const ServiceDetails = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [id]);
 
   const fetchRealtimeResource = useCallback(async <T,>(endpoint: string, label: string): Promise<T> => {
     const response = await apiClient.get<T>(endpoint);
@@ -474,6 +541,12 @@ const ServiceDetails = () => {
     setWorkers(nextWorkers);
     setWorkerRegistrations(nextRegistrations);
   }, [fetchRealtimeResource]);
+
+  const refreshGovernanceEvents = useCallback(async () => {
+    if (!id) return;
+    const items = await fetchServiceGovernanceEvents(id);
+    setGovernanceEventsData(items);
+  }, [id]);
 
   const applyServiceStatusSnapshot = useCallback(
     (snapshot: ServiceStatusSnapshot) => {
@@ -605,6 +678,71 @@ const ServiceDetails = () => {
     selectedServiceRegistryCredential ?? inheritedServiceRegistryCredential ?? platformServiceRegistryCredential;
 
   useEffect(() => {
+    let active = true;
+    if (!id || !service || !viewEnv) {
+      setDeployPolicyPreflight(null);
+      setDeployPolicyPreflightLoading(false);
+      return;
+    }
+
+    setDeployPolicyPreflightLoading(true);
+    void fetchServiceDeployPolicyCheck(id, viewEnv)
+      .then((result) => {
+        if (!active) return;
+        setDeployPolicyPreflight(result);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDeployPolicyPreflight(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setDeployPolicyPreflightLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    id,
+    service,
+    service?.sourceType,
+    service?.dockerImage,
+    service?.repoUrl,
+    service?.profileId,
+    service?.branch,
+    viewEnv,
+  ]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id || !service || (service.managementMode ?? 'managed') === 'observed' || !service.repoUrl?.trim()) {
+      setGitOpsDrift(null);
+      setGitOpsDriftLoading(false);
+      return;
+    }
+
+    setGitOpsDriftLoading(true);
+    void fetchServiceGitOpsDrift(id)
+      .then((result) => {
+        if (!active) return;
+        setGitOpsDrift(result.drift);
+      })
+      .catch(() => {
+        if (!active) return;
+        setGitOpsDrift(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setGitOpsDriftLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, service, service?.managementMode, service?.repoUrl]);
+
+  useEffect(() => {
     if (servicePoller.current) {
       window.clearInterval(servicePoller.current);
       servicePoller.current = null;
@@ -695,8 +833,8 @@ const ServiceDetails = () => {
     [optimisticQueuedDeploy, id, viewEnv],
   );
   const hasActiveWorkerForViewEnv = useMemo(
-    () => workers.some((worker) => isWorkerAvailableForEnvironment(worker, viewEnv)),
-    [workers, viewEnv],
+    () => workers.some((worker) => isWorkerAvailableForEnvironment(worker, viewEnv, normalizeWorkerTagsInput(workerTags))),
+    [workers, viewEnv, workerTags],
   );
   const isObservedManagementMode = (service?.managementMode ?? 'managed') === 'observed';
   const isServiceCreating = service?.status === 'creating';
@@ -708,7 +846,9 @@ const ServiceDetails = () => {
     : isServiceCreating
     ? 'Service creation is still in progress. Deploy is disabled until creation finishes.'
     : !hasActiveWorkerForViewEnv
-      ? `No active worker is available for ${getEnvironmentLabel(viewEnv)}. Register and start a worker in this environment before deploying.`
+      ? normalizeWorkerTagsInput(workerTags).length > 0
+        ? `No active worker is available for ${getEnvironmentLabel(viewEnv)} with tags ${normalizeWorkerTagsInput(workerTags).join(', ')}.`
+        : `No active worker is available for ${getEnvironmentLabel(viewEnv)}. Register and start a worker in this environment before deploying.`
       : 'Wait until scheduling, preparation, and deployment steps are done.';
   const hasPendingRuleDeploys = useMemo(
     () =>
@@ -763,8 +903,28 @@ const ServiceDetails = () => {
         time,
       });
     });
+    governanceEventsData.forEach((eventEntry) => {
+      const details =
+        eventEntry.details && typeof eventEntry.details === 'object' ? eventEntry.details : undefined;
+      const { time, label } = formatEventTime(eventEntry.performedAt);
+      const fallbackLabel =
+        eventEntry.action === 'governance.rule_publish_policy.blocked'
+          ? 'Rule publish blocked by policy'
+          : 'Deploy blocked by policy';
+      events.push({
+        id: `governance:${eventEntry.id}`,
+        kind: 'governance',
+        status: 'failed',
+        label: readGovernanceEventMessage(details) || fallbackLabel,
+        environment: readGovernanceEventEnvironment(details),
+        triggeredBy: eventEntry.performedBy?.name,
+        timeLabel: label,
+        governanceEvent: eventEntry,
+        time,
+      });
+    });
     return events.sort((a, b) => b.time - a.time);
-  }, [deploysSorted, ruleNameById, serviceRuleDeploys]);
+  }, [deploysSorted, governanceEventsData, ruleNameById, serviceRuleDeploys]);
   const eventsPagination = useTablePagination(serviceEvents.length);
   const visibleEvents = eventsPagination.slice(serviceEvents);
   useEffect(() => {
@@ -959,6 +1119,44 @@ const ServiceDetails = () => {
     if (!publishRule) return;
     setPublishTargets(getGatewayTargets(publishRule.gateways));
   }, [publishRule]);
+  useEffect(() => {
+    let active = true;
+    if (!publishRuleOpen || !publishRuleId || !viewEnv) {
+      setPublishPolicyPreflight(null);
+      setPublishPolicyPreflightLoading(false);
+      return;
+    }
+
+    setPublishPolicyPreflightLoading(true);
+    void fetchRulePublishPolicyCheck(publishRuleId, {
+      environment: publishRule?.environment ?? viewEnv,
+      internal: publishTargets.internal,
+      external: publishTargets.external,
+    })
+      .then((result) => {
+        if (!active) return;
+        setPublishPolicyPreflight(result);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPublishPolicyPreflight(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setPublishPolicyPreflightLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    publishRule?.environment,
+    publishRuleId,
+    publishRuleOpen,
+    publishTargets.external,
+    publishTargets.internal,
+    viewEnv,
+  ]);
   const rulesPagination = useTablePagination(environmentRules.length);
   const visibleServiceRules = rulesPagination.slice(environmentRules);
   const baseLogs = logs.filter((log) => log.serviceId === id);
@@ -1067,6 +1265,36 @@ const ServiceDetails = () => {
         })
         .filter((option): option is { value: string; label: string; meta: string } => option !== null);
 
+  const handleOpenVersionPicker = useCallback(async () => {
+    if (service?.repoUrl) {
+      const result = await fetchScmCommits(service.repoUrl, service.branch, service.projectId);
+      setCommits(result);
+      if (result.length > 0) {
+        setDeployVersion(result[0].sha);
+      } else {
+        setDeployVersion('');
+      }
+      setDeployVersionOpen(true);
+      return;
+    }
+    if (versionOptions.length > 0) {
+      setDeployVersion(versionOptions[0].value);
+    } else {
+      setDeployVersion('');
+    }
+    setDeployVersionOpen(true);
+  }, [service, versionOptions]);
+
+  useEffect(() => {
+    if (searchParams.get('action') !== 'deploy' || !service) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+    void handleOpenVersionPicker();
+  }, [handleOpenVersionPicker, searchParams, service, setSearchParams]);
+
   useEffect(() => {
     if (!service) return;
     const serviceChanged = hydratedServiceIdRef.current !== service.id;
@@ -1083,6 +1311,7 @@ const ServiceDetails = () => {
     setProjectId(service.projectId);
     setServicePort(service.port ? String(service.port) : '');
     setProfileId(service.profileId ?? '');
+    setWorkerTags((service.workerTags ?? []).join(', '));
     const serviceMinReplicas = service.minReplicas ?? service.replicas ?? 1;
     const serviceMaxReplicas = service.maxReplicas ?? Math.max(serviceMinReplicas, 3);
     setMinReplicas(String(serviceMinReplicas));
@@ -1517,6 +1746,7 @@ const ServiceDetails = () => {
   };
   const requestsAvgLabel = formatRequests(requestsAvg);
   const requestsPeakLabel = formatRequests(requestsPeak);
+  const releaseIntelligence = buildReleaseIntelligenceSummary(deploysSorted, metrics);
 
   const toKubernetesName = (value: string) =>
     value
@@ -1622,63 +1852,70 @@ const ServiceDetails = () => {
       serviceRegistryCredentialId === 'inherit' ? '' : serviceRegistryCredentialId;
     const secretProviderId =
       serviceSecretProviderId === 'inherit' ? '' : serviceSecretProviderId;
+    const normalizedWorkerTags = normalizeWorkerTagsInput(workerTags);
     const resolvedSourceType = sourceType === 'docker' ? 'registry' : 'git';
     const deployTemplateId = isScheduledJob
       ? 'tpl-cronjob'
       : (resolvedSourceType === 'registry' ? 'tpl-registry' : 'tpl-git');
-    await performAction({
-      endpoint: `/services/${id}`,
-      method: 'PUT',
-      payload: {
-        port: portValue,
-        sourceType: resolvedSourceType,
-        managementMode,
-        repoUrl,
-        branch,
-        rootDir,
-        dockerImage,
-        dockerContext,
-        dockerfilePath,
-        dockerCommand,
-        preDeployCommand,
-        ...(service.type === 'static-site'
-          ? {
-              framework,
-              installCommand,
-              buildCommand,
-              outputDir,
-              cacheTtl,
-            }
-          : {}),
-        ...(isScheduledJob
-          ? {
-              scheduleCron,
-              scheduleTimezone,
-              scheduleCommand,
-              scheduleRetries,
-              scheduleTimeout,
-            }
-          : {}),
-        scmCredentialId,
-        registryCredentialId,
-        secretProviderId,
-        deployTemplateId,
-        autoDeploy: managementMode === 'observed' ? false : autoDeploy,
-        deployStrategyType,
-        canaryPercent,
-        blueGreenPrimary,
-        servicePort,
-        healthCheckPath,
-        pauseOnIdle: service.type === 'microservice' ? pauseOnIdle : false,
-        pauseIdleTimeoutSeconds: service.type === 'microservice' ? pauseIdleTimeoutSeconds : undefined,
-        profileId: profileId || undefined,
-        minReplicas,
-        maxReplicas,
-        scaleEnvironment: viewEnv,
-        environment: buildEnvironmentPayload(),
-      },
-      label: 'updateServiceSettings',
-    });
+    const payload = {
+      port: portValue,
+      sourceType: resolvedSourceType,
+      managementMode,
+      repoUrl,
+      branch,
+      rootDir,
+      dockerImage,
+      dockerContext,
+      dockerfilePath,
+      dockerCommand,
+      preDeployCommand,
+      ...(service.type === 'static-site'
+        ? {
+            framework,
+            installCommand,
+            buildCommand,
+            outputDir,
+            cacheTtl,
+          }
+        : {}),
+      ...(isScheduledJob
+        ? {
+            scheduleCron,
+            scheduleTimezone,
+            scheduleCommand,
+            scheduleRetries,
+            scheduleTimeout,
+          }
+        : {}),
+      scmCredentialId,
+      registryCredentialId,
+      secretProviderId,
+      workerTags: normalizedWorkerTags,
+      deployTemplateId,
+      autoDeploy: managementMode === 'observed' ? false : autoDeploy,
+      deployStrategyType,
+      canaryPercent,
+      blueGreenPrimary,
+      servicePort,
+      healthCheckPath,
+      pauseOnIdle: service.type === 'microservice' ? pauseOnIdle : false,
+      pauseIdleTimeoutSeconds: service.type === 'microservice' ? pauseIdleTimeoutSeconds : undefined,
+      profileId: profileId || undefined,
+      minReplicas,
+      maxReplicas,
+      scaleEnvironment: viewEnv,
+      environment: buildEnvironmentPayload(),
+    };
+    const response = await apiClient.put(`/services/${id}`, payload);
+    if (response.error) {
+      setSettingsSaving(false);
+      toast({
+        title: 'Failed to update settings',
+        description: response.error,
+        variant: 'destructive',
+      });
+      return;
+    }
     setSettingsSaving(false);
     setManagementTransitionDialogOpen(false);
     void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh service settings state.');
@@ -1745,6 +1982,14 @@ const ServiceDetails = () => {
       });
     }
     navigate('/services');
+  };
+
+  const showObservedRuleManagementToast = () => {
+    toast({
+      title: 'Managed mode required',
+      description: 'Observed services can inspect rules, but Releasea will not create, edit, delete, or publish them until the service is switched back to managed mode.',
+      variant: 'destructive',
+    });
   };
 
   const handleDeleteRuleOpenChange = (open: boolean) => {
@@ -1851,13 +2096,12 @@ const ServiceDetails = () => {
     applyRulePublication(ruleId, targetsSnapshot);
 
     try {
-      const success = await performAction({
-        endpoint: `/rules/${ruleId}/publish`,
-        method: 'POST',
-        payload: { internal: targetsSnapshot.internal, external: targetsSnapshot.external, environment: viewEnv },
-        label: 'updateRulePublication',
+      const result = await publishRuleTargets(ruleId, {
+        internal: targetsSnapshot.internal,
+        external: targetsSnapshot.external,
+        environment: viewEnv,
       });
-      if (success) {
+      if (result.success) {
         void runRealtimeRefresh(refreshRealtimeSnapshot, 'Unable to refresh rule publication status.');
       } else {
         if (previousRule) {
@@ -1866,9 +2110,13 @@ const ServiceDetails = () => {
         }
         toast({
           title: 'Publication failed',
-          description: 'Could not publish rule. Check worker connectivity.',
+          description:
+            (result.violations?.length ?? 0) > 0
+              ? summarizeDeployPolicyViolations(result.violations ?? [])
+              : (result.error ?? 'Could not publish rule. Check worker connectivity.'),
           variant: 'destructive',
         });
+        void refreshGovernanceEvents();
       }
     } finally {
       publishRuleSubmittingRef.current = false;
@@ -1917,6 +2165,10 @@ const ServiceDetails = () => {
   };
 
   const openEditRule = (rule: ManagedRule) => {
+    if ((service?.managementMode ?? 'managed') === 'observed') {
+      showObservedRuleManagementToast();
+      return;
+    }
     setEditingRuleId(rule.id);
     setEditRuleName(rule.name);
     setEditRuleAction(rule.policy?.action ?? 'allow');
@@ -1952,6 +2204,10 @@ const ServiceDetails = () => {
   };
 
   const openCopyRule = (rule: ManagedRule) => {
+    if ((service?.managementMode ?? 'managed') === 'observed') {
+      showObservedRuleManagementToast();
+      return;
+    }
     setCopyRuleId(rule.id);
     setCopyRuleEnvs([]);
     setCopyRuleOpen(true);
@@ -2160,6 +2416,7 @@ const ServiceDetails = () => {
   const handleDeploySubmitError = (message?: string) => {
     setDeployLoading(false);
     setOptimisticQueuedDeploy(null);
+    void refreshGovernanceEvents();
     toast({
       title: 'Deploy failed',
       description: message || 'Unable to queue the deploy. Please try again.',
@@ -2191,28 +2448,9 @@ const ServiceDetails = () => {
     }
   };
 
-  const handleOpenVersionPicker = async () => {
-    if (service?.repoUrl) {
-      const result = await fetchScmCommits(service.repoUrl, service.branch, service.projectId);
-      setCommits(result);
-      if (result.length > 0) {
-        setDeployVersion(result[0].sha);
-      } else {
-        setDeployVersion('');
-      }
-      setDeployVersionOpen(true);
-      return;
-    }
-    if (versionOptions.length > 0) {
-      setDeployVersion(versionOptions[0].value);
-    } else {
-      setDeployVersion('');
-    }
-    setDeployVersionOpen(true);
-  };
-
   const handlePromoteCanary = async () => {
     if (!service || deployStrategyType !== 'canary') return;
+    setPromoteCanaryViolations([]);
     setPromoteCanaryOpen(true);
   };
 
@@ -2222,21 +2460,29 @@ const ServiceDetails = () => {
     try {
       const result = await promoteCanary(service.id, viewEnv);
       if (result.error) {
+        setPromoteCanaryViolations(result.violations ?? []);
+        void refreshGovernanceEvents();
         toast({
           title: 'Promote failed',
-          description: result.error,
+          description:
+            (result.violations?.length ?? 0) > 0
+              ? summarizeDeployPolicyViolations(result.violations ?? [])
+              : result.error,
           variant: 'destructive',
         });
-      } else {
-        toast({
-          title: 'Canary promoted successfully',
-          description: `All traffic in ${getEnvironmentLabel(viewEnv)} is now being shifted to the new version. Your default canary percentage is preserved for the next deploy.`,
-        });
-        await runRealtimeRefresh(
-          refreshRealtimeSnapshot,
-          'Unable to refresh canary promotion status.',
-        );
+        return false;
       }
+
+      setPromoteCanaryViolations([]);
+      toast({
+        title: 'Canary promoted successfully',
+        description: `All traffic in ${getEnvironmentLabel(viewEnv)} is now being shifted to the new version. Your default canary percentage is preserved for the next deploy.`,
+      });
+      await runRealtimeRefresh(
+        refreshRealtimeSnapshot,
+        'Unable to refresh canary promotion status.',
+      );
+      return true;
     } finally {
       setPromoteCanaryInProgress(false);
     }
@@ -2289,7 +2535,17 @@ const ServiceDetails = () => {
     });
   };
 
-  const handleOpenDeleteService = () => setDeleteOpen(true);
+  const handleOpenDeleteService = () => {
+    if ((service?.managementMode ?? 'managed') === 'observed') {
+      toast({
+        title: 'Managed mode required',
+        description: 'Observed services cannot be deleted through Releasea while the runtime remains unmanaged. Switch the service back to managed mode first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setDeleteOpen(true);
+  };
 
   const handleOpenDeployLog = (deploy: Deploy) => {
     setSelectedDeployLog(deploy);
@@ -2305,13 +2561,196 @@ const ServiceDetails = () => {
   };
 
   const handleOpenCreateRule = () => {
+    if ((service?.managementMode ?? 'managed') === 'observed') {
+      showObservedRuleManagementToast();
+      return;
+    }
     resetNewRuleForm();
     setCreateRuleOpen(true);
   };
 
   const handleOpenDeleteRule = (rule: RuleRow) => {
+    if ((service?.managementMode ?? 'managed') === 'observed') {
+      showObservedRuleManagementToast();
+      return;
+    }
     setSelectedRule(rule);
     setDeleteRuleOpen(true);
+  };
+
+  const exportDesiredState = async (): Promise<ServiceDesiredStateExport | null> => {
+    if (!service) return null;
+    if ((service.managementMode ?? 'managed') === 'observed') {
+      toast({
+        title: 'Managed mode required',
+        description: 'Desired state export is only available for services managed directly by Releasea.',
+        variant: 'destructive',
+      });
+      return null;
+    }
+
+    setDesiredStateExportBusy(true);
+    try {
+      const result = await fetchServiceDesiredStateExport(service.id);
+      if (!result.exportData) {
+        toast({
+          title: 'Export failed',
+          description: result.error ?? 'Unable to export desired state for this service.',
+          variant: 'destructive',
+        });
+        return null;
+      }
+      return result.exportData;
+    } finally {
+      setDesiredStateExportBusy(false);
+    }
+  };
+
+  const handleCopyDesiredStateJSON = async () => {
+    const exportData = await exportDesiredState();
+    if (!exportData) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(exportData.document, null, 2));
+      toast({
+        title: 'Desired state copied',
+        description: 'The desired state document JSON has been copied to your clipboard.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: errorMessage(error, 'Unable to copy desired state JSON.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCopyDesiredStateYAML = async () => {
+    const exportData = await exportDesiredState();
+    if (!exportData) return;
+    try {
+      await navigator.clipboard.writeText(exportData.yaml);
+      toast({
+        title: 'Desired state copied',
+        description: 'The desired state YAML has been copied to your clipboard.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: errorMessage(error, 'Unable to copy desired state YAML.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadDesiredStateYAML = async () => {
+    const exportData = await exportDesiredState();
+    if (!exportData) return;
+    try {
+      const blob = new Blob([exportData.yaml], { type: 'application/yaml' });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = exportData.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+      toast({
+        title: 'Desired state downloaded',
+        description: `${exportData.filename} was downloaded successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Download failed',
+        description: errorMessage(error, 'Unable to download desired state YAML.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleOpenGitOpsPullRequest = async () => {
+    if (!service) return;
+    if ((service.managementMode ?? 'managed') === 'observed') {
+      toast({
+        title: 'Managed mode required',
+        description: 'GitOps pull request delivery is only available for services managed directly by Releasea.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!service.repoUrl?.trim()) {
+      toast({
+        title: 'Repository required',
+        description: 'This service does not have a repository URL configured, so Releasea cannot open a GitOps pull request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setGitOpsPullRequestBusy(true);
+    try {
+      const result = await createServiceGitOpsPullRequest(service.id);
+      if (!result.pullRequest) {
+        toast({
+          title: 'GitOps PR failed',
+          description: result.error ?? 'Unable to create a GitOps pull request for this service.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
+      toast({
+        title: 'GitOps PR created',
+        description: `${result.pullRequest.title} is ready in ${result.pullRequest.baseBranch}.`,
+      });
+    } finally {
+      setGitOpsPullRequestBusy(false);
+    }
+  };
+
+  const handleOpenArgoCDGitOpsPullRequest = async () => {
+    if (!service) return;
+    if ((service.managementMode ?? 'managed') === 'observed') {
+      toast({
+        title: 'GitOps PR unavailable',
+        description: 'Argo CD GitOps pull request delivery is only available for services managed directly by Releasea.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!service.repoUrl?.trim()) {
+      toast({
+        title: 'Repository required',
+        description: 'This service does not have a repository URL configured, so Releasea cannot open an Argo CD starter pull request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setGitOpsArgoCDPullRequestBusy(true);
+    try {
+      const result = await createServiceArgoCDGitOpsPullRequest(service.id);
+      if (!result.pullRequest) {
+        toast({
+          title: 'Argo CD PR failed',
+          description: result.error ?? 'Unable to create an Argo CD GitOps pull request for this service.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
+      toast({
+        title: 'Argo CD PR created',
+        description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
+      });
+      if (service.id) {
+        void fetchServiceGitOpsDrift(service.id).then((result) => {
+          setGitOpsDrift(result.drift);
+        });
+      }
+    } finally {
+      setGitOpsArgoCDPullRequestBusy(false);
+    }
   };
 
   const settingsFormStore = {
@@ -2370,6 +2809,8 @@ const ServiceDetails = () => {
       setPauseIdleTimeoutMinutes,
       profileId,
       setProfileId,
+      workerTags,
+      setWorkerTags,
       profiles,
       minReplicas,
       setMinReplicas,
@@ -2453,6 +2894,33 @@ const ServiceDetails = () => {
                     >
                       {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
                     </Badge>
+                    {service.repoUrl?.trim() && (service.managementMode ?? 'managed') !== 'observed' && (
+                      <Badge
+                        variant="outline"
+                        className={[
+                          'text-xs normal-case',
+                          gitOpsDriftLoading
+                            ? 'border-border/60 text-muted-foreground'
+                            : gitOpsDrift?.state === 'in-sync'
+                              ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                              : gitOpsDrift?.state === 'missing'
+                                ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                : gitOpsDrift?.state === 'out-of-sync'
+                                  ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+                                  : 'border-border/60 text-muted-foreground',
+                        ].join(' ')}
+                      >
+                        {gitOpsDriftLoading
+                          ? 'GitOps: checking'
+                          : gitOpsDrift?.state === 'in-sync'
+                            ? 'GitOps: in sync'
+                            : gitOpsDrift?.state === 'missing'
+                              ? 'GitOps: file missing'
+                              : gitOpsDrift?.state === 'out-of-sync'
+                                ? 'GitOps: drift'
+                                : 'GitOps: unavailable'}
+                      </Badge>
+                    )}
                     {servicePublicURL.href ? (
                       <a
                         href={servicePublicURL.href}
@@ -2470,7 +2938,71 @@ const ServiceDetails = () => {
                 </div>
               </div>
             </div>
-
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleCopyDesiredStateJSON()}
+                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
+              >
+                <Copy className="h-4 w-4" />
+                Copy JSON
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleCopyDesiredStateYAML()}
+                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
+              >
+                <FileText className="h-4 w-4" />
+                Copy YAML
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleDownloadDesiredStateYAML()}
+                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
+              >
+                <Download className="h-4 w-4" />
+                Download YAML
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleOpenGitOpsPullRequest()}
+                disabled={
+                  gitOpsPullRequestBusy ||
+                  (service.managementMode ?? 'managed') === 'observed' ||
+                  !service.repoUrl?.trim()
+                }
+              >
+                <GitPullRequest className="h-4 w-4" />
+                Open GitOps PR
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
+                disabled={
+                  gitOpsArgoCDPullRequestBusy ||
+                  (service.managementMode ?? 'managed') === 'observed' ||
+                  !service.repoUrl?.trim()
+                }
+              >
+                <GitPullRequest className="h-4 w-4" />
+                Open Argo CD PR
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -2562,6 +3094,8 @@ const ServiceDetails = () => {
             envCountLabel={envCountLabel}
             healthPath={healthPath}
             appUrls={appUrls}
+            deployPolicyPreflight={deployPolicyPreflight}
+            deployPolicyPreflightLoading={deployPolicyPreflightLoading}
             deployBusy={deployBusy}
             deployDisabled={deployActionTemporarilyBlocked}
             deployRestrictionMessage={deployActionTemporarilyBlocked ? deployBlockedMessage : undefined}
@@ -2583,6 +3117,7 @@ const ServiceDetails = () => {
             latencyPeakLabel={latencyPeakLabel}
             requestsAvgLabel={requestsAvgLabel}
             requestsPeakLabel={requestsPeakLabel}
+            releaseIntelligence={releaseIntelligence}
             isLive={isLiveSyncConnected || isFastPolling}
             liveSyncError={realtimeSyncError}
           />
@@ -2629,6 +3164,7 @@ const ServiceDetails = () => {
 
           <RulesTab
             service={service}
+            isObservedManagementMode={isObservedManagementMode}
             viewEnv={viewEnv}
             environmentRules={environmentRules}
             visibleServiceRules={visibleServiceRules}
@@ -2719,11 +3255,16 @@ const ServiceDetails = () => {
         publishRule={{
           open: publishRuleOpen,
           setOpen: setPublishRuleOpen,
-          onClose: () => setPublishRuleId(null),
+          onClose: () => {
+            setPublishRuleId(null);
+            setPublishPolicyPreflight(null);
+          },
           publishRule,
           viewEnv,
           publishTargets,
           setPublishTargets,
+          preflight: publishPolicyPreflight,
+          preflightLoading: publishPolicyPreflightLoading,
           onConfirm: handleConfirmPublishRule,
         }}
         deleteRule={{
@@ -2762,10 +3303,16 @@ const ServiceDetails = () => {
 
       <ConfirmPromoteCanaryModal
         open={promoteCanaryOpen}
-        onOpenChange={setPromoteCanaryOpen}
+        onOpenChange={(open) => {
+          setPromoteCanaryOpen(open);
+          if (!open) {
+            setPromoteCanaryViolations([]);
+          }
+        }}
         serviceName={service?.name ?? ''}
         environment={viewEnv}
         canaryPercent={Number(service?.deploymentStrategy?.canaryPercent ?? canaryPercent) || 10}
+        policyViolations={promoteCanaryViolations}
         onConfirm={handleConfirmPromoteCanary}
       />
 

@@ -68,6 +68,8 @@ export type ServiceSettingsFormStore = {
     setPauseIdleTimeoutMinutes: (value: string) => void;
     profileId: string;
     setProfileId: (value: string) => void;
+    workerTags: string;
+    setWorkerTags: (value: string) => void;
     profiles: RuntimeProfile[];
     minReplicas: string;
     setMinReplicas: (value: string) => void;

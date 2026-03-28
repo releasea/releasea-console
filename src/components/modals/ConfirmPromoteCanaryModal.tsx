@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { TrendingUp, AlertTriangle, Server, BarChart3, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { TrendingUp, AlertTriangle, Server, BarChart3, ArrowRight, ShieldAlert } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import type { DeployPolicyViolation } from '@/types/governance';
 
 interface ConfirmPromoteCanaryModalProps {
   open: boolean;
@@ -18,7 +19,8 @@ interface ConfirmPromoteCanaryModalProps {
   serviceName: string;
   environment: string;
   canaryPercent: number;
-  onConfirm: () => Promise<void> | void;
+  policyViolations?: DeployPolicyViolation[];
+  onConfirm: () => Promise<boolean> | boolean;
 }
 
 export function ConfirmPromoteCanaryModal({
@@ -27,17 +29,26 @@ export function ConfirmPromoteCanaryModal({
   serviceName,
   environment,
   canaryPercent,
+  policyViolations = [],
   onConfirm,
 }: ConfirmPromoteCanaryModalProps) {
   const [isConfirming, setIsConfirming] = useState(false);
   const stablePercent = 100 - canaryPercent;
   const isProd = environment === 'prod';
 
+  useEffect(() => {
+    if (!open) {
+      setIsConfirming(false);
+    }
+  }, [open]);
+
   const handleConfirm = async () => {
     setIsConfirming(true);
     try {
-      await onConfirm();
-      onOpenChange(false);
+      const shouldClose = await onConfirm();
+      if (shouldClose) {
+        onOpenChange(false);
+      }
     } catch {
       // error handled by caller
     } finally {
@@ -126,6 +137,20 @@ export function ConfirmPromoteCanaryModal({
             </div>
           </div>
 
+          {policyViolations.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+              <ShieldAlert className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+              <div className="space-y-2 text-sm">
+                <p className="font-medium text-foreground">Blocked by deploy policy</p>
+                <ul className="space-y-1 text-muted-foreground">
+                  {policyViolations.map((violation, index) => (
+                    <li key={`${violation.code}-${index}`}>{violation.message}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {/* Warning for prod */}
           {isProd && (
             <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
@@ -149,7 +174,10 @@ export function ConfirmPromoteCanaryModal({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isConfirming}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleConfirm}
+            onClick={(event) => {
+              event.preventDefault();
+              void handleConfirm();
+            }}
             disabled={isConfirming}
             className={`gap-2 ${isProd ? 'bg-warning text-warning-foreground hover:bg-warning/90' : ''}`}
           >

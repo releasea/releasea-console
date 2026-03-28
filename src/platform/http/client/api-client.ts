@@ -49,6 +49,7 @@ export interface ApiResponse<T> {
   status: number;
   correlationId?: string;
   errorDetails?: ApiErrorDetails | null;
+  errorBody?: unknown;
 }
 
 interface TokenRefreshResponse {
@@ -499,6 +500,7 @@ class ApiClient {
       error: resolveBodyMessage(data) || defaultStatusMessage(status),
       status,
       correlationId,
+      errorBody: data,
       errorDetails: {
         code: mapStatusToCode(status),
         correlationId,
