@@ -49,7 +49,7 @@ export const RulesTab = ({
 }: RulesTabProps) => (
   <TabsContent value="rules" className="space-y-4">
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Rules</h3>
           <p className="text-xs text-muted-foreground">
@@ -69,7 +69,7 @@ export const RulesTab = ({
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-border bg-muted/30">
+            <tr className="border-b border-border bg-muted/20">
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 whitespace-nowrap">
                 Rule
               </th>

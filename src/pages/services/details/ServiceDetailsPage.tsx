@@ -8,6 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ServiceTypeIcon } from '@/components/ui/service-type-icon';
 import {
   createServiceArgoCDGitOpsPullRequest,
@@ -2871,26 +2878,30 @@ const ServiceDetails = () => {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        {/* Header */}
+      <div className="space-y-5">
+        {/* Compact Header */}
         <div className="space-y-3">
           <PageBackLink to={backLink} label={backLabel} />
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3">
+          <div className="rounded-lg border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex items-center gap-4 min-w-0">
                 <ServiceTypeIcon type={service.type} size="lg" />
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground font-mono">{service.name}</h1>
-                  <div className="flex flex-wrap items-center gap-2 mt-1">
-                    <span className="text-sm text-muted-foreground">{serviceTypeLabel}</span>
+                <div className="min-w-0">
+                  <h1 className="text-xl font-semibold text-foreground font-mono truncate">{service.name}</h1>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    <span className="text-xs text-muted-foreground">{serviceTypeLabel}</span>
+                    <span className="text-xs text-muted-foreground/40">·</span>
                     {service.type === 'microservice' && (
-                      <Badge variant="outline" className="text-xs normal-case">
-                        {deployStrategyLabel}
-                      </Badge>
+                      <>
+                        <Badge variant="outline" className="text-[10px] normal-case h-5">
+                          {deployStrategyLabel}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground/40">·</span>
+                      </>
                     )}
                     <Badge
                       variant={(service.managementMode ?? 'managed') === 'observed' ? 'secondary' : 'outline'}
-                      className="text-xs normal-case"
+                      className="text-[10px] normal-case h-5"
                     >
                       {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
                     </Badge>
@@ -2898,7 +2909,7 @@ const ServiceDetails = () => {
                       <Badge
                         variant="outline"
                         className={[
-                          'text-xs normal-case',
+                          'text-[10px] normal-case h-5',
                           gitOpsDriftLoading
                             ? 'border-border/60 text-muted-foreground'
                             : gitOpsDrift?.state === 'in-sync'
@@ -2926,131 +2937,92 @@ const ServiceDetails = () => {
                         href={servicePublicURL.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-primary hover:underline flex items-center gap-1"
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
                       >
                         {servicePublicURL.display}
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     ) : servicePublicURL.display ? (
-                      <span className="text-sm text-muted-foreground">{servicePublicURL.display}</span>
+                      <span className="text-xs text-muted-foreground">{servicePublicURL.display}</span>
                     ) : null}
                   </div>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* Environment selector inline */}
+                <Select
+                  value={hasSelectableEnvironment ? viewEnv : undefined}
+                  onValueChange={(value) => setViewEnv(value as Environment)}
+                  disabled={!hasSelectableEnvironment}
+                >
+                  <SelectTrigger className="w-[160px] bg-muted/40 h-9 text-sm" disabled={!hasSelectableEnvironment}>
+                    <SelectValue placeholder="Select env" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectableEnvironmentOptions.map((env) => (
+                      <SelectItem key={env.id} value={env.id}>
+                        {env.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* GitOps actions dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2" disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}>
+                      <Download className="h-4 w-4" />
+                      Export
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={() => void handleCopyDesiredStateJSON()}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleCopyDesiredStateYAML()}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Copy YAML
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleDownloadDesiredStateYAML()}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Download YAML
+                    </DropdownMenuItem>
+                    {service.repoUrl?.trim() && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => void handleOpenGitOpsPullRequest()}
+                          disabled={gitOpsPullRequestBusy}
+                        >
+                          <GitPullRequest className="h-4 w-4 mr-2" />
+                          Open GitOps PR
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
+                          disabled={gitOpsArgoCDPullRequestBusy}
+                        >
+                          <GitPullRequest className="h-4 w-4 mr-2" />
+                          Open Argo CD PR
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleCopyDesiredStateJSON()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <Copy className="h-4 w-4" />
-                Copy JSON
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleCopyDesiredStateYAML()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <FileText className="h-4 w-4" />
-                Copy YAML
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleDownloadDesiredStateYAML()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <Download className="h-4 w-4" />
-                Download YAML
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleOpenGitOpsPullRequest()}
-                disabled={
-                  gitOpsPullRequestBusy ||
-                  (service.managementMode ?? 'managed') === 'observed' ||
-                  !service.repoUrl?.trim()
-                }
-              >
-                <GitPullRequest className="h-4 w-4" />
-                Open GitOps PR
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
-                disabled={
-                  gitOpsArgoCDPullRequestBusy ||
-                  (service.managementMode ?? 'managed') === 'observed' ||
-                  !service.repoUrl?.trim()
-                }
-              >
-                <GitPullRequest className="h-4 w-4" />
-                Open Argo CD PR
-              </Button>
-            </div>
+            {!hasSelectableEnvironment && (
+              <div className="px-5 pb-3">
+                <p className="text-xs text-warning">
+                  No environment has a registered worker yet. Register a worker to enable environment selection.
+                </p>
+              </div>
+            )}
           </div>
-        </div>
-
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">Runtime Information</h2>
-          <p className="text-sm text-muted-foreground">
-            Access telemetry, configuration, and operations in a unified view.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Viewing environment</p>
-              <p className="text-xs text-muted-foreground">
-                Controls the data shown in summary, metrics, logs, and deploy history.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-xs text-muted-foreground">Environment</Label>
-              <Select
-                value={hasSelectableEnvironment ? viewEnv : undefined}
-                onValueChange={(value) => setViewEnv(value as Environment)}
-                disabled={!hasSelectableEnvironment}
-              >
-                <SelectTrigger className="w-full sm:w-[200px] bg-card" disabled={!hasSelectableEnvironment}>
-                  <SelectValue placeholder="Select env" />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectableEnvironmentOptions.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>
-                      {env.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          {!hasSelectableEnvironment && (
-            <p className="mt-2 text-xs text-warning">
-              No environment has a registered worker yet. Register a worker to enable environment selection.
-            </p>
-          )}
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-muted/50 flex w-full flex-wrap justify-start">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+          <TabsList className="bg-muted/30 border border-border flex w-full flex-wrap justify-start rounded-lg p-1">
             <TabsTrigger value="summary" className="gap-2">
               <FileText className="w-4 h-4" />
               Summary
