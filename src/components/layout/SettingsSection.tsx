@@ -31,7 +31,7 @@ export function SettingsSection({
       <div
         className={cn(
           'px-4 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2',
-          isDanger ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-muted/30'
+          isDanger ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-muted/20'
         )}
       >
         <div>
