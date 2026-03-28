@@ -84,6 +84,35 @@ type SettingsTab = (typeof SETTINGS_TABS)[number];
 const normalizeSettingsTab = (value: string | null | undefined): SettingsTab =>
   SETTINGS_TABS.includes(value as SettingsTab) ? (value as SettingsTab) : 'display';
 
+const STARTER_TEMPLATE_IMPORT = JSON.stringify(
+  [
+    {
+      id: 'tpl-starter-microservice',
+      type: 'microservice',
+      label: 'Starter Microservice',
+      description: 'Opinionated starter for HTTP APIs and internal services.',
+      category: 'Services',
+      owner: 'releasea',
+      bestFor: 'Quick onboarding',
+      defaults: 'Git repository, rolling deploy, health check',
+      setupTime: '5 min',
+      tier: 'starter',
+      highlights: ['Rolling deploy', 'Health check', 'Safe defaults'],
+      templateKind: 'service',
+      repoMode: 'existing',
+      allowTemplateToggle: true,
+      templateDefaults: {
+        sourceType: 'git',
+        branch: 'main',
+        port: '8080',
+        healthCheckPath: '/healthz',
+      },
+    },
+  ],
+  null,
+  2,
+);
+
 const SettingsPage = () => {
   const location = useLocation();
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -1954,6 +1983,8 @@ const SettingsPage = () => {
                           icon={<LayoutTemplate className="h-5 w-5 text-muted-foreground" />}
                           title="No templates yet"
                           description="Import a template definition to populate the service catalog."
+                          actionLabel="Load starter template"
+                          onAction={() => setTemplateImportPayload(STARTER_TEMPLATE_IMPORT)}
                         />
                       )}
                     </tbody>

@@ -6,6 +6,7 @@ import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -18,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential, ServiceManagementMode } from '@/types/releasea';
 import { toast } from '@/hooks/use-toast';
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
+import { OBSERVED_MODE_RESTRICTIONS } from '@/lib/management-mode';
 import { cn } from '@/lib/utils';
 import {
   checkGithubTemplateRepoAvailability,
@@ -48,6 +50,15 @@ import type {
 import type { CatalogTemplate, EnvVar, RepoMode, SourceType } from './create-service/catalog';
 import { frameworks, mapCatalogTemplates } from './create-service/catalog';
 import {
+  buildAdoptionPreview,
+  buildAdoptionReadiness,
+} from './create-service/adoption';
+import {
+  describeDiscoveredProbe,
+  describeDiscoveredEnvVarSource,
+  findMatchingRuntimeProfileId,
+  isImportableDiscoveredEnvVar,
+  joinContainerCommand,
   normalizeRepoName,
   normalizeRegistryHost,
   normalizeSecretValue,
@@ -375,6 +386,100 @@ export default function CreateService() {
     () => importableClusterWorkloads.find((workload) => workload.id === selectedDiscoveredWorkloadId) ?? null,
     [importableClusterWorkloads, selectedDiscoveredWorkloadId],
   );
+  const skippedImportedEnvironmentVariables = useMemo(
+    () =>
+      (selectedDiscoveredWorkload?.environmentVariables ?? []).filter(
+        (variable) => !isImportableDiscoveredEnvVar(variable),
+      ),
+    [selectedDiscoveredWorkload],
+  );
+  const additionalDiscoveredContainers = useMemo(
+    () =>
+      (selectedDiscoveredWorkload?.containers ?? []).filter(
+        (container) => !container.imported,
+      ),
+    [selectedDiscoveredWorkload],
+  );
+  const adoptionPreview = useMemo(() => {
+    if (!selectedDiscoveredWorkload) return [];
+    return buildAdoptionPreview(
+      selectedDiscoveredWorkload,
+      {
+        serviceName,
+        dockerImage,
+        port,
+        healthCheckPath,
+        minReplicas,
+        maxReplicas,
+        profileId,
+        profileLabel: selectedProfile?.name
+          ? `${selectedProfile.name} (${selectedProfile.cpu}, ${selectedProfile.memory})`
+          : '',
+        dockerCommand,
+        scheduleCommand,
+        scheduleCron,
+        importedEnvCount: envVars.filter((variable) => variable.key.trim()).length,
+      },
+      skippedImportedEnvironmentVariables.length,
+      additionalDiscoveredContainers.length,
+    );
+  }, [
+    additionalDiscoveredContainers.length,
+    dockerCommand,
+    dockerImage,
+    envVars,
+    healthCheckPath,
+    maxReplicas,
+    minReplicas,
+    port,
+    profileId,
+    scheduleCommand,
+    scheduleCron,
+    selectedDiscoveredWorkload,
+    selectedProfile?.cpu,
+    selectedProfile?.memory,
+    selectedProfile?.name,
+    serviceName,
+    skippedImportedEnvironmentVariables.length,
+  ]);
+  const adoptionReadiness = useMemo(() => {
+    if (!selectedDiscoveredWorkload) return null;
+    return buildAdoptionReadiness(
+      selectedDiscoveredWorkload,
+      {
+        serviceName,
+        dockerImage,
+        port,
+        healthCheckPath,
+        minReplicas,
+        maxReplicas,
+        profileId,
+        profileLabel: selectedProfile?.name ?? '',
+        dockerCommand,
+        scheduleCommand,
+        scheduleCron,
+        importedEnvCount: envVars.filter((variable) => variable.key.trim()).length,
+      },
+      skippedImportedEnvironmentVariables.length,
+      additionalDiscoveredContainers.length,
+    );
+  }, [
+    additionalDiscoveredContainers.length,
+    dockerCommand,
+    dockerImage,
+    envVars,
+    healthCheckPath,
+    maxReplicas,
+    minReplicas,
+    port,
+    profileId,
+    scheduleCommand,
+    scheduleCron,
+    selectedDiscoveredWorkload,
+    selectedProfile?.name,
+    serviceName,
+    skippedImportedEnvironmentVariables.length,
+  ]);
 
   useEffect(() => {
     if (!selectedDiscoveredWorkloadId) {
@@ -589,8 +694,35 @@ export default function CreateService() {
       setMinReplicas(String(workload.replicas));
       setMaxReplicas(String(workload.replicas));
     }
+    if (Array.isArray(workload.environmentVariables) && workload.environmentVariables.length > 0) {
+      const importableVariables = workload.environmentVariables.filter(isImportableDiscoveredEnvVar);
+      if (importableVariables.length > 0) {
+        setEnvVars(
+          importableVariables.map((variable, index) => ({
+            id: `env-import-${index}-${variable.key}`,
+            key: variable.key,
+            value: variable.value ?? '',
+            type: 'plain' as const,
+          })),
+        );
+      }
+    }
+    const importedCommand = joinContainerCommand(workload.command, workload.args);
     if ((workload.templateKind ?? 'service') === 'scheduled-job') {
       setScheduleCron(workload.scheduleCron?.trim() || scheduleCron);
+      if (importedCommand) {
+        setScheduleCommand(importedCommand);
+      }
+    } else if (importedCommand) {
+      setDockerCommand(importedCommand);
+    }
+    const matchedProfileId = findMatchingRuntimeProfileId(
+      profiles,
+      workload.cpuMilli,
+      workload.memoryMi,
+    );
+    if (matchedProfileId) {
+      setProfileId(matchedProfileId);
     }
   };
 
@@ -655,8 +787,14 @@ export default function CreateService() {
         ))}
       </div>
       {isObservedManagementMode && (
-        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          Auto-deploy is turned off for observed services. You can switch to managed mode later from the service settings.
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground space-y-2">
+          <p className="font-medium text-foreground">Observed mode operating rules</p>
+          <p>Auto-deploy is turned off for observed services. Releasea keeps visibility, but control stays read-only until takeover.</p>
+          <ul className="list-disc space-y-1 pl-5">
+            {OBSERVED_MODE_RESTRICTIONS.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </div>
       )}
     </section>
@@ -1245,9 +1383,214 @@ export default function CreateService() {
                               </Select>
                             </div>
                             {selectedDiscoveredWorkload && (
-                              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                                {selectedDiscoveredWorkload.cluster} · ns: {selectedDiscoveredWorkload.namespace}
-                                {selectedDiscoveredWorkload.primaryImage ? ` · image: ${selectedDiscoveredWorkload.primaryImage}` : ''}
+                              <div className="space-y-3">
+                                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                  {selectedDiscoveredWorkload.cluster} · ns: {selectedDiscoveredWorkload.namespace}
+                                  {selectedDiscoveredWorkload.primaryImage ? ` · image: ${selectedDiscoveredWorkload.primaryImage}` : ''}
+                                </div>
+                                {((selectedDiscoveredWorkload.serviceHints ?? []).length > 0 ||
+                                  (selectedDiscoveredWorkload.ingressHints ?? []).length > 0) && (
+                                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-3">
+                                    <div className="space-y-1">
+                                      <p className="font-medium text-foreground">Service and ingress hints</p>
+                                      <p>
+                                        Releasea detected how this workload is currently exposed in the cluster. These hints are reference-only and are not imported automatically into rule publication.
+                                      </p>
+                                    </div>
+                                    {(selectedDiscoveredWorkload.serviceHints ?? []).length > 0 && (
+                                      <div className="space-y-2">
+                                        <p className="font-medium text-foreground">Services</p>
+                                        <ul className="list-disc space-y-1 pl-5">
+                                          {(selectedDiscoveredWorkload.serviceHints ?? []).map((hint) => (
+                                            <li key={`service-hint:${hint.name}`}>
+                                              <span className="font-mono text-foreground">{hint.name}</span>
+                                              {hint.type ? ` · ${hint.type}` : ''}
+                                              {hint.ports?.length ? ` · ports ${hint.ports.join(', ')}` : ''}
+                                              {hint.headless ? ' · headless' : ''}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {(selectedDiscoveredWorkload.ingressHints ?? []).length > 0 && (
+                                      <div className="space-y-2">
+                                        <p className="font-medium text-foreground">Ingresses</p>
+                                        <ul className="list-disc space-y-1 pl-5">
+                                          {(selectedDiscoveredWorkload.ingressHints ?? []).map((hint) => (
+                                            <li key={`ingress-hint:${hint.name}`}>
+                                              <span className="font-mono text-foreground">{hint.name}</span>
+                                              {hint.hosts?.length ? ` · hosts ${hint.hosts.join(', ')}` : ''}
+                                              {hint.paths?.length ? ` · paths ${hint.paths.join(', ')}` : ''}
+                                              {hint.tls ? ' · TLS' : ''}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {adoptionReadiness && (
+                                  <div
+                                    className={cn(
+                                      'rounded-md border px-3 py-3 text-xs space-y-3',
+                                      adoptionReadiness.tone === 'ready'
+                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                                        : adoptionReadiness.tone === 'caution'
+                                          ? 'border-warning/40 bg-warning/10 text-muted-foreground'
+                                          : 'border-destructive/30 bg-destructive/10 text-muted-foreground',
+                                    )}
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div className="space-y-1">
+                                        <p className="font-medium text-foreground">Adoption readiness</p>
+                                        <p>{adoptionReadiness.headline}</p>
+                                      </div>
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          'text-xs',
+                                          adoptionReadiness.tone === 'ready'
+                                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                            : adoptionReadiness.tone === 'caution'
+                                              ? 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                              : 'border-destructive/40 bg-destructive/10 text-destructive',
+                                        )}
+                                      >
+                                        {adoptionReadiness.score}% ready
+                                      </Badge>
+                                    </div>
+                                    <Progress value={adoptionReadiness.score} className="h-2" />
+                                    {adoptionReadiness.blockers.length > 0 && (
+                                      <div className="space-y-1">
+                                        <p className="font-medium text-foreground">Still blocking managed adoption</p>
+                                        <ul className="list-disc space-y-1 pl-5">
+                                          {adoptionReadiness.blockers.map((item) => (
+                                            <li key={item}>{item}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {adoptionReadiness.warnings.length > 0 && (
+                                      <div className="space-y-1">
+                                        <p className="font-medium text-foreground">Review before switching to managed</p>
+                                        <ul className="list-disc space-y-1 pl-5">
+                                          {adoptionReadiness.warnings.map((item) => (
+                                            <li key={item}>{item}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {adoptionPreview.length > 0 && (
+                                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-3">
+                                    <div className="space-y-1">
+                                      <p className="font-medium text-foreground">Import preview</p>
+                                      <p>Compare what Releasea detected from the cluster against what is now in the service form.</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      {adoptionPreview.map((item) => (
+                                        <div
+                                          key={item.key}
+                                          className="grid gap-2 rounded-md border border-border/60 bg-background/40 p-3 md:grid-cols-[180px_1fr_1fr_auto]"
+                                        >
+                                          <div className="font-medium text-foreground">{item.label}</div>
+                                          <div>
+                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Detected</p>
+                                            <p className="font-mono text-foreground break-all">{item.detected || 'Not detected'}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Current form</p>
+                                            <p className="font-mono text-foreground break-all">{item.current || 'Needs manual input'}</p>
+                                          </div>
+                                          <div className="flex items-start justify-end">
+                                            <Badge
+                                              variant="outline"
+                                              className={cn(
+                                                item.status === 'aligned'
+                                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                                  : item.status === 'changed'
+                                                    ? 'border-primary/30 bg-primary/10 text-primary'
+                                                    : item.status === 'warning'
+                                                      ? 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                                      : 'border-destructive/40 bg-destructive/10 text-destructive',
+                                              )}
+                                            >
+                                              {item.status === 'aligned'
+                                                ? 'Aligned'
+                                                : item.status === 'changed'
+                                                  ? 'Adjusted'
+                                                  : item.status === 'warning'
+                                                    ? 'Review'
+                                                    : 'Missing'}
+                                            </Badge>
+                                          </div>
+                                          {item.note ? (
+                                            <div className="md:col-span-4 text-muted-foreground">{item.note}</div>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {(selectedDiscoveredWorkload.probes ?? []).length > 0 && (
+                                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-2">
+                                    <p className="font-medium text-foreground">Detected probes</p>
+                                    <ul className="list-disc space-y-1 pl-5">
+                                      {(selectedDiscoveredWorkload.probes ?? []).map((probe) => (
+                                        <li key={`${probe.type}:${probe.handler}:${probe.containerName ?? 'container'}`}>
+                                          {describeDiscoveredProbe(probe)}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                    {selectedDiscoveredWorkload.healthCheckPath?.trim() ? (
+                                      <p>
+                                        Releasea pre-filled the health check path from the primary container probe:
+                                        <span className="font-mono text-foreground"> {selectedDiscoveredWorkload.healthCheckPath.trim()}</span>
+                                      </p>
+                                    ) : (
+                                      <p>
+                                        No HTTP probe path could be mapped automatically into the Releasea health check field.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                                {additionalDiscoveredContainers.length > 0 && (
+                                  <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-3 text-xs text-muted-foreground space-y-2">
+                                    <p className="font-medium text-foreground">
+                                      Additional containers were detected and were not imported into the service form
+                                    </p>
+                                    <p>
+                                      Releasea imported settings from the primary application container only. Review sidecars or companion containers manually before switching this service to managed mode.
+                                    </p>
+                                    <ul className="list-disc space-y-1 pl-5">
+                                      {additionalDiscoveredContainers.map((container) => (
+                                        <li key={`${container.name}:${container.image ?? 'image'}`}>
+                                          <span className="font-mono text-foreground">{container.name || container.image || 'unnamed-container'}</span>
+                                          {container.image ? ` · ${container.image}` : ''}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {skippedImportedEnvironmentVariables.length > 0 && (
+                                  <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-3 text-xs text-muted-foreground space-y-2">
+                                    <p className="font-medium text-foreground">
+                                      Cluster-native environment references were not imported automatically
+                                    </p>
+                                    <p>
+                                      Releasea imported plain environment values only. Recreate these references manually before switching the service to managed mode.
+                                    </p>
+                                    <ul className="list-disc space-y-1 pl-5">
+                                      {skippedImportedEnvironmentVariables.map((variable) => (
+                                        <li key={`${variable.key}:${variable.sourceType ?? 'valueFrom'}`}>
+                                          <span className="font-mono text-foreground">{variable.key}</span>
+                                          {`: ${describeDiscoveredEnvVarSource(variable) || 'valueFrom reference'}`}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

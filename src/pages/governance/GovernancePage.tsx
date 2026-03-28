@@ -1,9 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, isWithinInterval, parseISO, subDays } from 'date-fns';
 import {
   CheckCircle2,
   XCircle,
   Clock,
+  Bot,
   Rocket,
   Globe,
   Shield,
@@ -15,6 +17,8 @@ import {
   Calendar,
   Users,
   RefreshCw,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -50,6 +54,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { maskIPAddress, redactSensitiveText, sanitizeTextForRender } from '@/platform/security/data-security';
 import {
+  buildGovernancePolicyDocument,
   fetchApprovalRequests,
   fetchGovernanceSettings,
   fetchAuditLogs,
@@ -58,26 +63,308 @@ import {
 } from '@/lib/governance-data';
 import type { ApprovalRequest, AuditLogEntry, GovernanceSettings } from '@/types/governance';
 
-type AuditResourceFilter = 'all' | 'service' | 'rule' | 'deploy' | 'team' | 'settings' | 'user' | 'approval';
+type AuditResourceFilter = 'all' | 'service' | 'rule' | 'deploy' | 'team' | 'settings' | 'user' | 'approval' | 'operation' | 'worker';
 type AuditDateRange = '24h' | '7d' | '30d' | '90d' | 'all';
+type DeployPolicyRule = GovernanceSettings['deployPolicy']['rules'][number];
+type GovernanceTab = 'approvals' | 'policies' | 'audit';
+
+const parsePolicyList = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
+
+const DEPLOY_POLICY_PRESETS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  rules: DeployPolicyRule[];
+}> = [
+  {
+    id: 'development-open',
+    label: 'Development Open',
+    description: 'Minimal guardrails for fast iteration in development.',
+    rules: [
+      {
+        environment: 'dev',
+        allowAutoDeploy: true,
+        requireExplicitVersion: false,
+        blockExternalExposure: false,
+        allowedProfileIds: [],
+        allowedScmProviders: [],
+        allowedRegistryProviders: [],
+        allowedSecretProviders: [],
+        allowedSourceTypes: [],
+        allowedRegistries: [],
+        allowedStrategies: [],
+        maxReplicas: 0,
+      },
+    ],
+  },
+  {
+    id: 'staging-balanced',
+    label: 'Staging Balanced',
+    description: 'Keep version pinning and moderate rollout controls before production.',
+    rules: [
+      {
+        environment: 'staging',
+        allowAutoDeploy: true,
+        requireExplicitVersion: true,
+        blockExternalExposure: false,
+        allowedProfileIds: [],
+        allowedScmProviders: [],
+        allowedRegistryProviders: [],
+        allowedSecretProviders: [],
+        allowedSourceTypes: ['git', 'registry'],
+        allowedRegistries: [],
+        allowedStrategies: ['rolling', 'canary'],
+        maxReplicas: 6,
+      },
+    ],
+  },
+  {
+    id: 'production-strict',
+    label: 'Production Strict',
+    description: 'Disable auto deploy and require pinned registry-based rollouts in production.',
+    rules: [
+      {
+        environment: 'prod',
+        allowAutoDeploy: false,
+        requireExplicitVersion: true,
+        blockExternalExposure: false,
+        allowedProfileIds: [],
+        allowedScmProviders: [],
+        allowedRegistryProviders: [],
+        allowedSecretProviders: [],
+        allowedSourceTypes: ['registry'],
+        allowedRegistries: [],
+        allowedStrategies: ['rolling', 'blue-green'],
+        maxReplicas: 6,
+      },
+    ],
+  },
+  {
+    id: 'production-internal-only',
+    label: 'Production Internal Only',
+    description: 'Keep production traffic private by blocking external rule publication.',
+    rules: [
+      {
+        environment: 'prod',
+        allowAutoDeploy: false,
+        requireExplicitVersion: true,
+        blockExternalExposure: true,
+        allowedProfileIds: [],
+        allowedScmProviders: [],
+        allowedRegistryProviders: [],
+        allowedSecretProviders: [],
+        allowedSourceTypes: ['registry'],
+        allowedRegistries: [],
+        allowedStrategies: ['rolling', 'blue-green'],
+        maxReplicas: 6,
+      },
+    ],
+  },
+];
+
+const createDefaultDeployPolicyRule = (): DeployPolicyRule => ({
+  environment: 'prod',
+  allowAutoDeploy: false,
+  requireExplicitVersion: true,
+  blockExternalExposure: false,
+  allowedProfileIds: [],
+  allowedScmProviders: [],
+  allowedRegistryProviders: [],
+  allowedSecretProviders: [],
+  allowedSourceTypes: [],
+  allowedRegistries: [],
+  allowedStrategies: ['rolling'],
+  maxReplicas: 0,
+});
+
+const renderAuditResourceIcon = (resourceType: string) => {
+  switch (resourceType) {
+    case 'deploy':
+      return <Rocket className="w-4 h-4" />;
+    case 'rule':
+      return <Globe className="w-4 h-4" />;
+    case 'service':
+      return <AlertCircle className="w-4 h-4" />;
+    case 'team':
+      return <Users className="w-4 h-4" />;
+    case 'settings':
+      return <Settings className="w-4 h-4" />;
+    case 'user':
+      return <Shield className="w-4 h-4" />;
+    case 'approval':
+      return <CheckCircle2 className="w-4 h-4" />;
+    case 'operation':
+      return <RefreshCw className="w-4 h-4" />;
+    case 'worker':
+      return <Bot className="w-4 h-4" />;
+    default:
+      return <FileText className="w-4 h-4" />;
+  }
+};
 
 const GovernancePage = () => {
+  const navigate = useNavigate();
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [settings, setSettings] = useState<GovernanceSettings | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<GovernanceTab>('approvals');
 
   // Audit log filters
   const [auditSearch, setAuditSearch] = useState('');
   const [auditResourceFilter, setAuditResourceFilter] = useState<AuditResourceFilter>('all');
-  const [auditDateRange, setAuditDateRange] = useState<AuditDateRange>('30d');
+  const [auditDateRange, setAuditDateRange] = useState<AuditDateRange>('all');
   const [auditPerformerFilter, setAuditPerformerFilter] = useState<string>('all');
 
   // Review modal state
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
   const [reviewComment, setReviewComment] = useState('');
+
+  const updateDeployPolicyRule = (index: number, patch: Partial<DeployPolicyRule>) => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        deployPolicy: {
+          ...prev.deployPolicy,
+          rules: prev.deployPolicy.rules.map((rule, ruleIndex) =>
+            ruleIndex === index ? { ...rule, ...patch } : rule
+          ),
+        },
+      };
+    });
+  };
+
+  const addDeployPolicyRule = () => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        deployPolicy: {
+          ...prev.deployPolicy,
+          rules: [
+            ...prev.deployPolicy.rules,
+            {
+              ...createDefaultDeployPolicyRule(),
+            },
+          ],
+        },
+      };
+    });
+  };
+
+  const seedStarterDeployPolicyRule = () => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        deployPolicy: {
+          ...prev.deployPolicy,
+          enabled: true,
+          rules: prev.deployPolicy.rules.length > 0 ? prev.deployPolicy.rules : [createDefaultDeployPolicyRule()],
+        },
+      };
+    });
+  };
+
+  const removeDeployPolicyRule = (index: number) => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        deployPolicy: {
+          ...prev.deployPolicy,
+          rules: prev.deployPolicy.rules.filter((_, ruleIndex) => ruleIndex !== index),
+        },
+      };
+    });
+  };
+
+  const applyDeployPolicyPreset = (rules: DeployPolicyRule[]) => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        deployPolicy: {
+          ...prev.deployPolicy,
+          enabled: true,
+          rules,
+        },
+      };
+    });
+  };
+
+  const handleCopyDeployPolicyJSON = async () => {
+    if (!settings) return;
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(
+          {
+            deployPolicy: settings.deployPolicy,
+          },
+          null,
+          2,
+        ),
+      );
+      toast({
+        title: 'Policy copied',
+        description: 'The current deploy policy JSON has been copied to your clipboard.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Unable to copy deploy policy JSON.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCopyPolicyDocument = async () => {
+    if (!settings) return;
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(buildGovernancePolicyDocument(settings), null, 2),
+      );
+      toast({
+        title: 'Policy document copied',
+        description: 'The versioned governance policy document has been copied to your clipboard.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Unable to copy policy document.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadPolicyDocument = () => {
+    if (!settings) return;
+    try {
+      const documentBody = JSON.stringify(buildGovernancePolicyDocument(settings), null, 2);
+      const blob = new Blob([documentBody], { type: 'application/json' });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `releasea-governance-policy-${format(new Date(), 'yyyyMMdd-HHmmss')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+      toast({
+        title: 'Policy document downloaded',
+        description: 'The versioned governance policy document was downloaded as JSON.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Download failed',
+        description: error instanceof Error ? error.message : 'Unable to download policy document.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -176,7 +463,7 @@ const GovernancePage = () => {
   const resetAuditFilters = () => {
     setAuditSearch('');
     setAuditResourceFilter('all');
-    setAuditDateRange('30d');
+    setAuditDateRange('all');
     setAuditPerformerFilter('all');
   };
 
@@ -223,7 +510,10 @@ const GovernancePage = () => {
     if (!settings) return;
     setIsSaving(true);
     try {
-      await updateGovernanceSettings(settings);
+      const updatedSettings = await updateGovernanceSettings(settings);
+      const refreshedAuditLogs = await fetchAuditLogs();
+      setSettings(updatedSettings);
+      setAuditLogs(refreshedAuditLogs);
       toast({
         title: 'Settings saved',
         description: 'Governance settings have been updated.',
@@ -272,7 +562,7 @@ const GovernancePage = () => {
           description="Manage approvals, policies and audit logs"
         />
 
-        <Tabs defaultValue="approvals" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="space-y-6">
           <TabsList className="bg-muted/50 flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="approvals" className="gap-2">
               <Shield className="w-4 h-4" />
@@ -290,6 +580,11 @@ const GovernancePage = () => {
             <TabsTrigger value="audit" className="gap-2">
               <FileText className="w-4 h-4" />
               Audit Log
+              {auditLogs.length > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5">
+                  {auditLogs.length}
+                </Badge>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -357,7 +652,9 @@ const GovernancePage = () => {
                 <EmptyState
                   icon={<CheckCircle2 className="h-5 w-5 text-muted-foreground" />}
                   title="All caught up"
-                  description="No pending approvals at the moment."
+                  description="No pending approvals at the moment. Review policies or inspect the audit trail for recent platform activity."
+                  actionLabel="Open policies"
+                  onAction={() => setActiveTab('policies')}
                   tone="muted"
                 />
               </div>
@@ -459,6 +756,276 @@ const GovernancePage = () => {
                           />
                         </div>
                       </SettingsGrid>
+                    )}
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection
+                  title="Deploy policy rules"
+                  description="Code-like environment rules evaluated before deploy, promote, or external publication is queued"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between py-3 border-b border-border/50">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Enable deploy policy</p>
+                        <p className="text-xs text-muted-foreground">Block deploys that violate environment-specific rules before the worker queue is used</p>
+                      </div>
+                      <Switch
+                        checked={settings.deployPolicy.enabled}
+                        onCheckedChange={(checked) =>
+                          setSettings(prev => prev ? {
+                            ...prev,
+                            deployPolicy: {
+                              ...prev.deployPolicy,
+                              enabled: checked,
+                              rules: checked && (prev.deployPolicy.rules?.length ?? 0) === 0
+                                ? [createDefaultDeployPolicyRule()]
+                                : (prev.deployPolicy.rules ?? []),
+                            }
+                          } : prev)
+                        }
+                      />
+                    </div>
+
+                    {settings.deployPolicy.enabled && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Policy rules</p>
+                            <p className="text-xs text-muted-foreground">One rule per environment. Auto deploy, version pinning, source type, registry host, strategy type, replica count, and external exposure are evaluated before queueing.</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={handleCopyPolicyDocument}>
+                              Copy document
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={handleDownloadPolicyDocument}>
+                              Download JSON
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={handleCopyDeployPolicyJSON}>
+                              Copy JSON
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addDeployPolicyRule}>
+                              <Plus className="w-4 h-4" />
+                              Add rule
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 rounded-lg border border-border/50 bg-muted/10 p-4">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Presets</p>
+                            <p className="text-xs text-muted-foreground">Apply a starting point, then tune the rules for your platform.</p>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            {DEPLOY_POLICY_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => applyDeployPolicyPreset(preset.rules)}
+                                className="rounded-lg border border-border/60 bg-background/60 p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+                              >
+                                <p className="text-sm font-medium text-foreground">{preset.label}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">{preset.description}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                          {(settings.deployPolicy.rules ?? []).length === 0 ? (
+                            <EmptyState
+                              icon={Shield}
+                              title="No policy rules configured"
+                              description="Enable the deploy policy and add a rule for environments such as production."
+                              actionLabel="Add starter rule"
+                              onAction={seedStarterDeployPolicyRule}
+                              tone="muted"
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                            {(settings.deployPolicy.rules ?? []).map((rule, index) => (
+                              <div
+                                key={`${rule.environment}-${index}`}
+                                className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-4"
+                              >
+                                <div className="flex items-start justify-between gap-4">
+                                  <div>
+                                    <p className="text-sm font-medium text-foreground">Rule {index + 1}</p>
+                                <p className="text-xs text-muted-foreground">Environment-specific deploy and exposure guardrails.</p>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-2 text-muted-foreground"
+                                    onClick={() => removeDeployPolicyRule(index)}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                    Remove
+                                  </Button>
+                                </div>
+
+                                <SettingsGrid columns={2}>
+                                  <div className="space-y-2">
+                                    <Label>Environment</Label>
+                                    <Input
+                                      value={rule.environment}
+                                      onChange={(e) => updateDeployPolicyRule(index, { environment: e.target.value })}
+                                      className="bg-muted/40"
+                                      placeholder="prod"
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed source types</Label>
+                                    <Input
+                                      value={rule.allowedSourceTypes.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedSourceTypes: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="git, registry"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Leave empty to allow any source type.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed runtime profiles</Label>
+                                    <Input
+                                      value={rule.allowedProfileIds.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedProfileIds: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="rp-medium, rp-large"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Leave empty to allow any runtime profile.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed registries</Label>
+                                    <Input
+                                      value={rule.allowedRegistries.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedRegistries: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="ghcr.io, us-central1-docker.pkg.dev"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Leave empty to allow any registry host.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed SCM providers</Label>
+                                    <Input
+                                      value={rule.allowedScmProviders.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedScmProviders: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="github, gitlab"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Applied to Git-based deploys only.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed registry providers</Label>
+                                    <Input
+                                      value={rule.allowedRegistryProviders.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedRegistryProviders: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="ghcr, docker, ecr"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Applied to registry-sourced deploys.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed secret providers</Label>
+                                    <Input
+                                      value={rule.allowedSecretProviders.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedSecretProviders: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="vault, aws, gcp"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Applied when the service uses secret references.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Allowed strategies</Label>
+                                    <Input
+                                      value={rule.allowedStrategies.join(', ')}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          allowedStrategies: parsePolicyList(e.target.value),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                      placeholder="rolling, canary"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Leave empty to allow any deploy strategy.</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Max replicas</Label>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      value={rule.maxReplicas}
+                                      onChange={(e) =>
+                                        updateDeployPolicyRule(index, {
+                                          maxReplicas: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                        })
+                                      }
+                                      className="bg-muted/40"
+                                    />
+                                    <p className="text-xs text-muted-foreground">Use `0` for no replica limit.</p>
+                                  </div>
+                                </SettingsGrid>
+
+                                <div className="grid gap-3 border-t border-border/50 pt-3 md:grid-cols-3">
+                                  <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3">
+                                    <div>
+                                      <p className="text-sm font-medium text-foreground">Allow auto deploy</p>
+                                      <p className="text-xs text-muted-foreground">When disabled, auto-triggered deploys are rejected for this environment.</p>
+                                    </div>
+                                    <Switch
+                                      checked={rule.allowAutoDeploy}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { allowAutoDeploy: checked })}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3">
+                                    <div>
+                                      <p className="text-sm font-medium text-foreground">Require explicit version</p>
+                                      <p className="text-xs text-muted-foreground">Reject deploys that rely on `latest`, `head`, or an empty version.</p>
+                                    </div>
+                                    <Switch
+                                      checked={rule.requireExplicitVersion}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { requireExplicitVersion: checked })}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3">
+                                    <div>
+                                      <p className="text-sm font-medium text-foreground">Block external exposure</p>
+                                      <p className="text-xs text-muted-foreground">Reject rule publications that target external gateways in this environment.</p>
+                                    </div>
+                                    <Switch
+                                      checked={rule.blockExternalExposure}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { blockExternalExposure: checked })}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </SettingsSection>
@@ -596,6 +1163,8 @@ const GovernancePage = () => {
                           <SelectItem value="settings">Settings</SelectItem>
                           <SelectItem value="user">User</SelectItem>
                           <SelectItem value="approval">Approval</SelectItem>
+                          <SelectItem value="operation">Operation</SelectItem>
+                          <SelectItem value="worker">Worker</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -607,7 +1176,7 @@ const GovernancePage = () => {
                     <Button variant="outline" size="sm" className="gap-2">
                       <Calendar className="w-4 h-4" />
                       Period
-                      {auditDateRange !== '30d' && (
+                      {auditDateRange !== 'all' && (
                         <Badge variant="secondary" className="ml-1 px-1.5 py-0">
                           {auditDateRange}
                         </Badge>
@@ -617,7 +1186,7 @@ const GovernancePage = () => {
                   <PopoverContent className="w-48" align="end">
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Time Period</Label>
-                      <Select value={auditDateRange} onValueChange={(v) => setAuditDateRange(v as AuditDateRange)}>
+                        <Select value={auditDateRange} onValueChange={(v) => setAuditDateRange(v as AuditDateRange)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -663,7 +1232,7 @@ const GovernancePage = () => {
                   </PopoverContent>
                 </Popover>
 
-                {(auditSearch || auditResourceFilter !== 'all' || auditDateRange !== '30d' || auditPerformerFilter !== 'all') && (
+                {(auditSearch || auditResourceFilter !== 'all' || auditDateRange !== 'all' || auditPerformerFilter !== 'all') && (
                   <Button variant="ghost" size="sm" onClick={resetAuditFilters} className="gap-2">
                     <RefreshCw className="w-4 h-4" />
                     Reset
@@ -687,10 +1256,10 @@ const GovernancePage = () => {
                 <div className="rounded-lg border border-dashed border-border bg-card/60 p-10">
                   <EmptyState
                     icon={<Search className="h-5 w-5 text-muted-foreground" />}
-                    title="No entries found"
-                    description="Try adjusting your filters or search term."
-                    actionLabel="Reset filters"
-                    onAction={resetAuditFilters}
+                    title={auditLogs.length === 0 ? 'No audit entries yet' : 'No entries found'}
+                    description={auditLogs.length === 0 ? 'Platform and governance events appear here after deploys, service or rule changes, approvals, and policy blocks.' : 'Try adjusting your filters or search term.'}
+                    actionLabel={auditLogs.length === 0 ? 'Open services' : 'Reset filters'}
+                    onAction={auditLogs.length === 0 ? () => navigate('/services') : resetAuditFilters}
                     tone="muted"
                   />
                 </div>
@@ -711,13 +1280,7 @@ const GovernancePage = () => {
                       >
                         <div className="flex items-start gap-3">
                           <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mt-0.5">
-                            {log.resourceType === 'deploy' && <Rocket className="w-4 h-4" />}
-                            {log.resourceType === 'rule' && <Globe className="w-4 h-4" />}
-                            {log.resourceType === 'service' && <AlertCircle className="w-4 h-4" />}
-                            {log.resourceType === 'team' && <Users className="w-4 h-4" />}
-                            {log.resourceType === 'settings' && <Settings className="w-4 h-4" />}
-                            {log.resourceType === 'user' && <Shield className="w-4 h-4" />}
-                            {log.resourceType === 'approval' && <CheckCircle2 className="w-4 h-4" />}
+                            {renderAuditResourceIcon(log.resourceType)}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">

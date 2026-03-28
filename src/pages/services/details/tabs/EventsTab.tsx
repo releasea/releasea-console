@@ -4,7 +4,8 @@ import { TablePagination } from '@/components/layout/TablePagination';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TabsContent } from '@/components/ui/tabs';
 import type { Deploy, RuleDeploy } from '@/types/releasea';
-import { AlertTriangle, FileText, GitBranch, Rocket, Route as RouteIcon } from 'lucide-react';
+import type { AuditLogEntry } from '@/types/governance';
+import { AlertTriangle, FileText, GitBranch, Rocket, Route as RouteIcon, Shield } from 'lucide-react';
 
 const logsActionButtonClassName =
   'gap-2 border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 hover:text-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-500/25';
@@ -41,6 +42,17 @@ export type ServiceEvent =
       timeLabel: string;
       time: number;
       ruleDeploy: RuleDeploy;
+    }
+  | {
+      id: string;
+      kind: 'governance';
+      status: 'failed';
+      label: string;
+      environment?: string;
+      triggeredBy?: string;
+      timeLabel: string;
+      time: number;
+      governanceEvent: AuditLogEntry;
     };
 
 type EventsTabProps = {
@@ -118,10 +130,15 @@ export const EventsTab = ({
                     <Rocket className="w-3 h-3 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">Deploy</span>
                   </div>
-                ) : (
+                ) : event.kind === 'rule-deploy' ? (
                   <div className="flex items-center gap-1.5">
                     <RouteIcon className="w-3 h-3 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">Rule deploy</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Shield className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Governance</span>
                   </div>
                 )}
               </td>
@@ -136,8 +153,10 @@ export const EventsTab = ({
                       </span>
                     )}
                   </div>
-                ) : (
+                ) : event.kind === 'rule-deploy' ? (
                   <span className="font-mono text-sm">{event.label}</span>
+                ) : (
+                  <span className="text-sm text-foreground">{event.label}</span>
                 )}
               </td>
               <td className="px-4 py-3 text-sm text-muted-foreground">
@@ -158,7 +177,7 @@ export const EventsTab = ({
                     </span>
                     <span className="font-medium">View logs</span>
                   </Button>
-                ) : (
+                ) : event.kind === 'rule-deploy' ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -170,6 +189,8 @@ export const EventsTab = ({
                     </span>
                     <span className="font-medium">Runtime logs</span>
                   </Button>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Policy event</span>
                 )}
               </td>
             </tr>

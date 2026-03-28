@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Users, FolderKanban, Activity, ArrowUpDown } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -13,6 +13,7 @@ import type { Project, Service, Team } from '@/types/releasea';
 
 const Projects = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [teamFilter, setTeamFilter] = useState<'all' | string>('all');
   const [activityFilter, setActivityFilter] = useState<'all' | 'active' | 'idle' | 'empty'>('all');
@@ -41,15 +42,25 @@ const Projects = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (searchParams.get('action') !== 'create') {
+      return;
+    }
+    setCreateModalOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const getTeamName = (teamId: string) => {
     return teams.find((team) => team.id === teamId)?.name || 'N/A';
   };
 
-  const getServiceStats = (projectId: string) => {
+  const getServiceStats = useCallback((projectId: string) => {
     const scoped = services.filter((service) => service.projectId === projectId);
     const running = scoped.filter((service) => service.status === 'running').length;
     return { total: scoped.length, running };
-  };
+  }, [services]);
 
   const filteredProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -86,7 +97,7 @@ const Projects = () => {
     });
 
     return sorted;
-  }, [searchQuery, teamFilter, activityFilter, sortBy, projects, services]);
+  }, [searchQuery, teamFilter, activityFilter, sortBy, projects, getServiceStats]);
 
 
   return (

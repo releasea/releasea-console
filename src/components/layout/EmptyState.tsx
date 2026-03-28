@@ -18,6 +18,8 @@ interface TableEmptyRowProps {
   icon: ReactNode;
   title?: string;
   description?: string;
+  actionLabel?: string;
+  onAction?: () => void;
   className?: string;
 }
 
@@ -74,6 +76,8 @@ export function TableEmptyRow({
   icon,
   title = 'Nothing here yet',
   description = 'You can add new items or adjust your search.',
+  actionLabel,
+  onAction,
   className,
 }: TableEmptyRowProps) {
   return (
@@ -83,6 +87,8 @@ export function TableEmptyRow({
           icon={icon}
           title={title}
           description={description}
+          actionLabel={actionLabel}
+          onAction={onAction}
           tone="muted"
           className="py-10 min-h-[140px]"
         />

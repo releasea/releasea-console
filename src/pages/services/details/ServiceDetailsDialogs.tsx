@@ -16,8 +16,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { getEnvironmentLabel } from '@/lib/environments';
+import { summarizeDeployPolicyViolations } from '@/lib/deploy-policy';
 import { cn } from '@/lib/utils';
 import type { Deploy, ManagedRule, RulePolicyConfig, Service } from '@/types/releasea';
+import type { RulePublishPolicyPreflight } from '@/types/governance';
 import { format } from 'date-fns';
 import { CheckCircle, Copy, Plus, Rocket, Trash2, X } from 'lucide-react';
 import {
@@ -109,6 +111,8 @@ type ServiceDetailsDialogsProps = {
     viewEnv: string;
     publishTargets: PublicationTargets;
     setPublishTargets: (value: PublicationTargets) => void;
+    preflight: RulePublishPolicyPreflight | null;
+    preflightLoading: boolean;
     onConfirm: () => void;
   };
   deleteRule: {
@@ -148,6 +152,8 @@ export const ServiceDetailsDialogs = ({
 }: ServiceDetailsDialogsProps) => {
   const hasPublishTargets = publishRule.publishTargets.internal || publishRule.publishTargets.external;
   const publishSummaryLabel = getPublicationLabel(publishRule.publishTargets);
+  const publishPolicyViolations = publishRule.preflight?.violations ?? [];
+  const publishBlockedByPolicy = publishPolicyViolations.length > 0;
 
   return (
     <>
@@ -697,6 +703,39 @@ export const ServiceDetailsDialogs = ({
               </Badge>
             </div>
 
+            <div
+              className={cn(
+                'rounded-lg border p-4 space-y-2 text-sm',
+                publishBlockedByPolicy
+                  ? 'border-destructive/40 bg-destructive/10'
+                  : 'border-border bg-muted/20',
+              )}
+            >
+              <p className="font-medium text-foreground">
+                {publishRule.preflightLoading
+                  ? 'Checking publish policy'
+                  : publishBlockedByPolicy
+                    ? 'Publication blocked by policy'
+                    : 'No policy blockers for this publication'}
+              </p>
+              {publishRule.preflightLoading ? (
+                <p className="text-muted-foreground">Evaluating governance rules for the selected targets.</p>
+              ) : publishBlockedByPolicy ? (
+                <>
+                  <p className="text-muted-foreground">{summarizeDeployPolicyViolations(publishPolicyViolations)}</p>
+                  <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                    {publishPolicyViolations.map((violation) => (
+                      <li key={`${violation.environment}:${violation.code}`}>{violation.message}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  Governance currently allows this publication change for {getEnvironmentLabel(publishRule.viewEnv)}.
+                </p>
+              )}
+            </div>
+
             <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">Attention</p>
               <p>Changes can propagate immediately or take a few minutes to be visible.</p>
@@ -711,11 +750,16 @@ export const ServiceDetailsDialogs = ({
               type="button"
               variant="outline"
               onClick={() => publishRule.setPublishTargets({ internal: false, external: false })}
-              disabled={!hasPublishTargets}
+              disabled={!hasPublishTargets || publishRule.preflightLoading}
             >
               Unpublish all
             </Button>
-            <Button type="button" onClick={publishRule.onConfirm} className="gap-2">
+            <Button
+              type="button"
+              onClick={publishRule.onConfirm}
+              className="gap-2"
+              disabled={publishRule.preflightLoading || publishBlockedByPolicy}
+            >
               <CheckCircle className="w-4 h-4" />
               Apply changes
             </Button>

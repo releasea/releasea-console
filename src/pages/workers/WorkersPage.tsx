@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Cpu,
   KeyRound,
@@ -47,18 +47,19 @@ import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { QuickStatsGrid } from '@/components/layout/QuickStatsGrid';
 import { TableFiltersBar } from '@/components/layout/TableFiltersBar';
 import { TablePagination } from '@/components/layout/TablePagination';
-import { TableEmptyRow } from '@/components/layout/EmptyState';
+import { EmptyState, TableEmptyRow } from '@/components/layout/EmptyState';
 import { ConfirmActionModal } from '@/components/modals/ConfirmActionModal';
 import { toast } from '@/hooks/use-toast';
 import { useTablePagination } from '@/hooks/use-table-pagination';
-import { Environment, Worker, WorkerBootstrapProfile, WorkerRegistration, WorkerStatus } from '@/types/releasea';
-import { getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
+import { Environment, Worker, WorkerBootstrapProfile, WorkerPool, WorkerRegistration, WorkerStatus } from '@/types/releasea';
+import { environmentsShareNamespace, getEnvironmentConfigs, getEnvironmentLabel } from '@/lib/environments';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
   createWorkerRegistration,
   deleteWorker,
   deleteWorkerRegistration,
   fetchWorkerBootstrapProfile,
+  fetchWorkerPools,
   fetchWorkerRegistrations,
   fetchWorkers,
   restartWorker,
@@ -189,6 +190,77 @@ type WorkerListItem =
       registration: WorkerRegistration;
     };
 
+type WorkerPoolPreview = WorkerPool & {
+  compatible: boolean;
+  fallbackRank: number | null;
+};
+
+const poolStatusLabel = (status: WorkerStatus) => {
+  if (status === 'busy') return 'Busy';
+  if (status === 'online') return 'Healthy';
+  if (status === 'pending') return 'Pending';
+  return 'Offline';
+};
+
+const poolCapacityLabel = (state: WorkerPool['capacityState']) => {
+  switch (state) {
+    case 'ready':
+      return 'Ready';
+    case 'constrained':
+      return 'Constrained';
+    case 'bootstrap':
+      return 'Bootstrap';
+    case 'degraded':
+      return 'Degraded';
+    default:
+      return 'Unavailable';
+  }
+};
+
+const normalizePoolTagInput = (value: string | string[] | undefined | null) => {
+  const parts = Array.isArray(value) ? value : String(value ?? '').split(',');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed || normalized.includes(trimmed)) continue;
+    normalized.push(trimmed);
+  }
+  return normalized;
+};
+
+const poolSupportsFallback = (pool: WorkerPool, environment: Environment | 'all', requiredTags: string[]) => {
+  const matchesEnvironment =
+    environment === 'all' || environmentsShareNamespace(pool.environment, environment);
+  if (!matchesEnvironment) return false;
+  if (requiredTags.length === 0) return true;
+  const availableTags = new Set(pool.tags.map((tag) => tag.trim()).filter(Boolean));
+  return requiredTags.every((tag) => availableTags.has(tag));
+};
+
+const poolFallbackSortValue = (pool: WorkerPool, requiredTags: string[]) => {
+  const availableTags = new Set(pool.tags.map((tag) => tag.trim()).filter(Boolean));
+  const extraTags = pool.tags.filter((tag) => !requiredTags.includes(tag)).length;
+  const lastHeartbeat = Date.parse(pool.lastHeartbeat ?? '');
+  return {
+    extraTags,
+    onlineAgents: pool.onlineAgents,
+    onlineWorkers: pool.onlineWorkers + pool.busyWorkers,
+    lastHeartbeat: Number.isNaN(lastHeartbeat) ? 0 : lastHeartbeat,
+  };
+};
+
+const workerBelongsToPool = (
+  worker: Pick<Worker, 'environment' | 'cluster' | 'namespacePrefix' | 'tags'>,
+  pool: WorkerPool,
+) => {
+  if (worker.environment !== pool.environment) return false;
+  if ((worker.cluster ?? '') !== (pool.cluster ?? '')) return false;
+  if ((worker.namespacePrefix ?? '') !== (pool.namespacePrefix ?? '')) return false;
+  const workerTags = normalizePoolTagInput(worker.tags);
+  const poolTags = normalizePoolTagInput(pool.tags);
+  return workerTags.length === poolTags.length && workerTags.every((tag, index) => tag === poolTags[index]);
+};
+
 const Workers = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<WorkerRegistration[]>([]);
@@ -215,6 +287,12 @@ const Workers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [environmentFilter, setEnvironmentFilter] = useState<Environment | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<WorkerStatus | 'all'>('all');
+  const [poolSearchQuery, setPoolSearchQuery] = useState('');
+  const [poolEnvironmentFilter, setPoolEnvironmentFilter] = useState<Environment | 'all'>('all');
+  const [poolStatusFilter, setPoolStatusFilter] = useState<WorkerStatus | 'all'>('all');
+  const [poolRequiredTags, setPoolRequiredTags] = useState('');
+  const [selectedPool, setSelectedPool] = useState<WorkerPoolPreview | null>(null);
+  const [poolDetailsOpen, setPoolDetailsOpen] = useState(false);
   const [bootstrapProfile, setBootstrapProfile] = useState<WorkerBootstrapProfile>(fallbackBootstrapProfile);
   const effectiveBootstrapProfile = normalizeBootstrapProfile(bootstrapProfile);
 
@@ -239,8 +317,9 @@ const Workers = () => {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [workersData, registrationsData, profileData] = await Promise.all([
+      const [workersData, workerPoolsData, registrationsData, profileData] = await Promise.all([
         fetchWorkers(),
+        fetchWorkerPools(),
         fetchWorkerRegistrations(),
         fetchWorkerBootstrapProfile(),
       ]);
@@ -257,6 +336,7 @@ const Workers = () => {
       });
       workerStatusRef.current = nextStatuses;
       setWorkers(workersData);
+      setWorkerPools(workerPoolsData);
       setRegistrations(registrationsData);
       setBootstrapProfile(normalizeBootstrapProfile(profileData));
       if (newlyOffline.length === 1) {
@@ -279,6 +359,7 @@ const Workers = () => {
     };
   }, []);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workerPools, setWorkerPools] = useState<WorkerPool[]>([]);
   const onlineWorkers = workers.filter((w) => w.status === 'online' || w.status === 'busy').length;
   const totalWorkers = workers.length;
 
@@ -338,7 +419,68 @@ const Workers = () => {
   );
 
   const pendingRegistrations = registrations.filter((r) => r.status === 'unused').length;
+  const activePools = workerPools.filter((pool) => pool.status === 'online' || pool.status === 'busy').length;
   const workerDocsUrl = getDocsUrl('environments-and-workers');
+  const requiredPoolTags = useMemo(() => normalizePoolTagInput(poolRequiredTags), [poolRequiredTags]);
+  const filteredPools = useMemo(() => {
+    const query = poolSearchQuery.trim().toLowerCase();
+    const basePools = workerPools.filter((pool) => {
+      const matchesSearch =
+        !query ||
+        [
+          pool.cluster,
+          pool.namespacePrefix,
+          pool.environment,
+          ...pool.tags,
+          ...pool.namespaces,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
+      const matchesEnv =
+        poolEnvironmentFilter === 'all' || environmentsShareNamespace(pool.environment, poolEnvironmentFilter);
+      const matchesStatus = poolStatusFilter === 'all' || pool.status === poolStatusFilter;
+      return matchesSearch && matchesEnv && matchesStatus;
+    });
+
+    const compatiblePools = basePools
+      .filter((pool) => poolSupportsFallback(pool, poolEnvironmentFilter, requiredPoolTags))
+      .sort((left, right) => {
+        const leftRank = poolFallbackSortValue(left, requiredPoolTags);
+        const rightRank = poolFallbackSortValue(right, requiredPoolTags);
+        if (leftRank.extraTags !== rightRank.extraTags) return leftRank.extraTags - rightRank.extraTags;
+        if (left.capacityScore !== right.capacityScore) return right.capacityScore - left.capacityScore;
+        if (leftRank.onlineAgents !== rightRank.onlineAgents) return rightRank.onlineAgents - leftRank.onlineAgents;
+        if (leftRank.onlineWorkers !== rightRank.onlineWorkers) return rightRank.onlineWorkers - leftRank.onlineWorkers;
+        if (leftRank.lastHeartbeat !== rightRank.lastHeartbeat) return rightRank.lastHeartbeat - leftRank.lastHeartbeat;
+        return left.id.localeCompare(right.id);
+      });
+
+    const fallbackRank = new Map<string, number>();
+    compatiblePools.forEach((pool, index) => fallbackRank.set(pool.id, index + 1));
+
+    return basePools
+      .map((pool) => ({
+        ...pool,
+        compatible: poolSupportsFallback(pool, poolEnvironmentFilter, requiredPoolTags),
+        fallbackRank: fallbackRank.get(pool.id) ?? null,
+      }))
+      .sort((left, right) => {
+        if (left.compatible !== right.compatible) return left.compatible ? -1 : 1;
+        if ((left.fallbackRank ?? Number.MAX_SAFE_INTEGER) !== (right.fallbackRank ?? Number.MAX_SAFE_INTEGER)) {
+          return (left.fallbackRank ?? Number.MAX_SAFE_INTEGER) - (right.fallbackRank ?? Number.MAX_SAFE_INTEGER);
+        }
+        return left.id.localeCompare(right.id);
+      });
+  }, [poolEnvironmentFilter, poolSearchQuery, poolStatusFilter, requiredPoolTags, workerPools]);
+  const selectedPoolWorkers = useMemo(
+    () => (selectedPool ? workers.filter((worker) => workerBelongsToPool(worker, selectedPool)) : []),
+    [selectedPool, workers],
+  );
+  const selectedPoolRegistrations = useMemo(
+    () => (selectedPool ? registrations.filter((registration) => workerBelongsToPool(registration, selectedPool)) : []),
+    [registrations, selectedPool],
+  );
 
   const getWorkerActionId = (worker: Worker) => worker.primaryId ?? worker.id;
 
@@ -363,6 +505,7 @@ const Workers = () => {
       environment: selectedWorker.environment,
       tags: parsedTags.length > 0 ? parsedTags : selectedWorker.tags,
     });
+    const nextPools = await fetchWorkerPools();
 
     setWorkers((prev) =>
       prev.map((worker) =>
@@ -376,6 +519,7 @@ const Workers = () => {
           : worker
       )
     );
+    setWorkerPools(nextPools);
     setConfigureOpen(false);
     toast({
       title: 'Worker updated',
@@ -417,7 +561,9 @@ const Workers = () => {
       };
 
       const savedRegistration = await createWorkerRegistration(nextRegistration);
+      const nextPools = await fetchWorkerPools();
       setRegistrations((prev) => [savedRegistration, ...prev]);
+      setWorkerPools(nextPools);
       setActiveRegistration(savedRegistration);
       setInstallOpen(true);
       toast({
@@ -467,11 +613,13 @@ const Workers = () => {
     if (!selectedWorker) return;
     const actionId = getWorkerActionId(selectedWorker);
     await deleteWorker(actionId);
-    const [nextWorkers, nextRegistrations] = await Promise.all([
+    const [nextWorkers, nextPools, nextRegistrations] = await Promise.all([
       fetchWorkers(),
+      fetchWorkerPools(),
       fetchWorkerRegistrations(),
     ]);
     setWorkers(nextWorkers);
+    setWorkerPools(nextPools);
     setRegistrations(nextRegistrations);
     toast({
       title: 'Worker deleted',
@@ -482,7 +630,9 @@ const Workers = () => {
   const handleDeleteRegistration = async () => {
     if (!selectedRegistration) return;
     await deleteWorkerRegistration(selectedRegistration.id);
+    const nextPools = await fetchWorkerPools();
     setRegistrations((prev) => prev.filter((registration) => registration.id !== selectedRegistration.id));
+    setWorkerPools(nextPools);
     setDeleteRegistrationOpen(false);
     toast({
       title: 'Registration deleted',
@@ -527,8 +677,9 @@ const Workers = () => {
       icon: <Zap className="w-4 h-4 text-warning" />,
     },
     { 
-      label: 'Environments', 
-      value: environmentOptions.length.toString(),
+      label: 'Worker Pools', 
+      value: workerPools.length.toString(),
+      sublabel: `${activePools} active`,
       icon: <Layers className="w-4 h-4 text-info" />,
     },
     { 
@@ -553,6 +704,188 @@ const Workers = () => {
         />
 
         <QuickStatsGrid stats={stats} />
+
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Worker Pools</h2>
+              <p className="text-xs text-muted-foreground">
+                Aggregated capacity by environment, cluster, namespace prefix, and tag set.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {workerPools.length > 0
+                ? `${workerPools.length} pools discovered`
+                : 'Pools appear after a worker registration or heartbeat is recorded.'}
+            </p>
+          </div>
+
+          {workerPools.length > 0 ? (
+            <>
+              <TableFiltersBar
+                search={{
+                  value: poolSearchQuery,
+                  onChange: setPoolSearchQuery,
+                  placeholder: 'Search pools...',
+                }}
+                selects={[
+                  {
+                    id: 'pool-environment',
+                    value: poolEnvironmentFilter,
+                    onValueChange: (value) => setPoolEnvironmentFilter(value as Environment | 'all'),
+                    icon: <Layers className="h-4 w-4 text-muted-foreground" />,
+                    options: [
+                      { value: 'all', label: 'All pool environments' },
+                      ...environmentOptions.map((opt) => ({ value: opt.id, label: opt.name })),
+                    ],
+                  },
+                  {
+                    id: 'pool-status',
+                    value: poolStatusFilter,
+                    onValueChange: (value) => setPoolStatusFilter(value as WorkerStatus | 'all'),
+                    icon: <Zap className="h-4 w-4 text-muted-foreground" />,
+                    options: [
+                      { value: 'all', label: 'All pool statuses' },
+                      { value: 'online', label: 'Healthy' },
+                      { value: 'busy', label: 'Busy' },
+                      { value: 'pending', label: 'Pending' },
+                      { value: 'offline', label: 'Offline' },
+                    ],
+                  },
+                ]}
+              />
+              <div className="space-y-2">
+                <Label htmlFor="pool-required-tags">Required tags for routing preview</Label>
+                <Input
+                  id="pool-required-tags"
+                  value={poolRequiredTags}
+                  onChange={(event) => setPoolRequiredTags(event.target.value)}
+                  placeholder="e.g., build, gpu"
+                  className="bg-muted/50 font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Operations can run in any pool whose workers carry all required tags. Compatible pools are ordered by
+                  exact tag match first, then by live capacity and heartbeat freshness.
+                </p>
+              </div>
+            </>
+          ) : null}
+
+          {workerPools.length > 0 && filteredPools.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredPools.map((pool) => (
+                <button
+                  key={pool.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPool(pool);
+                    setPoolDetailsOpen(true);
+                  }}
+                  className="rounded-lg border border-border bg-card p-4 space-y-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/20"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{pool.cluster || 'unassigned-cluster'}</p>
+                      <p className="text-xs text-muted-foreground font-mono truncate">
+                        {pool.namespacePrefix || 'no-namespace-prefix'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        {getEnvironmentLabel(pool.environment)}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {poolCapacityLabel(pool.capacityState)} · {pool.capacityScore}
+                      </Badge>
+                      {(requiredPoolTags.length > 0 || poolEnvironmentFilter !== 'all') && (
+                        pool.compatible ? (
+                          <Badge variant="secondary" className="text-xs">
+                            Fallback #{pool.fallbackRank}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            Incompatible
+                          </Badge>
+                        )
+                      )}
+                      <StatusBadge status={pool.status} className="normal-case" />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {pool.tags.length > 0 ? (
+                      pool.tags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-xs normal-case px-2 py-0.5">
+                          {tag}
+                        </Badge>
+                      ))
+                    ) : (
+                      <Badge variant="secondary" className="text-xs px-2 py-0.5">
+                        No tags
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Workers</p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {pool.onlineWorkers + pool.busyWorkers}/{pool.workerCount}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Agents</p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {pool.availableAgents}/{pool.onlineAgents}/{pool.desiredAgents}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-border/70 bg-muted/20 p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Tokens</p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {pool.pendingRegistrations}/{pool.registrationCount}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span>{poolStatusLabel(pool.status)} pool</span>
+                    <span>{pool.lastHeartbeat ? `Last online ${formatHeartbeat(pool.lastHeartbeat)}` : 'No heartbeat yet'}</span>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    {pool.namespaces.length > 0 ? (
+                      <span>
+                        Namespaces: <span className="font-mono">{pool.namespaces.join(', ')}</span>
+                      </span>
+                    ) : (
+                      'No namespaces discovered yet'
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : workerPools.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card/60 p-10">
+              <EmptyState
+                icon={<Layers className="h-5 w-5 text-muted-foreground" />}
+                title="No worker pools discovered yet"
+                description="Register a worker or wait for the first heartbeat to establish pool inventory and capacity scoring."
+                actionLabel="Register worker"
+                onAction={() => setRegisterOpen(true)}
+                tone="muted"
+              />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-card/60 p-10">
+              <EmptyState
+                icon={<Layers className="h-5 w-5 text-muted-foreground" />}
+                title="No pools match the current filters"
+                description="Adjust the environment, status, or tag filters to find another compatible worker pool."
+                tone="muted"
+              />
+            </div>
+          )}
+        </div>
 
         <div className="space-y-4">
           <TableFiltersBar
@@ -770,7 +1103,18 @@ const Workers = () => {
                     );
                   })}
                   {filteredWorkers.length === 0 && (
-                    <TableEmptyRow colSpan={7} icon={<Cpu className="h-5 w-5 text-muted-foreground" />} />
+                    <TableEmptyRow
+                      colSpan={7}
+                      icon={<Cpu className="h-5 w-5 text-muted-foreground" />}
+                      title={workerListRows.length === 0 ? 'No workers or registrations yet' : 'No workers match the current filters'}
+                      description={
+                        workerListRows.length === 0
+                          ? 'Register the first worker to bootstrap deploy execution and cluster discovery.'
+                          : 'Adjust the environment or status filters to reveal a different set of workers.'
+                      }
+                      actionLabel={workerListRows.length === 0 ? 'Register worker' : undefined}
+                      onAction={workerListRows.length === 0 ? () => setRegisterOpen(true) : undefined}
+                    />
                   )}
                 </tbody>
               </table>
@@ -1094,6 +1438,108 @@ const Workers = () => {
               Done
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={poolDetailsOpen} onOpenChange={setPoolDetailsOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Worker pool details</DialogTitle>
+            <DialogDescription>
+              Review the workers and registrations that currently back this execution pool.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPool && (
+            <div className="space-y-4 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{getEnvironmentLabel(selectedPool.environment)}</Badge>
+                <Badge variant="secondary">{selectedPool.cluster || 'unassigned-cluster'}</Badge>
+                <Badge variant="outline" className="font-mono text-xs">
+                  {selectedPool.namespacePrefix || 'no-namespace-prefix'}
+                </Badge>
+                {selectedPool.tags.length > 0 ? (
+                  selectedPool.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className="text-xs">
+                      {tag}
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant="secondary" className="text-xs">
+                    No tags
+                  </Badge>
+                )}
+                {selectedPool.compatible && selectedPool.fallbackRank ? (
+                  <Badge variant="secondary" className="text-xs">
+                    Fallback #{selectedPool.fallbackRank}
+                  </Badge>
+                ) : null}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Workers</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{selectedPool.workerCount}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Agent capacity</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{selectedPool.availableAgents}/{selectedPool.onlineAgents}/{selectedPool.desiredAgents}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Registrations</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{selectedPool.activeRegistrations}/{selectedPool.registrationCount} active</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                Capacity state: <span className="font-medium text-foreground">{poolCapacityLabel(selectedPool.capacityState)}</span>
+                {' · '}
+                Score <span className="font-medium text-foreground">{selectedPool.capacityScore}/100</span>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Workers</p>
+                <div className="rounded-lg border border-border divide-y divide-border">
+                  {selectedPoolWorkers.length > 0 ? (
+                    selectedPoolWorkers.map((worker) => (
+                      <div key={worker.id} className="flex items-center justify-between gap-3 p-3 text-sm">
+                        <div>
+                          <p className="font-mono text-foreground">{worker.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {worker.namespace} · {worker.onlineAgents}/{worker.desiredAgents} agents
+                          </p>
+                        </div>
+                        <StatusBadge status={worker.status} className="normal-case" />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 text-sm text-muted-foreground">No live workers currently match this pool.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Registrations</p>
+                <div className="rounded-lg border border-border divide-y divide-border">
+                  {selectedPoolRegistrations.length > 0 ? (
+                    selectedPoolRegistrations.map((registration) => (
+                      <div key={registration.id} className="flex items-center justify-between gap-3 p-3 text-sm">
+                        <div>
+                          <p className="font-mono text-foreground">{registration.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {registration.namespace || effectiveBootstrapProfile.platformNamespace}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {registrationStatusLabel(registration.status)}
+                        </Badge>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 text-sm text-muted-foreground">No registrations currently match this pool.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>

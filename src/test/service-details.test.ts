@@ -163,7 +163,7 @@ describe('rule CRUD via API', () => {
     const result = await createRule({
       name: 'test-rule',
       serviceId: 'svc-1',
-      environment: 'prod' as any,
+      environment: 'prod',
       paths: ['/api'],
       methods: ['GET', 'POST'],
     });
@@ -277,6 +277,184 @@ describe('fetchRuleDeploys', () => {
 
     const result = await fetchRuleDeploys();
     expect(result).toEqual([]);
+
+    getSpy.mockRestore();
+  });
+});
+
+describe('fetchServiceDesiredStateExport', () => {
+  it('requests the desired state endpoint and returns the export payload', async () => {
+    const { fetchServiceDesiredStateExport } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: {
+        document: {
+          kind: 'releasea.service.desired-state',
+          apiVersion: 'v1',
+          version: 1,
+          exportedAt: '2026-03-28T12:00:00Z',
+          service: {
+            id: 'svc-1',
+            name: 'checkout',
+            projectId: 'proj-1',
+            type: 'microservice',
+            spec: {
+              managementMode: 'managed',
+              sourceType: 'registry',
+              runtime: { workerTags: [] },
+              credentials: {},
+              environment: { keys: [], valuesExcluded: true },
+              features: { autoDeploy: true, isActive: true, pauseOnIdle: false, repoManaged: false },
+            },
+          },
+          rules: [],
+        },
+        yaml: 'kind: releasea.service.desired-state\n',
+        filename: 'releasea-service-checkout-desired-state.yaml',
+        warnings: [],
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await fetchServiceDesiredStateExport('svc-1');
+
+    expect(getSpy).toHaveBeenCalledWith('/services/svc-1/desired-state');
+    expect(result.error).toBeNull();
+    expect(result.exportData?.filename).toBe('releasea-service-checkout-desired-state.yaml');
+
+    getSpy.mockRestore();
+  });
+
+  it('returns API errors for observed services', async () => {
+    const { fetchServiceDesiredStateExport } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: null,
+      error: 'Desired state export is only available for managed services.',
+      errorBody: { code: 'SERVICE_OBSERVED_MODE' },
+      status: 409,
+    });
+
+    const result = await fetchServiceDesiredStateExport('svc-1');
+
+    expect(result.exportData).toBeNull();
+    expect(result.code).toBe('SERVICE_OBSERVED_MODE');
+    expect(result.error).toContain('managed services');
+
+    getSpy.mockRestore();
+  });
+});
+
+describe('createServiceGitOpsPullRequest', () => {
+  it('posts to the GitOps pull request endpoint and returns the PR payload', async () => {
+    const { createServiceGitOpsPullRequest } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const postSpy = vi.spyOn(apiClient.apiClient, 'post').mockResolvedValue({
+      data: {
+        url: 'https://github.com/releasea/checkout-api/pull/17',
+        number: 17,
+        baseBranch: 'main',
+        branchName: 'releasea/gitops/checkout-api-20260328123456',
+        filePath: '.releasea/gitops/checkout-api.desired-state.yaml',
+        title: 'chore(gitops): update desired state for checkout-api',
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await createServiceGitOpsPullRequest('svc-1');
+
+    expect(postSpy).toHaveBeenCalledWith('/services/svc-1/gitops/pull-requests', {});
+    expect(result.error).toBeNull();
+    expect(result.pullRequest?.number).toBe(17);
+
+    postSpy.mockRestore();
+  });
+
+  it('returns API errors when PR creation is blocked', async () => {
+    const { createServiceGitOpsPullRequest } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const postSpy = vi.spyOn(apiClient.apiClient, 'post').mockResolvedValue({
+      data: null,
+      error: 'GitOps pull request delivery is only available for managed services.',
+      errorBody: { code: 'SERVICE_OBSERVED_MODE' },
+      status: 409,
+    });
+
+    const result = await createServiceGitOpsPullRequest('svc-1');
+
+    expect(result.pullRequest).toBeNull();
+    expect(result.code).toBe('SERVICE_OBSERVED_MODE');
+    expect(result.error).toContain('managed services');
+
+    postSpy.mockRestore();
+  });
+});
+
+describe('createServiceArgoCDGitOpsPullRequest', () => {
+  it('posts to the Argo CD GitOps pull request endpoint and returns the PR payload', async () => {
+    const { createServiceArgoCDGitOpsPullRequest } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const postSpy = vi.spyOn(apiClient.apiClient, 'post').mockResolvedValue({
+      data: {
+        url: 'https://github.com/releasea/checkout-api/pull/21',
+        number: 21,
+        baseBranch: 'main',
+        branchName: 'releasea/gitops/argocd/checkout-api-20260328123456',
+        filePath: '.releasea/gitops/checkout-api/desired-state.yaml',
+        filePaths: [
+          '.releasea/gitops/checkout-api/desired-state.yaml',
+          '.releasea/gitops/checkout-api/kustomization.yaml',
+          '.releasea/gitops/argocd/checkout-api-application.yaml',
+        ],
+        title: 'chore(gitops): add Argo CD starter for checkout-api',
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await createServiceArgoCDGitOpsPullRequest('svc-1');
+
+    expect(postSpy).toHaveBeenCalledWith('/services/svc-1/gitops/argocd/pull-requests', {});
+    expect(result.error).toBeNull();
+    expect(result.pullRequest?.number).toBe(21);
+    expect(result.pullRequest?.filePaths).toHaveLength(3);
+
+    postSpy.mockRestore();
+  });
+});
+
+describe('fetchServiceGitOpsDrift', () => {
+  it('requests the GitOps drift endpoint and returns the drift payload', async () => {
+    const { fetchServiceGitOpsDrift } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: {
+        state: 'out-of-sync',
+        inSync: false,
+        message: 'Repository desired state is out of sync with the current Releasea export.',
+        repoUrl: 'https://github.com/releasea/checkout-api',
+        baseBranch: 'main',
+        filePath: '.releasea/gitops/checkout-api.desired-state.yaml',
+        expectedHash: 'abc',
+        actualHash: 'def',
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await fetchServiceGitOpsDrift('svc-1');
+
+    expect(getSpy).toHaveBeenCalledWith('/services/svc-1/gitops/drift');
+    expect(result.error).toBeNull();
+    expect(result.drift?.state).toBe('out-of-sync');
 
     getSpy.mockRestore();
   });

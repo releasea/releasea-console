@@ -22,6 +22,7 @@ type PaginationState = {
 
 type RulesTabProps = {
   service: Service;
+  isObservedManagementMode: boolean;
   viewEnv: Environment;
   environmentRules: ManagedRule[];
   visibleServiceRules: ManagedRule[];
@@ -35,6 +36,7 @@ type RulesTabProps = {
 
 export const RulesTab = ({
   service,
+  isObservedManagementMode,
   viewEnv,
   environmentRules,
   visibleServiceRules,
@@ -53,8 +55,13 @@ export const RulesTab = ({
           <p className="text-xs text-muted-foreground">
             {environmentRules.length} total in {getEnvironmentLabel(viewEnv)}
           </p>
+          {isObservedManagementMode && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Observed services can inspect rules, but Releasea will not create, edit, delete, or publish them until the service returns to managed mode.
+            </p>
+          )}
         </div>
-        <Button size="sm" className="gap-2" onClick={onCreateRule}>
+        <Button size="sm" className="gap-2" onClick={onCreateRule} disabled={isObservedManagementMode}>
           <Plus className="w-4 h-4" />
           New Rule
         </Button>
@@ -122,16 +129,22 @@ export const RulesTab = ({
               return (
                 <tr
                   key={rule.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpenEditRule(rule)}
+                  role={isObservedManagementMode ? undefined : 'button'}
+                  tabIndex={isObservedManagementMode ? -1 : 0}
+                  onClick={() => {
+                    if (isObservedManagementMode) return;
+                    onOpenEditRule(rule);
+                  }}
                   onKeyDown={(event) => {
+                    if (isObservedManagementMode) {
+                      return;
+                    }
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       onOpenEditRule(rule);
                     }
                   }}
-                  className="border-b border-border/50 hover:bg-muted/20 transition-colors cursor-pointer"
+                  className={`border-b border-border/50 transition-colors ${isObservedManagementMode ? 'cursor-default' : 'hover:bg-muted/20 cursor-pointer'}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -195,22 +208,26 @@ export const RulesTab = ({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => onOpenEditRule(rule)}>
+                        <DropdownMenuItem onSelect={() => onOpenEditRule(rule)} disabled={isObservedManagementMode}>
                           <Pencil className="w-4 h-4 mr-2" />
                           Edit rule
                         </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => onOpenCopyRule(rule)}>
+                        <DropdownMenuItem onSelect={() => onOpenCopyRule(rule)} disabled={isObservedManagementMode}>
                           <Copy className="w-4 h-4 mr-2" />
                           Copy to environments
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => onOpenPublishRule(rule)}>
+                        <DropdownMenuItem
+                          onSelect={() => onOpenPublishRule(rule)}
+                          disabled={isObservedManagementMode}
+                        >
                           <Globe className="w-4 h-4 mr-2" />
                           Manage publication
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive"
                           onSelect={() => onDeleteRule(ruleWithPolicy)}
+                          disabled={isObservedManagementMode}
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete

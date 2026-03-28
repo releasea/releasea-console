@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -38,6 +40,13 @@ export function ManagementModeTransitionDialog({
 }: ManagementModeTransitionDialogProps) {
   const blockingCount = requirements.filter((requirement) => !requirement.ready).length;
   const readyToManage = blockingCount === 0;
+  const [takeoverConfirmed, setTakeoverConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setTakeoverConfirmed(false);
+    }
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,13 +95,34 @@ export function ManagementModeTransitionDialog({
               </div>
             ))}
           </div>
+
+          {readyToManage && (
+            <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="takeover-confirmation"
+                  checked={takeoverConfirmed}
+                  onCheckedChange={(checked) => setTakeoverConfirmed(Boolean(checked))}
+                  className="mt-0.5"
+                />
+                <div className="space-y-1">
+                  <label htmlFor="takeover-confirmation" className="text-sm font-medium text-foreground">
+                    Confirm takeover
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    I reviewed the current runtime, routing, and rollout ownership. After saving, Releasea becomes the deploy authority for {serviceName} in {environmentLabel}.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="mt-2">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" onClick={onConfirm} disabled={!readyToManage || isSaving}>
+          <Button type="button" onClick={onConfirm} disabled={!readyToManage || !takeoverConfirmed || isSaving}>
             {isSaving ? 'Saving...' : 'Save as managed'}
           </Button>
         </DialogFooter>

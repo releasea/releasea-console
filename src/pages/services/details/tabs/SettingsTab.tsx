@@ -9,6 +9,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { DangerZone } from '@/components/service/DangerZone';
 import { EnvironmentVariablesSection } from '@/forms/components/EnvironmentVariablesSection';
 import { useServiceSettingsFormStore } from '@/forms/store/service-settings-form-store';
+import { OBSERVED_MODE_RESTRICTIONS } from '@/lib/management-mode';
 import type { DeployStrategyType, ServiceManagementMode } from '@/types/releasea';
 import { Power } from 'lucide-react';
 import { frameworkOptions } from '../constants';
@@ -170,9 +171,16 @@ export const SettingsTab = () => {
             ))}
           </div>
           {management.mode === 'observed' && (
-            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-              Releasea will keep service settings and runtime visibility, but deploy and promote actions stay blocked
-              until you switch this service back to managed mode.
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-2">
+              <p className="font-medium text-foreground">Observed mode operating rules</p>
+              <p>
+                Releasea will keep service settings and runtime visibility, but operating control stays locked until this service returns to managed mode.
+              </p>
+              <ul className="list-disc space-y-1 pl-5">
+                {OBSERVED_MODE_RESTRICTIONS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
             </div>
           )}
           {management.mode === 'managed' && management.requiresManagedTransitionReview && (
@@ -529,6 +537,20 @@ export const SettingsTab = () => {
                   </div>
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="workerTags">Worker tags</Label>
+                <Input
+                  id="workerTags"
+                  value={operations.workerTags}
+                  onChange={(e) => operations.setWorkerTags(e.target.value)}
+                  placeholder="gpu, arm64, isolated"
+                  className="bg-muted/50 font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Only workers carrying all listed tags can execute deploy, promote, delete, and rule publication
+                  operations for this service.
+                </p>
+              </div>
             </div>
           </SettingsSection>
 
@@ -845,8 +867,13 @@ export const SettingsTab = () => {
       title="Danger zone"
       description="Deleting a service permanently removes its configuration, rules, and deployment history."
       actionLabel="Delete service"
-      actionDescription="This action cannot be undone and will stop all active deployments."
+      actionDescription={
+        management.mode === 'observed'
+          ? 'Observed services cannot be deleted through Releasea until they are switched back to managed mode.'
+          : 'This action cannot be undone and will stop all active deployments.'
+      }
       onAction={onDeleteService}
+      disabled={management.mode === 'observed'}
     />
   </TabsContent>
   );

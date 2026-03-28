@@ -36,6 +36,23 @@ export interface GovernanceSettings {
     environments: string[]; // Which environments require approval
     minApprovers: number;
   };
+  deployPolicy: {
+    enabled: boolean;
+    rules: Array<{
+      environment: string;
+      allowAutoDeploy: boolean;
+      requireExplicitVersion: boolean;
+      blockExternalExposure: boolean;
+      allowedProfileIds: string[];
+      allowedScmProviders: string[];
+      allowedRegistryProviders: string[];
+      allowedSecretProviders: string[];
+      allowedSourceTypes: string[];
+      allowedRegistries: string[];
+      allowedStrategies: string[];
+      maxReplicas: number;
+    }>;
+  };
   rulePublishApproval: {
     enabled: boolean;
     externalOnly: boolean; // Only require approval for external publish
@@ -44,10 +61,48 @@ export interface GovernanceSettings {
   auditRetentionDays: number;
 }
 
+export interface GovernancePolicyDocument {
+  kind: 'releasea.governance.policy';
+  apiVersion: 'v1';
+  exportedAt: string;
+  spec: GovernanceSettings;
+}
+
+export interface DeployPolicyViolation {
+  code: string;
+  environment: string;
+  message: string;
+  rule?: Record<string, unknown>;
+}
+
+export interface DeployPolicyPreflight {
+  environment: string;
+  trigger: string;
+  sourceType: string;
+  registryHost?: string;
+  strategyType: string;
+  replicas: number;
+  explicitVersion: boolean;
+  target: {
+    profileId?: string;
+    scmProvider?: string;
+    registryProvider?: string;
+    secretProvider?: string;
+  };
+  violations: DeployPolicyViolation[];
+}
+
+export interface RulePublishPolicyPreflight {
+  environment: string;
+  internal: boolean;
+  external: boolean;
+  violations: DeployPolicyViolation[];
+}
+
 export interface AuditLogEntry {
   id: string;
   action: string;
-  resourceType: 'service' | 'rule' | 'deploy' | 'team' | 'settings' | 'user' | 'approval';
+  resourceType: string;
   resourceId: string;
   resourceName: string;
   performedBy: {

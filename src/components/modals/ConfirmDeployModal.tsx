@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Rocket, AlertTriangle, GitBranch, Server } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Rocket, AlertTriangle, GitBranch, Server, ShieldAlert } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,6 +13,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Service } from '@/types/releasea';
 import { apiClient } from '@/lib/api-client';
+import type { DeployPolicyViolation } from '@/types/governance';
+import { extractDeployPolicyViolations, summarizeDeployPolicyViolations } from '@/lib/deploy-policy';
 
 interface ConfirmDeployModalProps {
   open: boolean;
@@ -36,10 +38,19 @@ export function ConfirmDeployModal({
   onConfirm,
 }: ConfirmDeployModalProps) {
   const [isConfirming, setIsConfirming] = useState(false);
+  const [policyViolations, setPolicyViolations] = useState<DeployPolicyViolation[]>([]);
+
+  useEffect(() => {
+    if (!open) {
+      setIsConfirming(false);
+      setPolicyViolations([]);
+    }
+  }, [open]);
 
   const handleConfirm = async () => {
     if (!service) return;
     setIsConfirming(true);
+    setPolicyViolations([]);
     onStart?.();
     const response = await apiClient.post<{
       operation?: { id: string; status: string };
@@ -51,7 +62,9 @@ export function ConfirmDeployModal({
       { environment, version },
     );
     if (response.error) {
-      onError?.(response.error);
+      const violations = extractDeployPolicyViolations(response.errorBody);
+      setPolicyViolations(violations);
+      onError?.(violations.length > 0 ? summarizeDeployPolicyViolations(violations) : response.error);
       setIsConfirming(false);
       return;
     }
@@ -132,6 +145,20 @@ export function ConfirmDeployModal({
             </div>
           </div>
 
+          {policyViolations.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+              <ShieldAlert className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+              <div className="space-y-2 text-sm">
+                <p className="font-medium text-foreground">Blocked by deploy policy</p>
+                <ul className="space-y-1 text-muted-foreground">
+                  {policyViolations.map((violation, index) => (
+                    <li key={`${violation.code}-${index}`}>{violation.message}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {isProd && (
             <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
@@ -148,7 +175,10 @@ export function ConfirmDeployModal({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isConfirming}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleConfirm}
+            onClick={(event) => {
+              event.preventDefault();
+              void handleConfirm();
+            }}
             disabled={isConfirming}
             className={`gap-2 ${isProd ? 'bg-warning text-warning-foreground hover:bg-warning/90' : ''}`}
           >

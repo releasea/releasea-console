@@ -274,6 +274,7 @@ export interface Service {
   registryCredentialId?: string;
   deployTemplateId?: string;
   secretProviderId?: string;
+  workerTags?: string[];
   managementMode?: ServiceManagementMode;
   runtime?: Record<string, ServiceRuntimeState>;
   repoManaged?: boolean;
@@ -330,6 +331,128 @@ export interface ManagedRule extends Rule {
   updatedAt: string;
   lastPublishedAt?: string;
   policy: RulePolicyConfig;
+}
+
+export interface ServiceDesiredStatePublication {
+  internal: boolean;
+  external: boolean;
+}
+
+export interface ServiceDesiredStateRule {
+  id: string;
+  name: string;
+  environment: Environment;
+  protocol?: string;
+  port?: number;
+  hosts: string[];
+  paths: string[];
+  methods: string[];
+  gateways: string[];
+  publication: ServiceDesiredStatePublication;
+  status?: string;
+  policy?: Record<string, unknown>;
+  lastPublishedAt?: string;
+}
+
+export interface ServiceDesiredStateDocument {
+  kind: 'releasea.service.desired-state';
+  apiVersion: 'v1';
+  version: number;
+  exportedAt: string;
+  service: {
+    id: string;
+    name: string;
+    projectId: string;
+    type: ServiceType | string;
+    spec: {
+      managementMode: ServiceManagementMode | string;
+      sourceType: ServiceSourceType | string;
+      deployTemplateId?: string;
+      repo?: {
+        url?: string;
+        branch?: string;
+        rootDir?: string;
+      };
+      image?: {
+        dockerImage?: string;
+        dockerContext?: string;
+        dockerfilePath?: string;
+        dockerCommand?: string;
+        preDeployCommand?: string;
+      };
+      staticSite?: {
+        framework?: string;
+        installCommand?: string;
+        buildCommand?: string;
+        outputDir?: string;
+        cacheTtl?: string | number;
+      };
+      schedule?: {
+        cron?: string;
+        timezone?: string;
+        command?: string;
+        retries?: string;
+        timeout?: string;
+      };
+      runtime: {
+        port?: number;
+        healthCheckPath?: string;
+        replicas?: number;
+        minReplicas?: number;
+        maxReplicas?: number;
+        cpu?: number;
+        memory?: number;
+        profileId?: string;
+        workerTags: string[];
+        deploymentStrategy?: Record<string, unknown>;
+      };
+      credentials: {
+        scmCredentialId?: string;
+        registryCredentialId?: string;
+        secretProviderId?: string;
+      };
+      environment: {
+        keys: string[];
+        valuesExcluded: boolean;
+      };
+      features: {
+        autoDeploy: boolean;
+        isActive: boolean;
+        pauseOnIdle: boolean;
+        pauseIdleTimeoutSeconds?: number;
+        repoManaged: boolean;
+      };
+    };
+  };
+  rules: ServiceDesiredStateRule[];
+}
+
+export interface ServiceDesiredStateExport {
+  document: ServiceDesiredStateDocument;
+  yaml: string;
+  filename: string;
+  warnings?: string[];
+}
+
+export interface ServiceGitOpsPullRequest {
+  url: string;
+  number: number;
+  baseBranch: string;
+  branchName: string;
+  filePath: string;
+  filePaths?: string[];
+  title: string;
+}
+
+export interface ServiceGitOpsDriftStatus {
+  state: 'in-sync' | 'out-of-sync' | 'missing' | string;
+  inSync: boolean;
+  message: string;
+  repoUrl: string;
+  baseBranch: string;
+  filePath: string;
+  expectedHash: string;
+  actualHash?: string;
 }
 
 export interface Deploy {
@@ -476,6 +599,71 @@ export interface WorkerRegistration {
   notes?: string;
 }
 
+export interface WorkerPool {
+  id: string;
+  status: WorkerStatus;
+  capacityState: 'ready' | 'constrained' | 'degraded' | 'bootstrap' | 'unavailable' | (string & {});
+  environment: Environment;
+  cluster: string;
+  namespacePrefix: string;
+  tags: string[];
+  namespaces: string[];
+  workerCount: number;
+  onlineWorkers: number;
+  busyWorkers: number;
+  offlineWorkers: number;
+  pendingWorkers: number;
+  registrationCount: number;
+  activeRegistrations: number;
+  pendingRegistrations: number;
+  inactiveRegistrations: number;
+  desiredAgents: number;
+  onlineAgents: number;
+  availableAgents: number;
+  capacityScore: number;
+  lastHeartbeat?: string;
+}
+
+export interface DiscoveredEnvironmentVariable {
+  key: string;
+  value?: string;
+  sourceType?: string;
+  reference?: string;
+  importable?: boolean;
+}
+
+export interface DiscoveredContainer {
+  name: string;
+  image?: string;
+  ports?: number[];
+  imported?: boolean;
+}
+
+export interface DiscoveredServiceHint {
+  name: string;
+  type?: string;
+  ports?: number[];
+  headless?: boolean;
+}
+
+export interface DiscoveredIngressHint {
+  name: string;
+  serviceNames?: string[];
+  hosts?: string[];
+  paths?: string[];
+  tls?: boolean;
+}
+
+export interface DiscoveredProbe {
+  type: 'readiness' | 'liveness' | 'startup' | (string & {});
+  handler: 'httpGet' | 'tcpSocket' | 'grpc' | 'exec' | (string & {});
+  containerName?: string;
+  path?: string;
+  port?: string;
+  command?: string[];
+  service?: string;
+}
+
 export interface DiscoveredWorkload {
   id: string;
   workerId: string;
@@ -485,6 +673,9 @@ export interface DiscoveredWorkload {
   namespace: string;
   kind: 'Deployment' | 'StatefulSet' | 'CronJob' | (string & {});
   name: string;
+  containers?: DiscoveredContainer[];
+  serviceHints?: DiscoveredServiceHint[];
+  ingressHints?: DiscoveredIngressHint[];
   images: string[];
   primaryImage?: string;
   ports: number[];
@@ -492,6 +683,12 @@ export interface DiscoveredWorkload {
   replicas?: number;
   scheduleCron?: string;
   healthCheckPath?: string;
+  probes?: DiscoveredProbe[];
+  environmentVariables?: DiscoveredEnvironmentVariable[];
+  command?: string[];
+  args?: string[];
+  cpuMilli?: number;
+  memoryMi?: number;
   serviceType?: ServiceType;
   templateKind?: TemplateKind;
   sourceType?: ServiceSourceType;
