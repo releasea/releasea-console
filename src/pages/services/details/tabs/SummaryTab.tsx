@@ -55,6 +55,7 @@ type SummaryTabProps = {
   requestsAvgLabel: string;
   requestsPeakLabel: string;
   isLive?: boolean;
+  isLivePaused?: boolean;
   liveSyncError?: string | null;
 };
 
@@ -94,10 +95,10 @@ export const SummaryTab = ({
   requestsAvgLabel,
   requestsPeakLabel,
   isLive,
+  isLivePaused,
   liveSyncError,
 }: SummaryTabProps) => {
   const safeRepositoryURL = repositoryUrl ? sanitizeExternalURL(repositoryUrl) : null;
-  const managementMode = service.managementMode ?? 'managed';
 
   return (
     <TabsContent value="summary" className="space-y-6">
@@ -106,10 +107,8 @@ export const SummaryTab = ({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Summary</p>
-            <h3 className="text-lg font-semibold text-foreground">{serviceTypeLabel}</h3>
-            <p className="text-sm text-muted-foreground">
-              {service.name} • {runtimeLabel}
-            </p>
+            <h3 className="text-lg font-semibold text-foreground">Service overview</h3>
+            <p className="text-sm text-muted-foreground">Runtime, source, and deploy controls for the current service.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
@@ -127,12 +126,6 @@ export const SummaryTab = ({
             >
               {isServiceActive ? 'Active' : 'Inactive'}
             </Badge>
-            <Badge variant="outline" className="text-xs normal-case">
-              {serviceTypeLabel}
-            </Badge>
-            <Badge variant={managementMode === 'observed' ? 'secondary' : 'outline'} className="text-xs normal-case">
-              {managementMode === 'observed' ? 'Observed' : 'Managed'}
-            </Badge>
           </div>
         </div>
 
@@ -140,10 +133,6 @@ export const SummaryTab = ({
           <div>
             <p className="text-xs text-muted-foreground">Instance</p>
             <p className="font-medium text-foreground">{instanceLabel}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Environment</p>
-            <p className="font-medium text-foreground">{viewEnvLabel}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Repository</p>
@@ -264,6 +253,11 @@ export const SummaryTab = ({
                 <span className="inline-flex items-center gap-1.5 text-yellow-500">
                   <AlertTriangle className="w-3 h-3" />
                   Live sync delayed
+                </span>
+              ) : isLivePaused ? (
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-amber-400" />
+                  Paused
                 </span>
               ) : isLive ? (
                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">

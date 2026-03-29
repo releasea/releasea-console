@@ -14,6 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchDeploys,
+  fetchControlPlaneMetrics,
   fetchProviderHealth,
   fetchProviderStatus,
   fetchProjects,
@@ -29,6 +30,7 @@ import { getDocsUrl } from '@/lib/docs-url';
 import { buildOperatorHealthReport } from '@/lib/operator-health';
 import type {
   Deploy,
+  ControlPlaneMetrics,
   Project,
   ProviderHealthCatalog,
   ProviderStatusCatalog,
@@ -54,6 +56,7 @@ const Dashboard = () => {
   const [registryCredentials, setRegistryCredentials] = useState<RegistryCredential[]>([]);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusCatalog | null>(null);
   const [providerHealth, setProviderHealth] = useState<ProviderHealthCatalog | null>(null);
+  const [controlPlaneMetrics, setControlPlaneMetrics] = useState<ControlPlaneMetrics | null>(null);
   const [isRunningProviderHealth, setIsRunningProviderHealth] = useState(false);
 
   useEffect(() => {
@@ -70,6 +73,7 @@ const Dashboard = () => {
         registryCredentialsData,
         providerStatusData,
         providerHealthData,
+        controlPlaneMetricsData,
       ] = await Promise.all([
         fetchProjects(),
         fetchServices(),
@@ -81,6 +85,7 @@ const Dashboard = () => {
         fetchRegistryCredentials(),
         fetchProviderStatus(),
         isAdmin ? fetchProviderHealth() : Promise.resolve(null),
+        isAdmin ? fetchControlPlaneMetrics() : Promise.resolve(null),
       ]);
       if (!active) return;
       setProjects(projectsData);
@@ -93,6 +98,7 @@ const Dashboard = () => {
       setRegistryCredentials(registryCredentialsData);
       setProviderStatus(providerStatusData);
       setProviderHealth(providerHealthData);
+      setControlPlaneMetrics(controlPlaneMetricsData);
     };
     load();
     return () => {
@@ -127,6 +133,7 @@ const Dashboard = () => {
   const emptyServiceActionLabel = projects.length > 0 ? 'New Service' : 'Create Project';
   const operatorHealthReport = buildOperatorHealthReport({
     providerHealth,
+    controlPlaneMetrics,
     workerPools,
     deploys,
   });

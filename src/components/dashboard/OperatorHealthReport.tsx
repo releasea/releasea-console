@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CheckCircle2, Cpu, Settings2, ShieldAlert } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Cpu, Settings2, ShieldAlert, Waypoints } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ const laneIcon = (lane: OperatorHealthLane) => {
       return <Settings2 className="h-4 w-4 text-primary" />;
     case 'workers':
       return <Cpu className="h-4 w-4 text-primary" />;
+    case 'control-plane':
+      return <Waypoints className="h-4 w-4 text-primary" />;
     case 'delivery':
       return <Activity className="h-4 w-4 text-primary" />;
     default:
@@ -55,7 +57,7 @@ export const OperatorHealthReport = ({ report }: { report: OperatorHealthReportM
       </div>
     </div>
 
-    <div className="grid gap-4 p-4 md:grid-cols-3">
+    <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
       {report.lanes.map((lane) => (
         <div key={lane.id} className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
           <div className="flex items-start justify-between gap-3">

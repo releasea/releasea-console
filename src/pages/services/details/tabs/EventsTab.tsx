@@ -65,6 +65,7 @@ type EventsTabProps = {
   liveSyncError?: string | null;
   liveSyncLabel: string;
   liveSyncActive?: boolean;
+  liveSyncPaused?: boolean;
 };
 
 export const EventsTab = ({
@@ -77,6 +78,7 @@ export const EventsTab = ({
   liveSyncError,
   liveSyncLabel,
   liveSyncActive = false,
+  liveSyncPaused = false,
 }: EventsTabProps) => (
   <TabsContent value="events" className="space-y-4">
     <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
@@ -84,6 +86,10 @@ export const EventsTab = ({
         <span className="inline-flex items-center gap-1 text-warning">
           <AlertTriangle className="w-3 h-3" />
           Live sync delayed: {liveSyncError}
+        </span>
+      ) : liveSyncPaused ? (
+        <span className="text-muted-foreground">
+          Live sync paused in hidden tab • Last sync {liveSyncLabel}
         </span>
       ) : (
         <span className="text-muted-foreground">

@@ -30,6 +30,7 @@ import {
   fetchServiceGovernanceEvents,
   fetchServiceLogs,
   fetchServicePods,
+  fetchService,
   fetchMetrics,
   fetchProjects,
   fetchRegistryCredentials,
@@ -90,6 +91,7 @@ import type {
   ServiceDesiredStateExport,
   ServiceDesiredStateValidation,
   ServiceManagementMode,
+  LiveStateChangeEvent,
   ServiceStatus,
   ServiceStatusSnapshot,
   Worker,
@@ -405,6 +407,7 @@ const ServiceDetails = () => {
   const [defaultSecretProviderId, setDefaultSecretProviderId] = useState('');
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const metricsRequestTokenRef = useRef(0);
   const deployPoller = useRef<number | null>(null);
   const servicePoller = useRef<number | null>(null);
@@ -484,53 +487,68 @@ const ServiceDetails = () => {
     let active = true;
     const load = async () => {
       setIsLoading(true);
-      const [
-        servicesData,
-        workersData,
-        workerRegistrationsData,
-        deploysData,
-        rulesData,
-        ruleDeploysResult,
-        governanceEventsResult,
-        projectsData,
-        scmData,
-        registryData,
-        settingsData,
-        profilesData,
-      ] = await Promise.all([
-        fetchServices(),
-        fetchWorkers(),
-        fetchWorkerRegistrations(),
-        fetchDeploys(),
-        fetchRules(),
-        fetchRuleDeploys(),
-        id ? fetchServiceGovernanceEvents(id) : Promise.resolve([]),
-        fetchProjects(),
-        fetchScmCredentials(),
-        fetchRegistryCredentials(),
-        fetchPlatformSettings(),
-        fetchRuntimeProfiles(),
-      ]);
-      if (!active) return;
-      setServices(servicesData);
-      setWorkers(workersData);
-      setWorkerRegistrations(workerRegistrationsData);
-      setDeploysData(deploysData);
-      setRuleDeploysData(ruleDeploysResult);
-      setGovernanceEventsData(governanceEventsResult);
-      setLogs([]);
-      setRules(rulesData);
-      setProjects(projectsData);
-      setScmCredentials(scmData);
-      setRegistryCredentials(registryData);
-      setSecretProviders(settingsData.secrets?.providers ?? []);
-      setDefaultSecretProviderId(settingsData.secrets?.defaultProviderId ?? '');
-      setProfiles(profilesData);
-      setLastRealtimeSyncAt(Date.now());
-      setRealtimeSyncError(null);
-      setIsLoading(false);
+      setBootstrapError(null);
+      try {
+        const [
+          directService,
+          servicesData,
+          workersData,
+          workerRegistrationsData,
+          deploysData,
+          rulesData,
+          ruleDeploysResult,
+          governanceEventsResult,
+          projectsData,
+          scmData,
+          registryData,
+          settingsData,
+          profilesData,
+        ] = await Promise.all([
+          id ? fetchService(id) : Promise.resolve(null),
+          fetchServices(),
+          fetchWorkers(),
+          fetchWorkerRegistrations(),
+          fetchDeploys(),
+          fetchRules(),
+          fetchRuleDeploys(),
+          id ? fetchServiceGovernanceEvents(id) : Promise.resolve([]),
+          fetchProjects(),
+          fetchScmCredentials(),
+          fetchRegistryCredentials(),
+          fetchPlatformSettings(),
+          fetchRuntimeProfiles(),
+        ]);
+        if (!active) return;
+        const mergedServices = directService
+          ? [directService, ...servicesData.filter((item) => item.id !== directService.id)]
+          : servicesData;
+        setServices(mergedServices);
+        setWorkers(workersData);
+        setWorkerRegistrations(workerRegistrationsData);
+        setDeploysData(deploysData);
+        setRuleDeploysData(ruleDeploysResult);
+        setGovernanceEventsData(governanceEventsResult);
+        setLogs([]);
+        setRules(rulesData);
+        setProjects(projectsData);
+        setScmCredentials(scmData);
+        setRegistryCredentials(registryData);
+        setSecretProviders(settingsData.secrets?.providers ?? []);
+        setDefaultSecretProviderId(settingsData.secrets?.defaultProviderId ?? '');
+        setProfiles(profilesData);
+        setLastRealtimeSyncAt(Date.now());
+        setRealtimeSyncError(null);
+      } catch (error) {
+        if (!active) return;
+        setBootstrapError(errorMessage(error, 'Unable to load service details.'));
+        setRealtimeSyncError(errorMessage(error, 'Unable to load service details.'));
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
+      }
     };
-    load();
+    void load();
     return () => {
       active = false;
     };
@@ -643,16 +661,65 @@ const ServiceDetails = () => {
     const qs = query.toString();
     return qs ? `/services/${id}/status/stream?${qs}` : `/services/${id}/status/stream`;
   }, [id, viewEnv]);
+  const service = services.find((item) => item.id === id);
+  const hasService = Boolean(service);
+  const serviceManagementMode = service?.managementMode ?? 'managed';
+  const serviceRepoUrlValue = service?.repoUrl?.trim() ?? '';
+  const serviceSourceTypeValue = service?.sourceType ?? '';
+  const serviceDockerImageValue = service?.dockerImage ?? '';
+  const serviceDeployTemplateIdValue = service?.deployTemplateId ?? '';
+  const serviceNameValue = service?.name ?? '';
 
-  const { isConnected: isLiveSyncConnected } = useSSEStream<ServiceStatusSnapshot>({
+  const refreshGitOpsTimeline = useCallback(async () => {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+      setGitOpsTimeline([]);
+      return;
+    }
+    const result = await fetchServiceGitOpsTimeline(id);
+    setGitOpsTimeline(result.events ?? []);
+  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
+
+  const handleLiveStateEvent = useCallback(
+    (event: LiveStateChangeEvent) => {
+      if (!id || event.kind !== 'gitops' || event.serviceId !== id) {
+        return;
+      }
+      void refreshGitOpsTimeline();
+      void fetchServiceDesiredStateValidation(id)
+        .then((result) => setDesiredStateValidation(result.validation))
+        .catch(() => setDesiredStateValidation(null));
+      void fetchServiceGitOpsRepositoryPolicyCheck(id)
+        .then((result) => setGitOpsRepositoryPolicyCheck(result.policyCheck))
+        .catch(() => setGitOpsRepositoryPolicyCheck(null));
+      setGitOpsDriftRefreshing(true);
+      void fetchServiceGitOpsDrift(id)
+        .then((result) => setGitOpsDrift(result.drift))
+        .catch(() => setGitOpsDrift(null))
+        .finally(() => setGitOpsDriftRefreshing(false));
+    },
+    [id, refreshGitOpsTimeline],
+  );
+
+  const handleLiveStateResyncRequired = useCallback(() => {
+    void runRealtimeRefresh(
+      refreshRealtimeSnapshot,
+      'Live sync requested a full resync of service status.',
+    );
+  }, [refreshRealtimeSnapshot, runRealtimeRefresh]);
+
+  const { isConnected: isLiveSyncConnected, isPaused: isLiveSyncPaused } = useSSEStream<ServiceStatusSnapshot>({
     endpoint: sseEndpoint,
     onSnapshot: applyServiceStatusSnapshot,
+    onEvent: handleLiveStateEvent,
+    onResyncRequired: handleLiveStateResyncRequired,
     onDeleted: () => setRealtimeSyncError('Service no longer exists.'),
     onError: (msg) => markRealtimeSyncFailure(msg, msg),
     enabled: !!id,
+    storeKey: sseEndpoint,
+    coalesceMs: 120,
+    pauseWhenHidden: true,
   });
 
-  const service = services.find((item) => item.id === id);
   const projectForService = projects.find((project) => project.id === service?.projectId);
   const activeProjectId = projectId || service?.projectId;
   const selectedProjectForSettings = useMemo(
@@ -715,27 +782,11 @@ const ServiceDetails = () => {
     selectedServiceScmCredential ?? inheritedServiceScmCredential ?? platformServiceScmCredential;
   const effectiveServiceRegistryCredential =
     selectedServiceRegistryCredential ?? inheritedServiceRegistryCredential ?? platformServiceRegistryCredential;
-  const hasService = Boolean(service);
-  const serviceManagementMode = service?.managementMode ?? 'managed';
-  const serviceRepoUrlValue = service?.repoUrl?.trim() ?? '';
-  const serviceSourceTypeValue = service?.sourceType ?? '';
-  const serviceDockerImageValue = service?.dockerImage ?? '';
-  const serviceDeployTemplateIdValue = service?.deployTemplateId ?? '';
-  const serviceNameValue = service?.name ?? '';
   const gitOpsDriftRef = useRef<ServiceGitOpsDriftStatus | null>(null);
 
   useEffect(() => {
     gitOpsDriftRef.current = gitOpsDrift;
   }, [gitOpsDrift]);
-
-  const refreshGitOpsTimeline = useCallback(async () => {
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
-      setGitOpsTimeline([]);
-      return;
-    }
-    const result = await fetchServiceGitOpsTimeline(id);
-    setGitOpsTimeline(result.events ?? []);
-  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
 
   useEffect(() => {
     let active = true;
@@ -947,7 +998,7 @@ const ServiceDetails = () => {
       window.clearInterval(servicePoller.current);
       servicePoller.current = null;
     }
-    if (isFastPolling || isLiveSyncConnected) {
+    if (isFastPolling || isLiveSyncConnected || isLiveSyncPaused) {
       return;
     }
     const interval = service?.status === 'creating' ? 5000 : 20000;
@@ -963,16 +1014,19 @@ const ServiceDetails = () => {
         servicePoller.current = null;
       }
     };
-  }, [service?.status, isFastPolling, isLiveSyncConnected, refreshRealtimeSnapshot, runRealtimeRefresh]);
+  }, [service?.status, isFastPolling, isLiveSyncConnected, isLiveSyncPaused, refreshRealtimeSnapshot, runRealtimeRefresh]);
 
   useEffect(() => {
+    if (isLiveSyncPaused) {
+      return;
+    }
     const interval = window.setInterval(() => {
       void runRealtimeRefresh(refreshWorkers, 'Unable to refresh worker status.');
     }, isLiveSyncConnected ? 30000 : 10000);
     return () => {
       window.clearInterval(interval);
     };
-  }, [isLiveSyncConnected, refreshWorkers, runRealtimeRefresh]);
+  }, [isLiveSyncConnected, isLiveSyncPaused, refreshWorkers, runRealtimeRefresh]);
   const credentialScopeLabel = (scope: string) => {
     if (scope === 'project') return 'Project';
     if (scope === 'service') return 'Service';
@@ -1398,12 +1452,12 @@ const ServiceDetails = () => {
 
   // Re-sync snapshot when environment changes (stream reconnect also handles updates).
   useEffect(() => {
-    if (!id || !viewEnv || isLiveSyncConnected) return;
+    if (!id || !viewEnv || isLiveSyncConnected || isLiveSyncPaused) return;
     void runRealtimeRefresh(
       refreshRealtimeSnapshot,
       'Unable to refresh environment-specific deploy data.',
     );
-  }, [id, isLiveSyncConnected, refreshRealtimeSnapshot, runRealtimeRefresh, viewEnv]);
+  }, [id, isLiveSyncConnected, isLiveSyncPaused, refreshRealtimeSnapshot, runRealtimeRefresh, viewEnv]);
   const deployHistory = deploysSorted;
   const latestDeploy = deployHistory[0];
   const latestLiveDeployStatus = useMemo(
@@ -1755,7 +1809,9 @@ const ServiceDetails = () => {
       <AppLayout>
         <div className="flex items-center justify-center h-[60vh]">
           <div className="text-center">
-            <p className="text-muted-foreground mb-4">Service not found</p>
+            <p className="text-muted-foreground mb-4">
+              {bootstrapError ? `Unable to load service details: ${bootstrapError}` : 'Service not found'}
+            </p>
             <PageBackLink to={backLink} label={backLabel} className="mx-auto" />
           </div>
         </div>
@@ -3423,10 +3479,6 @@ const ServiceDetails = () => {
               <FileText className="w-4 h-4" />
               Summary
             </TabsTrigger>
-            <TabsTrigger value="delivery" className="gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Delivery
-            </TabsTrigger>
             <TabsTrigger value="metrics" className="gap-2">
               <Activity className="w-4 h-4" />
               Metrics
@@ -3442,6 +3494,10 @@ const ServiceDetails = () => {
             <TabsTrigger value="rules" className="gap-2">
               <ShieldCheck className="w-4 h-4" />
               Rules
+            </TabsTrigger>
+            <TabsTrigger value="delivery" className="gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Delivery
             </TabsTrigger>
             <TabsTrigger value="settings" className="gap-2">
               <Settings className="w-4 h-4" />
@@ -3488,26 +3544,8 @@ const ServiceDetails = () => {
             requestsAvgLabel={requestsAvgLabel}
             requestsPeakLabel={requestsPeakLabel}
             isLive={isLiveSyncConnected || isFastPolling}
+            isLivePaused={isLiveSyncPaused}
             liveSyncError={realtimeSyncError}
-          />
-
-          <DeliveryTab
-            service={service}
-            viewEnvLabel={viewEnvLabel}
-            managementTransitionRequirements={managementTransitionRequirements}
-            deployPolicyPreflight={deployPolicyPreflight}
-            deployPolicyPreflightLoading={deployPolicyPreflightLoading}
-            gitOpsRepositoryPolicyCheck={gitOpsRepositoryPolicyCheck}
-            gitOpsRepositoryPolicyCheckLoading={gitOpsRepositoryPolicyCheckLoading}
-            gitOpsDrift={gitOpsDrift}
-            gitOpsDriftLoading={gitOpsDriftLoading}
-            gitOpsLayoutPresets={gitOpsLayoutPresets}
-            gitOpsLayoutPresetsLoading={gitOpsLayoutPresetsLoading}
-            gitOpsTimeline={gitOpsTimeline}
-            gitOpsTimelineLoading={gitOpsTimelineLoading}
-            desiredStateValidation={desiredStateValidation}
-            desiredStateValidationLoading={desiredStateValidationLoading}
-            releaseIntelligence={releaseIntelligence}
           />
 
           <MetricsTab
@@ -3548,6 +3586,7 @@ const ServiceDetails = () => {
             liveSyncError={realtimeSyncError}
             liveSyncLabel={lastRealtimeSyncLabel}
             liveSyncActive={isLiveSyncConnected || isFastPolling}
+            liveSyncPaused={isLiveSyncPaused}
           />
 
           <RulesTab
@@ -3562,6 +3601,25 @@ const ServiceDetails = () => {
             onOpenCopyRule={openCopyRule}
             onOpenPublishRule={openPublishRule}
             onDeleteRule={handleOpenDeleteRule}
+          />
+
+          <DeliveryTab
+            service={service}
+            viewEnvLabel={viewEnvLabel}
+            managementTransitionRequirements={managementTransitionRequirements}
+            deployPolicyPreflight={deployPolicyPreflight}
+            deployPolicyPreflightLoading={deployPolicyPreflightLoading}
+            gitOpsRepositoryPolicyCheck={gitOpsRepositoryPolicyCheck}
+            gitOpsRepositoryPolicyCheckLoading={gitOpsRepositoryPolicyCheckLoading}
+            gitOpsDrift={gitOpsDrift}
+            gitOpsDriftLoading={gitOpsDriftLoading}
+            gitOpsLayoutPresets={gitOpsLayoutPresets}
+            gitOpsLayoutPresetsLoading={gitOpsLayoutPresetsLoading}
+            gitOpsTimeline={gitOpsTimeline}
+            gitOpsTimelineLoading={gitOpsTimelineLoading}
+            desiredStateValidation={desiredStateValidation}
+            desiredStateValidationLoading={desiredStateValidationLoading}
+            releaseIntelligence={releaseIntelligence}
           />
 
           <ServiceSettingsFormStoreProvider value={settingsFormStore}>

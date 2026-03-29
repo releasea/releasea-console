@@ -104,14 +104,22 @@ const Services = () => {
     };
   }, [loadServicesSnapshot]);
 
-  const { isConnected: isLiveSyncConnected } = useSSEStream<ServicesStatusSnapshot>({
+  const { isConnected: isLiveSyncConnected, isPaused: isLiveSyncPaused } = useSSEStream<ServicesStatusSnapshot>({
     endpoint: '/services/status/stream',
     onSnapshot: applyServicesSnapshot,
+    onResyncRequired: () => {
+      void loadServicesSnapshot().catch(() => {
+        setSyncError('Live sync requested a full resync of service status.');
+      });
+    },
     onError: setSyncError,
+    storeKey: 'services-status',
+    coalesceMs: 150,
+    pauseWhenHidden: true,
   });
 
   useEffect(() => {
-    if (isLiveSyncConnected) {
+    if (isLiveSyncConnected || isLiveSyncPaused) {
       return;
     }
     const hasLiveDeploy = deploys.some((deploy) => isLiveDeployStatus(deploy.status));
@@ -124,7 +132,7 @@ const Services = () => {
     return () => {
       window.clearInterval(interval);
     };
-  }, [deploys, isLiveSyncConnected, loadServicesSnapshot]);
+  }, [deploys, isLiveSyncConnected, isLiveSyncPaused, loadServicesSnapshot]);
 
   const visibleServices = useMemo(
     () => services.filter((service) => service.type !== 'worker'),
@@ -462,7 +470,9 @@ const Services = () => {
         <div className="px-1 text-xs text-muted-foreground">
           {syncError
             ? `Live sync delayed: ${syncError}`
-            : `Live sync ${isLiveSyncConnected ? 'active' : 'polling'} • Last sync ${syncLabel}`}
+            : isLiveSyncPaused
+              ? `Live sync paused in hidden tab • Last sync ${syncLabel}`
+              : `Live sync ${isLiveSyncConnected ? 'active' : 'polling'} • Last sync ${syncLabel}`}
         </div>
 
         <DataTable

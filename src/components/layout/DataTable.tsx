@@ -34,6 +34,10 @@ export function DataTable<T>({
   emptyIcon,
   className,
 }: DataTableProps<T>) {
+  const pagination = useTablePagination(data.length);
+  const visibleRows = pagination.slice(data);
+  const startIndex = (pagination.page - 1) * pagination.pageSize;
+
   if (data.length === 0) {
     return (
       <div className={cn('bg-card border border-border rounded-lg overflow-hidden', className)}>
@@ -67,10 +71,6 @@ export function DataTable<T>({
       </div>
     );
   }
-
-  const pagination = useTablePagination(data.length);
-  const visibleRows = pagination.slice(data);
-  const startIndex = (pagination.page - 1) * pagination.pageSize;
 
   return (
     <div className={cn('bg-card border border-border rounded-lg overflow-hidden', className)}>
