@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Plus,
   Trash2,
+  Download,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -53,22 +54,60 @@ import {
 } from '@/components/ui/popover';
 import { toast } from '@/hooks/use-toast';
 import { maskIPAddress, redactSensitiveText, sanitizeTextForRender } from '@/platform/security/data-security';
+import { GOVERNANCE_POLICY_PACKS, applyGovernancePolicyPack } from '@/lib/governance-packs';
+import { summarizeDeployPolicyViolations } from '@/lib/deploy-policy';
+import { fetchServiceDeployPolicyCheck, fetchServices } from '@/lib/data';
+import { cn } from '@/lib/utils';
 import {
   buildGovernancePolicyDocument,
+  createGovernanceException,
   fetchApprovalRequests,
+  fetchGovernanceExceptions,
   fetchGovernanceSettings,
   fetchAuditLogs,
+  revokeGovernanceException,
   updateGovernanceSettings,
   reviewApproval,
 } from '@/lib/governance-data';
-import type { ApprovalRequest, AuditLogEntry, GovernanceSettings } from '@/types/governance';
+import type {
+  ApprovalRequest,
+  AuditLogEntry,
+  DeployPolicyViolation,
+  GovernanceSettings,
+  GovernanceTemporaryException,
+} from '@/types/governance';
+import type { Service } from '@/types/releasea';
 
 type AuditResourceFilter = 'all' | 'service' | 'rule' | 'deploy' | 'team' | 'settings' | 'user' | 'approval' | 'operation' | 'worker';
 type AuditDateRange = '24h' | '7d' | '30d' | '90d' | 'all';
 type DeployPolicyRule = GovernanceSettings['deployPolicy']['rules'][number];
 type GovernanceTab = 'approvals' | 'policies' | 'audit';
+type PolicySimulationState = 'clear' | 'warning' | 'blocked' | 'unavailable';
+type PolicySimulationResult = {
+  serviceId: string;
+  serviceName: string;
+  projectId: string;
+  sourceType: string;
+  managementMode: string;
+  state: PolicySimulationState;
+  summary: string;
+  violations: DeployPolicyViolation[];
+  dryRun: boolean;
+};
 
 const parsePolicyList = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
+const formatLocalDateTimeInput = (date: Date) => {
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const buildDefaultExceptionForm = (serviceId: string = '') => ({
+  serviceId,
+  environment: 'prod',
+  codes: '*',
+  reason: '',
+  expiresAt: formatLocalDateTimeInput(new Date(Date.now() + 72 * 60 * 60 * 1000)),
+});
 
 const DEPLOY_POLICY_PRESETS: Array<{
   id: string;
@@ -207,15 +246,24 @@ const GovernancePage = () => {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [settings, setSettings] = useState<GovernanceSettings | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [servicesCatalog, setServicesCatalog] = useState<Service[]>([]);
+  const [temporaryExceptions, setTemporaryExceptions] = useState<GovernanceTemporaryException[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExceptionSaving, setIsExceptionSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<GovernanceTab>('approvals');
 
   // Audit log filters
   const [auditSearch, setAuditSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('');
   const [auditResourceFilter, setAuditResourceFilter] = useState<AuditResourceFilter>('all');
   const [auditDateRange, setAuditDateRange] = useState<AuditDateRange>('all');
   const [auditPerformerFilter, setAuditPerformerFilter] = useState<string>('all');
+  const [simulationEnvironment, setSimulationEnvironment] = useState('prod');
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationResults, setSimulationResults] = useState<PolicySimulationResult[]>([]);
+  const [isExceptionDialogOpen, setIsExceptionDialogOpen] = useState(false);
+  const [exceptionForm, setExceptionForm] = useState(buildDefaultExceptionForm());
 
   // Review modal state
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
@@ -296,6 +344,178 @@ const GovernancePage = () => {
     });
   };
 
+  const applyPolicyPack = (packId: string) => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === packId);
+      if (!pack) return prev;
+      return applyGovernancePolicyPack(prev, pack);
+    });
+  };
+
+  const runPolicySimulation = async () => {
+    setSimulationLoading(true);
+    try {
+      const services = await fetchServices();
+      setServicesCatalog(services);
+      const results = await Promise.all(
+        services.map(async (service: Service): Promise<PolicySimulationResult> => {
+          const sourceType = service.sourceType?.trim()
+            ? service.sourceType
+            : service.repoUrl?.trim()
+              ? 'git'
+              : service.dockerImage?.trim()
+                ? 'registry'
+                : 'unknown';
+          const preflight = await fetchServiceDeployPolicyCheck(service.id, simulationEnvironment);
+          if (!preflight) {
+            return {
+              serviceId: service.id,
+              serviceName: service.name,
+              projectId: service.projectId,
+              sourceType,
+              managementMode: service.managementMode ?? 'managed',
+              state: 'unavailable',
+              summary: 'Releasea could not evaluate the current deploy policy for this service.',
+              violations: [],
+              dryRun: false,
+            };
+          }
+
+          const violations = preflight.violations ?? [];
+          const exceptionsApplied = preflight.exceptionsApplied ?? [];
+          const dryRun = preflight.dryRun === true;
+          return {
+            serviceId: service.id,
+            serviceName: service.name,
+            projectId: service.projectId,
+            sourceType,
+            managementMode: service.managementMode ?? 'managed',
+            state:
+              violations.length === 0
+                ? exceptionsApplied.length > 0
+                  ? 'warning'
+                  : 'clear'
+                : dryRun
+                  ? 'warning'
+                  : 'blocked',
+            summary:
+              violations.length === 0
+                ? exceptionsApplied.length > 0
+                  ? `Temporarily excepted: ${exceptionsApplied.map((item) => item.reason).filter(Boolean).join('; ')}`
+                  : 'No policy blockers for the selected environment.'
+                : dryRun
+                  ? `Dry-run warnings: ${summarizeDeployPolicyViolations(violations)}`
+                  : summarizeDeployPolicyViolations(violations),
+            violations,
+            dryRun,
+          };
+        }),
+      );
+
+      const rank: Record<PolicySimulationState, number> = {
+        blocked: 0,
+        warning: 1,
+        unavailable: 2,
+        clear: 3,
+      };
+      results.sort((left, right) => {
+        const rankDelta = rank[left.state] - rank[right.state];
+        if (rankDelta !== 0) return rankDelta;
+        return left.serviceName.localeCompare(right.serviceName);
+      });
+      setSimulationResults(results);
+    } catch (error) {
+      toast({
+        title: 'Simulation failed',
+        description: error instanceof Error ? error.message : 'Unable to evaluate the current policy against services.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSimulationLoading(false);
+    }
+  };
+
+  const openExceptionDialog = () => {
+    setExceptionForm(buildDefaultExceptionForm(servicesCatalog[0]?.id ?? ''));
+    setIsExceptionDialogOpen(true);
+  };
+
+  const handleCreateException = async () => {
+    if (!exceptionForm.serviceId.trim() || !exceptionForm.reason.trim() || !exceptionForm.expiresAt.trim()) {
+      toast({
+        title: 'Missing fields',
+        description: 'Select a service, define an expiry, and add a reason for the temporary exception.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const expiresAt = new Date(exceptionForm.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      toast({
+        title: 'Invalid expiration',
+        description: 'Use a valid expiration date and time for the temporary exception.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsExceptionSaving(true);
+    try {
+      await createGovernanceException({
+        policy: 'deploy-policy',
+        serviceId: exceptionForm.serviceId,
+        environment: exceptionForm.environment,
+        codes: parsePolicyList(exceptionForm.codes),
+        reason: exceptionForm.reason.trim(),
+        expiresAt: expiresAt.toISOString(),
+      });
+      const [exceptionsData, logsData] = await Promise.all([
+        fetchGovernanceExceptions(),
+        fetchAuditLogs(),
+      ]);
+      setTemporaryExceptions(exceptionsData);
+      setAuditLogs(logsData);
+      setIsExceptionDialogOpen(false);
+      setExceptionForm(buildDefaultExceptionForm(servicesCatalog[0]?.id ?? ''));
+      toast({
+        title: 'Temporary exception created',
+        description: 'Deploy policy enforcement will honor this exception until it expires or is revoked.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to create temporary exception',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExceptionSaving(false);
+    }
+  };
+
+  const handleRevokeException = async (exceptionId: string) => {
+    try {
+      await revokeGovernanceException(exceptionId);
+      const [exceptionsData, logsData] = await Promise.all([
+        fetchGovernanceExceptions(),
+        fetchAuditLogs(),
+      ]);
+      setTemporaryExceptions(exceptionsData);
+      setAuditLogs(logsData);
+      toast({
+        title: 'Temporary exception revoked',
+        description: 'The exception is no longer applied to deploy policy evaluation.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to revoke temporary exception',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCopyDeployPolicyJSON = async () => {
     if (!settings) return;
     try {
@@ -369,14 +589,18 @@ const GovernancePage = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const [approvalsData, settingsData, logsData] = await Promise.all([
+        const [approvalsData, settingsData, logsData, servicesData, exceptionsData] = await Promise.all([
           fetchApprovalRequests(),
           fetchGovernanceSettings(),
           fetchAuditLogs(),
+          fetchServices(),
+          fetchGovernanceExceptions(),
         ]);
         setApprovals(approvalsData);
         setSettings(settingsData);
         setAuditLogs(logsData);
+        setServicesCatalog(servicesData);
+        setTemporaryExceptions(exceptionsData);
       } catch (error) {
         toast({
           title: 'Failed to load governance data',
@@ -410,12 +634,20 @@ const GovernancePage = () => {
       // Search filter
       if (auditSearch) {
         const searchLower = auditSearch.toLowerCase();
+        const detailsText = log.details ? JSON.stringify(log.details).toLowerCase() : '';
         const matchesSearch =
           log.action.toLowerCase().includes(searchLower) ||
+          log.resourceId.toLowerCase().includes(searchLower) ||
           log.resourceName.toLowerCase().includes(searchLower) ||
           log.performedBy.name.toLowerCase().includes(searchLower) ||
-          log.performedBy.email.toLowerCase().includes(searchLower);
+          log.performedBy.email.toLowerCase().includes(searchLower) ||
+          (log.ipAddress ?? '').toLowerCase().includes(searchLower) ||
+          detailsText.includes(searchLower);
         if (!matchesSearch) return false;
+      }
+
+      if (auditActionFilter && !log.action.toLowerCase().includes(auditActionFilter.toLowerCase())) {
+        return false;
       }
 
       // Resource type filter
@@ -458,13 +690,100 @@ const GovernancePage = () => {
 
       return true;
     });
-  }, [auditLogs, auditSearch, auditResourceFilter, auditDateRange, auditPerformerFilter]);
+  }, [auditLogs, auditSearch, auditActionFilter, auditResourceFilter, auditDateRange, auditPerformerFilter]);
+
+  const simulationSummary = useMemo(() => ({
+    total: simulationResults.length,
+    blocked: simulationResults.filter((result) => result.state === 'blocked').length,
+    warning: simulationResults.filter((result) => result.state === 'warning').length,
+    unavailable: simulationResults.filter((result) => result.state === 'unavailable').length,
+    clear: simulationResults.filter((result) => result.state === 'clear').length,
+  }), [simulationResults]);
+  const simulationFindings = useMemo(
+    () => simulationResults.filter((result) => result.state !== 'clear'),
+    [simulationResults],
+  );
+  const sortedTemporaryExceptions = useMemo(() => {
+    const statusRank = (status: GovernanceTemporaryException['status']) => {
+      switch (status) {
+        case 'active':
+          return 0;
+        case 'expired':
+          return 1;
+        case 'revoked':
+          return 2;
+        default:
+          return 3;
+      }
+    };
+    return [...temporaryExceptions].sort((left, right) => {
+      const rankDelta = statusRank(left.status) - statusRank(right.status);
+      if (rankDelta !== 0) return rankDelta;
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+  }, [temporaryExceptions]);
 
   const resetAuditFilters = () => {
     setAuditSearch('');
+    setAuditActionFilter('');
     setAuditResourceFilter('all');
     setAuditDateRange('all');
     setAuditPerformerFilter('all');
+  };
+
+  const handleCopyAuditJSON = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(filteredAuditLogs, null, 2));
+      toast({
+        title: 'Audit JSON copied',
+        description: 'The currently filtered audit feed was copied as formatted JSON.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Unable to copy the filtered audit feed.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadAuditCSV = () => {
+    try {
+      const escapeCSV = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const rows = [
+        ['performedAt', 'action', 'resourceType', 'resourceId', 'resourceName', 'performedBy', 'ipAddress', 'details'],
+        ...filteredAuditLogs.map((log) => [
+          log.performedAt,
+          log.action,
+          log.resourceType,
+          log.resourceId,
+          log.resourceName,
+          log.performedBy.name,
+          log.ipAddress ?? '',
+          log.details ? JSON.stringify(log.details) : '',
+        ]),
+      ];
+      const csv = rows.map((row) => row.map((value) => escapeCSV(String(value ?? ''))).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `releasea-governance-audit-${format(new Date(), 'yyyyMMdd-HHmmss')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+      toast({
+        title: 'Audit CSV downloaded',
+        description: 'The currently filtered audit feed was downloaded as CSV.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Download failed',
+        description: error instanceof Error ? error.message : 'Unable to download the filtered audit feed.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleReview = async () => {
@@ -698,6 +1017,230 @@ const GovernancePage = () => {
             {settings && (
               <>
                 <SettingsSection
+                  title="Policy packs by environment tier"
+                  description="Apply a complete governance baseline for common environment tiers, then tune individual rules."
+                >
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {GOVERNANCE_POLICY_PACKS.map((pack) => (
+                      <div
+                        key={pack.id}
+                        className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-foreground">{pack.label}</p>
+                            <Badge variant="outline" className="text-[10px] normal-case">
+                              {pack.environmentTiers.join(' · ')}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{pack.description}</p>
+                        </div>
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                          <p>
+                            Deploy approvals: {pack.settings.deployApproval.enabled
+                              ? `${pack.settings.deployApproval.minApprovers} approver${pack.settings.deployApproval.minApprovers === 1 ? '' : 's'} for ${pack.settings.deployApproval.environments.join(', ')}`
+                              : 'disabled'}
+                          </p>
+                          <p>
+                            Deploy policy rules: {pack.settings.deployPolicy.rules.length}
+                          </p>
+                          <p>
+                            Rule publication approval: {pack.settings.rulePublishApproval.enabled
+                              ? pack.settings.rulePublishApproval.externalOnly
+                                ? 'external only'
+                                : 'all publications'
+                              : 'disabled'}
+                          </p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPolicyPack(pack.id)}>
+                          Apply pack
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection
+                  title="Policy simulation"
+                  description="Evaluate the current policy against existing services before tightening enforcement."
+                >
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                      <div className="grid gap-3 md:grid-cols-[220px_auto] md:items-end">
+                        <div className="space-y-2">
+                          <Label>Environment</Label>
+                          <Select value={simulationEnvironment} onValueChange={setSimulationEnvironment}>
+                            <SelectTrigger className="bg-muted/40">
+                              <SelectValue placeholder="Select environment" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="dev">Development</SelectItem>
+                              <SelectItem value="staging">Staging</SelectItem>
+                              <SelectItem value="prod">Production</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Simulation uses the same preflight contract that Service Details uses before deploy.
+                        </div>
+                      </div>
+                      <Button type="button" variant="outline" className="gap-2" onClick={runPolicySimulation} disabled={simulationLoading}>
+                        <RefreshCw className={cn('w-4 h-4', simulationLoading ? 'animate-spin' : '')} />
+                        {simulationLoading ? 'Running simulation...' : 'Run simulation'}
+                      </Button>
+                    </div>
+
+                    {simulationSummary.total > 0 ? (
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="text-xs">{simulationSummary.total} services</Badge>
+                          <Badge variant="outline" className="border-emerald-500/40 text-xs text-emerald-700 dark:text-emerald-300">{simulationSummary.clear} clear</Badge>
+                          <Badge variant="outline" className="border-amber-500/40 text-xs text-amber-700 dark:text-amber-300">{simulationSummary.warning} warning</Badge>
+                          <Badge variant="outline" className="border-rose-500/40 text-xs text-rose-700 dark:text-rose-300">{simulationSummary.blocked} blocked</Badge>
+                          <Badge variant="outline" className="text-xs">{simulationSummary.unavailable} unavailable</Badge>
+                        </div>
+
+                        {simulationFindings.length === 0 ? (
+                          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-muted-foreground">
+                            All simulated services are currently clear for {simulationEnvironment}.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {simulationFindings.map((result) => (
+                              <div key={`${result.serviceId}:${simulationEnvironment}`} className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-2">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                  <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="text-sm font-medium text-foreground">{result.serviceName}</p>
+                                      <Badge variant="outline" className="text-[10px] normal-case">{result.managementMode}</Badge>
+                                      <Badge variant="outline" className="text-[10px] normal-case">{result.sourceType}</Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">Project: {result.projectId}</p>
+                                  </div>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'text-[10px] normal-case',
+                                      result.state === 'blocked'
+                                        ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+                                        : result.state === 'warning'
+                                          ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                          : 'border-border/60 text-muted-foreground',
+                                    )}
+                                  >
+                                    {result.state}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">{result.summary}</p>
+                                {result.violations.length > 0 ? (
+                                  <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                    {result.violations.map((violation) => (
+                                      <li key={`${result.serviceId}:${violation.environment}:${violation.code}`}>{violation.message}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <EmptyState
+                        icon={<Shield className="h-5 w-5 text-muted-foreground" />}
+                        title="No simulation results yet"
+                        description="Run a policy simulation to see which current services would be blocked or warned in the selected environment."
+                        actionLabel="Run simulation"
+                        onAction={runPolicySimulation}
+                        tone="muted"
+                      />
+                    )}
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection
+                  title="Temporary exceptions"
+                  description="Create time-bound deploy-policy exceptions for specific services while migration or remediation work is in flight."
+                >
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Exceptions are scoped to one service and one environment, and can target all violations or specific policy codes.
+                      </div>
+                      <Button type="button" variant="outline" className="gap-2" onClick={openExceptionDialog} disabled={servicesCatalog.length === 0}>
+                        <Plus className="w-4 h-4" />
+                        New exception
+                      </Button>
+                    </div>
+
+                    {servicesCatalog.length === 0 ? (
+                      <EmptyState
+                        icon={<Shield className="h-5 w-5 text-muted-foreground" />}
+                        title="No services available for exceptions"
+                        description="Create services first. Temporary exceptions are always scoped to an existing managed or observed service."
+                        tone="muted"
+                      />
+                    ) : sortedTemporaryExceptions.length === 0 ? (
+                      <EmptyState
+                        icon={<Shield className="h-5 w-5 text-muted-foreground" />}
+                        title="No temporary exceptions"
+                        description="Use exceptions sparingly for controlled migrations or short-lived operational windows."
+                        actionLabel="Create exception"
+                        onAction={openExceptionDialog}
+                        tone="muted"
+                      />
+                    ) : (
+                      <div className="space-y-3">
+                        {sortedTemporaryExceptions.map((exception) => (
+                          <div key={exception.id} className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-medium text-foreground">{exception.serviceName}</p>
+                                  <Badge variant="outline" className="text-[10px] normal-case">{exception.environment}</Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      'text-[10px] normal-case',
+                                      exception.status === 'active'
+                                        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                        : exception.status === 'expired'
+                                          ? 'border-border/60 text-muted-foreground'
+                                          : 'border-rose-500/40 text-rose-700 dark:text-rose-300',
+                                    )}
+                                  >
+                                    {exception.status}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {exception.codes.includes('*') ? 'All policy violations' : exception.codes.join(', ')}
+                                </p>
+                              </div>
+                              {exception.status === 'active' ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-2 text-muted-foreground"
+                                  onClick={() => handleRevokeException(exception.id)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Revoke
+                                </Button>
+                              ) : null}
+                            </div>
+                            <p className="text-sm text-muted-foreground">{exception.reason}</p>
+                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                              <span>Expires {format(parseISO(exception.expiresAt), 'PPP p')}</span>
+                              <span>Created {format(parseISO(exception.createdAt), 'PPP p')}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection
                   title="Deployment approval"
                   description="Require approval before deploying to specific environments"
                 >
@@ -787,6 +1330,26 @@ const GovernancePage = () => {
                       />
                     </div>
 
+                    <div className="flex items-center justify-between py-3 border-b border-border/50">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Dry-run mode</p>
+                        <p className="text-xs text-muted-foreground">Evaluate and audit policy violations without blocking deploy or publish execution.</p>
+                      </div>
+                      <Switch
+                        checked={settings.deployPolicy.dryRun}
+                        onCheckedChange={(checked) =>
+                          setSettings(prev => prev ? {
+                            ...prev,
+                            deployPolicy: {
+                              ...prev.deployPolicy,
+                              dryRun: checked,
+                            }
+                          } : prev)
+                        }
+                        disabled={!settings.deployPolicy.enabled}
+                      />
+                    </div>
+
                     {settings.deployPolicy.enabled && (
                       <>
                         <div className="flex items-center justify-between">
@@ -833,7 +1396,7 @@ const GovernancePage = () => {
 
                           {(settings.deployPolicy.rules ?? []).length === 0 ? (
                             <EmptyState
-                              icon={Shield}
+                              icon={<Shield className="h-5 w-5 text-muted-foreground" />}
                               title="No policy rules configured"
                               description="Enable the deploy policy and add a rule for environments such as production."
                               actionLabel="Add starter rule"
@@ -1128,13 +1691,35 @@ const GovernancePage = () => {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search actions, resources, users..."
+                  placeholder="Search actions, resources, IDs, users, IPs, details..."
                   value={auditSearch}
                   onChange={(e) => setAuditSearch(e.target.value)}
                   className="pl-9 bg-background"
                 />
               </div>
               <div className="flex gap-2 flex-wrap">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <FileText className="w-4 h-4" />
+                      Action
+                      {auditActionFilter && (
+                        <Badge variant="secondary" className="ml-1 px-1.5 py-0">
+                          1
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 space-y-2" align="end">
+                    <Label className="text-xs text-muted-foreground">Action contains</Label>
+                    <Input
+                      value={auditActionFilter}
+                      onChange={(event) => setAuditActionFilter(event.target.value)}
+                      placeholder="deploy, governance, worker..."
+                    />
+                  </PopoverContent>
+                </Popover>
+
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-2">
@@ -1232,7 +1817,7 @@ const GovernancePage = () => {
                   </PopoverContent>
                 </Popover>
 
-                {(auditSearch || auditResourceFilter !== 'all' || auditDateRange !== 'all' || auditPerformerFilter !== 'all') && (
+                {(auditSearch || auditActionFilter || auditResourceFilter !== 'all' || auditDateRange !== 'all' || auditPerformerFilter !== 'all') && (
                   <Button variant="ghost" size="sm" onClick={resetAuditFilters} className="gap-2">
                     <RefreshCw className="w-4 h-4" />
                     Reset
@@ -1246,6 +1831,16 @@ const GovernancePage = () => {
               <span>
                 Showing {filteredAuditLogs.length} of {auditLogs.length} entries
               </span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyAuditJSON} disabled={filteredAuditLogs.length === 0}>
+                  <FileText className="w-4 h-4" />
+                  Copy JSON
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadAuditCSV} disabled={filteredAuditLogs.length === 0}>
+                  <Download className="w-4 h-4" />
+                  Download CSV
+                </Button>
+              </div>
             </div>
 
             <SettingsSection
@@ -1318,6 +1913,93 @@ const GovernancePage = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={isExceptionDialogOpen} onOpenChange={setIsExceptionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Temporary Exception</DialogTitle>
+            <DialogDescription>
+              Use a short-lived exception when a service must ship while remediation or migration work is still in progress.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Service</Label>
+              <Select
+                value={exceptionForm.serviceId}
+                onValueChange={(value) => setExceptionForm((prev) => ({ ...prev, serviceId: value }))}
+              >
+                <SelectTrigger className="bg-muted/40">
+                  <SelectValue placeholder="Select service" />
+                </SelectTrigger>
+                <SelectContent>
+                  {servicesCatalog.map((service) => (
+                    <SelectItem key={service.id} value={service.id}>
+                      {service.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Environment</Label>
+                <Select
+                  value={exceptionForm.environment}
+                  onValueChange={(value) => setExceptionForm((prev) => ({ ...prev, environment: value }))}
+                >
+                  <SelectTrigger className="bg-muted/40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dev">Development</SelectItem>
+                    <SelectItem value="staging">Staging</SelectItem>
+                    <SelectItem value="prod">Production</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Expires At</Label>
+                <Input
+                  type="datetime-local"
+                  value={exceptionForm.expiresAt}
+                  onChange={(event) => setExceptionForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
+                  className="bg-muted/40"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Policy Codes</Label>
+              <Input
+                value={exceptionForm.codes}
+                onChange={(event) => setExceptionForm((prev) => ({ ...prev, codes: event.target.value }))}
+                className="bg-muted/40"
+                placeholder="* or explicit-version-required, registry-not-allowed"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use <code>*</code> to cover all deploy-policy violations for this service and environment.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Textarea
+                value={exceptionForm.reason}
+                onChange={(event) => setExceptionForm((prev) => ({ ...prev, reason: event.target.value }))}
+                rows={4}
+                placeholder="Explain why this service needs a temporary exception and what work is underway to remove it."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsExceptionDialogOpen(false)} disabled={isExceptionSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateException} disabled={isExceptionSaving}>
+              {isExceptionSaving ? 'Creating...' : 'Create exception'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Review Modal */}
       <Dialog open={!!selectedApproval} onOpenChange={() => setSelectedApproval(null)}>

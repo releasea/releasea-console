@@ -184,3 +184,102 @@ export const findMatchingRuntimeProfileId = (
 
   return match?.id ?? '';
 };
+
+export type RuntimeProfileRecommendationInput = {
+  serviceType?: 'microservice' | 'static-site' | null;
+  templateKind?: 'service' | 'scheduled-job';
+  framework?: string;
+  cpuMilli?: number;
+  memoryMi?: number;
+};
+
+export type RuntimeProfileRecommendation = {
+  profileId: string;
+  reason: string;
+  source: 'detected-workload' | 'blueprint-default';
+};
+
+const sortProfilesByCapacity = (profiles: RuntimeProfile[]) =>
+  [...profiles].sort((left, right) => {
+    const cpuDiff = parseCpuMilli(left.cpu) - parseCpuMilli(right.cpu);
+    if (cpuDiff !== 0) return cpuDiff;
+    return parseMemoryMi(left.memory) - parseMemoryMi(right.memory);
+  });
+
+const pickClosestRuntimeProfile = (
+  profiles: RuntimeProfile[],
+  targetCpuMilli: number,
+  targetMemoryMi: number,
+) => {
+  const orderedProfiles = sortProfilesByCapacity(profiles);
+  const directFit = orderedProfiles.find((profile) => {
+    const profileCpuMilli = parseCpuMilli(profile.cpu);
+    const profileMemoryMi = parseMemoryMi(profile.memory);
+    return profileCpuMilli >= targetCpuMilli && profileMemoryMi >= targetMemoryMi;
+  });
+  if (directFit) {
+    return directFit;
+  }
+  return orderedProfiles.at(-1) ?? null;
+};
+
+export const recommendRuntimeProfile = (
+  profiles: RuntimeProfile[],
+  input: RuntimeProfileRecommendationInput,
+): RuntimeProfileRecommendation | null => {
+  if (!profiles.length) return null;
+
+  const detectedCpuMilli = typeof input.cpuMilli === 'number' && input.cpuMilli > 0 ? input.cpuMilli : 0;
+  const detectedMemoryMi = typeof input.memoryMi === 'number' && input.memoryMi > 0 ? input.memoryMi : 0;
+  if (detectedCpuMilli || detectedMemoryMi) {
+    const exactMatchId = findMatchingRuntimeProfileId(profiles, detectedCpuMilli, detectedMemoryMi);
+    if (exactMatchId) {
+      return {
+        profileId: exactMatchId,
+        source: 'detected-workload',
+        reason: `Matches the workload resources detected from the cluster import (${detectedCpuMilli || 'n/a'}m CPU, ${detectedMemoryMi || 'n/a'}Mi memory).`,
+      };
+    }
+    const closestFit = pickClosestRuntimeProfile(profiles, detectedCpuMilli, detectedMemoryMi);
+    if (closestFit) {
+      return {
+        profileId: closestFit.id,
+        source: 'detected-workload',
+        reason: `Closest fit for the workload resources detected from the cluster import (${detectedCpuMilli || 'n/a'}m CPU, ${detectedMemoryMi || 'n/a'}Mi memory).`,
+      };
+    }
+  }
+
+  const normalizedFramework = input.framework?.trim().toLowerCase() ?? '';
+  let targetCpuMilli = 500;
+  let targetMemoryMi = 512;
+  let reason = 'Balanced default for service workloads.';
+
+  if (input.templateKind === 'scheduled-job') {
+    targetCpuMilli = 500;
+    targetMemoryMi = 512;
+    reason = 'Scheduled jobs usually need enough headroom for bursty batch execution.';
+  } else if (input.serviceType === 'static-site') {
+    if (normalizedFramework === 'nextjs') {
+      targetCpuMilli = 500;
+      targetMemoryMi = 512;
+      reason = 'Next.js starters generally need a medium profile for build and runtime headroom.';
+    } else {
+      targetCpuMilli = 250;
+      targetMemoryMi = 256;
+      reason = 'Static site starters default to the smallest stable runtime profile.';
+    }
+  } else if (input.serviceType === 'microservice') {
+    targetCpuMilli = 500;
+    targetMemoryMi = 512;
+    reason = 'Services and APIs default to a balanced runtime profile for safer first deploys.';
+  }
+
+  const recommended = pickClosestRuntimeProfile(profiles, targetCpuMilli, targetMemoryMi);
+  if (!recommended) return null;
+  return {
+    profileId: recommended.id,
+    source: 'blueprint-default',
+    reason,
+  };
+};

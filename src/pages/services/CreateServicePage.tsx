@@ -47,8 +47,13 @@ import type {
   Worker,
   WorkerRegistration,
 } from '@/types/releasea';
-import type { CatalogTemplate, EnvVar, RepoMode, SourceType } from './create-service/catalog';
-import { frameworks, mapCatalogTemplates } from './create-service/catalog';
+import type { CatalogBlueprintId, CatalogTemplate, EnvVar, RepoMode, SourceType } from './create-service/catalog';
+import {
+  frameworks,
+  getCatalogBlueprintId,
+  getTemplateStarterFrameworkValue,
+  mapCatalogTemplates,
+} from './create-service/catalog';
 import {
   buildAdoptionPreview,
   buildAdoptionReadiness,
@@ -63,6 +68,7 @@ import {
   normalizeRegistryHost,
   normalizeSecretValue,
   parseRepositoryReference,
+  recommendRuntimeProfile,
   resolveGitBaseUrl,
   resolveImageBase,
 } from './create-service/helpers';
@@ -94,6 +100,8 @@ export default function CreateService() {
   const [step, setStep] = useState<'type' | 'config'>('type');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogBlueprintFilter, setCatalogBlueprintFilter] = useState<CatalogBlueprintId | 'all'>('all');
+  const [catalogFrameworkFilter, setCatalogFrameworkFilter] = useState('all');
   const [serviceTemplates, setServiceTemplates] = useState<ServiceTemplatePayload[]>([]);
 
   const [serviceName, setServiceName] = useState('my-service');
@@ -112,6 +120,7 @@ export default function CreateService() {
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
   const [managementMode, setManagementMode] = useState<ServiceManagementMode>('managed');
   const [selectedDiscoveredWorkloadId, setSelectedDiscoveredWorkloadId] = useState('');
+  const [selectedDiscoveredContainerName, setSelectedDiscoveredContainerName] = useState('');
 
   const [port, setPort] = useState('3000');
   const [healthCheckPath, setHealthCheckPath] = useState('/healthz');
@@ -256,6 +265,12 @@ export default function CreateService() {
   const filteredServiceOptions = useMemo(() => {
     const normalizedQuery = catalogQuery.trim().toLowerCase();
     return serviceOptions.filter((option) => {
+      if (catalogBlueprintFilter !== 'all' && getCatalogBlueprintId(option) !== catalogBlueprintFilter) {
+        return false;
+      }
+      if (catalogFrameworkFilter !== 'all' && getTemplateStarterFrameworkValue(option) !== catalogFrameworkFilter) {
+        return false;
+      }
       const haystack = [
         option.id,
         option.label,
@@ -273,7 +288,35 @@ export default function CreateService() {
       if (!normalizedQuery) return true;
       return haystack.includes(normalizedQuery);
     });
-  }, [catalogQuery, serviceOptions]);
+  }, [catalogBlueprintFilter, catalogFrameworkFilter, catalogQuery, serviceOptions]);
+  const availableCatalogFrameworkOptions = useMemo(() => {
+    const scopedTemplates = serviceOptions.filter((option) =>
+      catalogBlueprintFilter === 'all' ? true : getCatalogBlueprintId(option) === catalogBlueprintFilter,
+    );
+    const counts = new Map<string, number>();
+    scopedTemplates.forEach((option) => {
+      const frameworkValue = getTemplateStarterFrameworkValue(option);
+      if (!frameworkValue) return;
+      counts.set(frameworkValue, (counts.get(frameworkValue) ?? 0) + 1);
+    });
+    return [...counts.entries()]
+      .map(([value, count]) => ({
+        value,
+        count,
+        label: frameworks.find((frameworkOption) => frameworkOption.value === value)?.label ?? value,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [catalogBlueprintFilter, serviceOptions]);
+
+  useEffect(() => {
+    if (catalogFrameworkFilter === 'all') {
+      return;
+    }
+    const stillAvailable = availableCatalogFrameworkOptions.some((option) => option.value === catalogFrameworkFilter);
+    if (!stillAvailable) {
+      setCatalogFrameworkFilter('all');
+    }
+  }, [availableCatalogFrameworkOptions, catalogFrameworkFilter]);
   const selectedLabel = selectedTemplate?.label ?? 'Service';
   const selectedProfile = useMemo(
     () => profiles.find((p) => p.id === profileId) ?? null,
@@ -386,24 +429,69 @@ export default function CreateService() {
     () => importableClusterWorkloads.find((workload) => workload.id === selectedDiscoveredWorkloadId) ?? null,
     [importableClusterWorkloads, selectedDiscoveredWorkloadId],
   );
+  const selectedDiscoveredContainer = useMemo(() => {
+    if (!selectedDiscoveredWorkload) return null;
+    const containers = selectedDiscoveredWorkload.containers ?? [];
+    if (!containers.length) return null;
+    if (selectedDiscoveredContainerName) {
+      return containers.find((container) => container.name === selectedDiscoveredContainerName) ?? null;
+    }
+    return containers.find((container) => container.imported) ?? containers[0] ?? null;
+  }, [selectedDiscoveredContainerName, selectedDiscoveredWorkload]);
+  const resolvedDiscoveredWorkload = useMemo(() => {
+    if (!selectedDiscoveredWorkload) return null;
+    if (!selectedDiscoveredContainer) return selectedDiscoveredWorkload;
+    return {
+      ...selectedDiscoveredWorkload,
+      primaryImage: selectedDiscoveredContainer.image ?? selectedDiscoveredWorkload.primaryImage,
+      images: selectedDiscoveredContainer.image
+        ? [selectedDiscoveredContainer.image]
+        : selectedDiscoveredWorkload.images,
+      ports:
+        (selectedDiscoveredContainer.ports ?? []).length > 0
+          ? selectedDiscoveredContainer.ports ?? []
+          : selectedDiscoveredWorkload.ports,
+      port: (selectedDiscoveredContainer.ports ?? [])[0] ?? selectedDiscoveredWorkload.port,
+      healthCheckPath:
+        selectedDiscoveredContainer.healthCheckPath?.trim() || selectedDiscoveredWorkload.healthCheckPath,
+      probes:
+        (selectedDiscoveredContainer.probes ?? []).length > 0
+          ? selectedDiscoveredContainer.probes
+          : selectedDiscoveredWorkload.probes,
+      environmentVariables:
+        (selectedDiscoveredContainer.environmentVariables ?? []).length > 0
+          ? selectedDiscoveredContainer.environmentVariables
+          : selectedDiscoveredWorkload.environmentVariables,
+      command:
+        (selectedDiscoveredContainer.command ?? []).length > 0
+          ? selectedDiscoveredContainer.command
+          : selectedDiscoveredWorkload.command,
+      args:
+        (selectedDiscoveredContainer.args ?? []).length > 0
+          ? selectedDiscoveredContainer.args
+          : selectedDiscoveredWorkload.args,
+      cpuMilli: selectedDiscoveredContainer.cpuMilli || selectedDiscoveredWorkload.cpuMilli,
+      memoryMi: selectedDiscoveredContainer.memoryMi || selectedDiscoveredWorkload.memoryMi,
+    };
+  }, [selectedDiscoveredContainer, selectedDiscoveredWorkload]);
   const skippedImportedEnvironmentVariables = useMemo(
     () =>
-      (selectedDiscoveredWorkload?.environmentVariables ?? []).filter(
+      (resolvedDiscoveredWorkload?.environmentVariables ?? []).filter(
         (variable) => !isImportableDiscoveredEnvVar(variable),
       ),
-    [selectedDiscoveredWorkload],
+    [resolvedDiscoveredWorkload],
   );
   const additionalDiscoveredContainers = useMemo(
     () =>
       (selectedDiscoveredWorkload?.containers ?? []).filter(
-        (container) => !container.imported,
+        (container) => container.name !== selectedDiscoveredContainer?.name,
       ),
-    [selectedDiscoveredWorkload],
+    [selectedDiscoveredContainer?.name, selectedDiscoveredWorkload],
   );
   const adoptionPreview = useMemo(() => {
-    if (!selectedDiscoveredWorkload) return [];
+    if (!resolvedDiscoveredWorkload) return [];
     return buildAdoptionPreview(
-      selectedDiscoveredWorkload,
+      resolvedDiscoveredWorkload,
       {
         serviceName,
         dockerImage,
@@ -435,7 +523,7 @@ export default function CreateService() {
     profileId,
     scheduleCommand,
     scheduleCron,
-    selectedDiscoveredWorkload,
+    resolvedDiscoveredWorkload,
     selectedProfile?.cpu,
     selectedProfile?.memory,
     selectedProfile?.name,
@@ -443,9 +531,9 @@ export default function CreateService() {
     skippedImportedEnvironmentVariables.length,
   ]);
   const adoptionReadiness = useMemo(() => {
-    if (!selectedDiscoveredWorkload) return null;
+    if (!resolvedDiscoveredWorkload) return null;
     return buildAdoptionReadiness(
-      selectedDiscoveredWorkload,
+      resolvedDiscoveredWorkload,
       {
         serviceName,
         dockerImage,
@@ -475,10 +563,34 @@ export default function CreateService() {
     profileId,
     scheduleCommand,
     scheduleCron,
-    selectedDiscoveredWorkload,
+    resolvedDiscoveredWorkload,
     selectedProfile?.name,
     serviceName,
     skippedImportedEnvironmentVariables.length,
+  ]);
+  const recommendedProfile = useMemo(() => {
+    const recommendation = recommendRuntimeProfile(profiles, {
+      serviceType: selectedType,
+      templateKind: selectedTemplateKind,
+      framework: selectedType === 'static-site' ? framework : selectedTemplate?.templateDefaults?.framework,
+      cpuMilli: resolvedDiscoveredWorkload?.cpuMilli,
+      memoryMi: resolvedDiscoveredWorkload?.memoryMi,
+    });
+    if (!recommendation) return null;
+    const profile = profiles.find((item) => item.id === recommendation.profileId) ?? null;
+    if (!profile) return null;
+    return {
+      ...recommendation,
+      profile,
+    };
+  }, [
+    framework,
+    profiles,
+    resolvedDiscoveredWorkload?.cpuMilli,
+    resolvedDiscoveredWorkload?.memoryMi,
+    selectedTemplate?.templateDefaults?.framework,
+    selectedTemplateKind,
+    selectedType,
   ]);
 
   useEffect(() => {
@@ -488,6 +600,7 @@ export default function CreateService() {
     const stillAvailable = importableClusterWorkloads.some((workload) => workload.id === selectedDiscoveredWorkloadId);
     if (!stillAvailable) {
       setSelectedDiscoveredWorkloadId('');
+      setSelectedDiscoveredContainerName('');
     }
   }, [importableClusterWorkloads, selectedDiscoveredWorkloadId]);
 
@@ -675,27 +788,49 @@ export default function CreateService() {
     setRootDir('.');
   };
 
-  const applyDiscoveredWorkload = (workload: DiscoveredWorkload | null) => {
+  const applyDiscoveredWorkload = (workload: DiscoveredWorkload | null, containerName?: string) => {
     if (!workload) {
       return;
     }
+    const targetContainer =
+      (containerName
+        ? (workload.containers ?? []).find((container) => container.name === containerName) ?? null
+        : null) ??
+      (workload.containers ?? []).find((container) => container.imported) ??
+      workload.containers?.[0] ??
+      null;
+    const targetImage = targetContainer?.image ?? workload.primaryImage ?? workload.images[0] ?? '';
+    const targetPort = targetContainer?.ports?.[0] ?? workload.port;
+    const targetHealthCheckPath = targetContainer?.healthCheckPath?.trim() || workload.healthCheckPath?.trim() || '';
+    const targetEnvironmentVariables =
+      (targetContainer?.environmentVariables ?? []).length > 0
+        ? targetContainer?.environmentVariables ?? []
+        : workload.environmentVariables ?? [];
+    const targetCommand =
+      (targetContainer?.command ?? []).length > 0 ? targetContainer?.command ?? [] : workload.command;
+    const targetArgs =
+      (targetContainer?.args ?? []).length > 0 ? targetContainer?.args ?? [] : workload.args;
+    const targetCpuMilli = targetContainer?.cpuMilli || workload.cpuMilli;
+    const targetMemoryMi = targetContainer?.memoryMi || workload.memoryMi;
+
     setSelectedDiscoveredWorkloadId(workload.id);
+    setSelectedDiscoveredContainerName(targetContainer?.name ?? '');
     setServiceName((current) => (current === 'my-service' || current.trim() === '' ? workload.name : current));
     setSourceType('docker');
     setRepoMode('existing');
-    setDockerImage(workload.primaryImage ?? workload.images[0] ?? '');
-    if (workload.port && workload.port > 0) {
-      setPort(String(workload.port));
+    setDockerImage(targetImage);
+    if (targetPort && targetPort > 0) {
+      setPort(String(targetPort));
     }
-    if (workload.healthCheckPath?.trim()) {
-      setHealthCheckPath(workload.healthCheckPath.trim());
+    if (targetHealthCheckPath) {
+      setHealthCheckPath(targetHealthCheckPath);
     }
     if (workload.replicas && workload.replicas > 0) {
       setMinReplicas(String(workload.replicas));
       setMaxReplicas(String(workload.replicas));
     }
-    if (Array.isArray(workload.environmentVariables) && workload.environmentVariables.length > 0) {
-      const importableVariables = workload.environmentVariables.filter(isImportableDiscoveredEnvVar);
+    if (Array.isArray(targetEnvironmentVariables) && targetEnvironmentVariables.length > 0) {
+      const importableVariables = targetEnvironmentVariables.filter(isImportableDiscoveredEnvVar);
       if (importableVariables.length > 0) {
         setEnvVars(
           importableVariables.map((variable, index) => ({
@@ -707,7 +842,7 @@ export default function CreateService() {
         );
       }
     }
-    const importedCommand = joinContainerCommand(workload.command, workload.args);
+    const importedCommand = joinContainerCommand(targetCommand, targetArgs);
     if ((workload.templateKind ?? 'service') === 'scheduled-job') {
       setScheduleCron(workload.scheduleCron?.trim() || scheduleCron);
       if (importedCommand) {
@@ -718,8 +853,8 @@ export default function CreateService() {
     }
     const matchedProfileId = findMatchingRuntimeProfileId(
       profiles,
-      workload.cpuMilli,
-      workload.memoryMi,
+      targetCpuMilli,
+      targetMemoryMi,
     );
     if (matchedProfileId) {
       setProfileId(matchedProfileId);
@@ -1188,9 +1323,14 @@ export default function CreateService() {
           {step === 'type' ? (
             <ServiceTemplateCatalogStep
               catalogQuery={catalogQuery}
+              templates={serviceOptions}
               filteredTemplates={filteredServiceOptions}
-              totalTemplates={serviceOptions.length}
               onCatalogQueryChange={setCatalogQuery}
+              blueprintFilter={catalogBlueprintFilter}
+              onBlueprintFilterChange={setCatalogBlueprintFilter}
+              frameworkFilter={catalogFrameworkFilter}
+              frameworkOptions={availableCatalogFrameworkOptions}
+              onFrameworkFilterChange={setCatalogFrameworkFilter}
               onManageTemplates={() => navigate('/settings')}
               onTemplateSelect={(option) => {
                 setSelectedTemplateId(option.id);
@@ -1363,6 +1503,7 @@ export default function CreateService() {
                                 onValueChange={(value) => {
                                   if (value === 'manual') {
                                     setSelectedDiscoveredWorkloadId('');
+                                    setSelectedDiscoveredContainerName('');
                                     return;
                                   }
                                   const nextWorkload = importableClusterWorkloads.find((workload) => workload.id === value) ?? null;
@@ -1384,9 +1525,34 @@ export default function CreateService() {
                             </div>
                             {selectedDiscoveredWorkload && (
                               <div className="space-y-3">
+                                {(selectedDiscoveredWorkload.containers ?? []).length > 1 && (
+                                  <div className="space-y-2">
+                                    <Label>Imported container</Label>
+                                    <Select
+                                      value={selectedDiscoveredContainerName || selectedDiscoveredContainer?.name || 'none'}
+                                      onValueChange={(value) => applyDiscoveredWorkload(selectedDiscoveredWorkload, value)}
+                                    >
+                                      <SelectTrigger className="bg-muted/50">
+                                        <SelectValue placeholder="Select a container..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {(selectedDiscoveredWorkload.containers ?? []).map((container) => (
+                                          <SelectItem key={`${selectedDiscoveredWorkload.id}:${container.name}`} value={container.name}>
+                                            {container.name}
+                                            {container.imported ? ' · primary' : ''}
+                                            {container.image ? ` · ${container.image}` : ''}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                      Choose which container should populate the service form. Remaining containers stay visible below as review-only context.
+                                    </p>
+                                  </div>
+                                )}
                                 <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                                   {selectedDiscoveredWorkload.cluster} · ns: {selectedDiscoveredWorkload.namespace}
-                                  {selectedDiscoveredWorkload.primaryImage ? ` · image: ${selectedDiscoveredWorkload.primaryImage}` : ''}
+                                  {resolvedDiscoveredWorkload?.primaryImage ? ` · image: ${resolvedDiscoveredWorkload.primaryImage}` : ''}
                                 </div>
                                 {((selectedDiscoveredWorkload.serviceHints ?? []).length > 0 ||
                                   (selectedDiscoveredWorkload.ingressHints ?? []).length > 0) && (
@@ -1533,20 +1699,20 @@ export default function CreateService() {
                                     </div>
                                   </div>
                                 )}
-                                {(selectedDiscoveredWorkload.probes ?? []).length > 0 && (
+                                {(resolvedDiscoveredWorkload?.probes ?? []).length > 0 && (
                                   <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-2">
                                     <p className="font-medium text-foreground">Detected probes</p>
                                     <ul className="list-disc space-y-1 pl-5">
-                                      {(selectedDiscoveredWorkload.probes ?? []).map((probe) => (
+                                      {(resolvedDiscoveredWorkload?.probes ?? []).map((probe) => (
                                         <li key={`${probe.type}:${probe.handler}:${probe.containerName ?? 'container'}`}>
                                           {describeDiscoveredProbe(probe)}
                                         </li>
                                       ))}
                                     </ul>
-                                    {selectedDiscoveredWorkload.healthCheckPath?.trim() ? (
+                                    {resolvedDiscoveredWorkload?.healthCheckPath?.trim() ? (
                                       <p>
-                                        Releasea pre-filled the health check path from the primary container probe:
-                                        <span className="font-mono text-foreground"> {selectedDiscoveredWorkload.healthCheckPath.trim()}</span>
+                                        Releasea pre-filled the health check path from the selected container probe:
+                                        <span className="font-mono text-foreground"> {resolvedDiscoveredWorkload.healthCheckPath.trim()}</span>
                                       </p>
                                     ) : (
                                       <p>
@@ -1558,10 +1724,10 @@ export default function CreateService() {
                                 {additionalDiscoveredContainers.length > 0 && (
                                   <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-3 text-xs text-muted-foreground space-y-2">
                                     <p className="font-medium text-foreground">
-                                      Additional containers were detected and were not imported into the service form
+                                      Other containers are still outside the service form
                                     </p>
                                     <p>
-                                      Releasea imported settings from the primary application container only. Review sidecars or companion containers manually before switching this service to managed mode.
+                                      Releasea is currently importing settings from <span className="font-mono text-foreground">{selectedDiscoveredContainer?.name || 'the selected container'}</span>. Review sidecars or companion containers manually before switching this service to managed mode.
                                     </p>
                                     <ul className="list-disc space-y-1 pl-5">
                                       {additionalDiscoveredContainers.map((container) => (
@@ -1785,8 +1951,43 @@ export default function CreateService() {
                               ))}
                             </SelectContent>
                           </Select>
-
-
+                          {recommendedProfile && (
+                            <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="space-y-1">
+                                  <p className="font-medium text-foreground">Recommended profile</p>
+                                  <p>
+                                    <span className="font-mono text-foreground">
+                                      {recommendedProfile.profile.name} ({recommendedProfile.profile.cpu}, {recommendedProfile.profile.memory})
+                                    </span>
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    recommendedProfile.profileId === profileId
+                                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                      : 'border-primary/30 bg-primary/10 text-primary',
+                                  )}
+                                >
+                                  {recommendedProfile.profileId === profileId ? 'Selected' : 'Suggested'}
+                                </Badge>
+                              </div>
+                              <p>{recommendedProfile.reason}</p>
+                              {recommendedProfile.profileId !== profileId && (
+                                <div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setProfileId(recommendedProfile.profileId)}
+                                  >
+                                    Use recommended profile
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-2">

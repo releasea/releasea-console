@@ -551,6 +551,34 @@ export const SettingsTab = () => {
                   operations for this service.
                 </p>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="preferredWorkerCluster">Preferred cluster</Label>
+                  <Input
+                    id="preferredWorkerCluster"
+                    value={operations.preferredWorkerCluster}
+                    onChange={(e) => operations.setPreferredWorkerCluster(e.target.value)}
+                    placeholder="prod-east-1"
+                    className="bg-muted/50 font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Soft preference. Releasea will prefer this cluster when compatible workers are online, then fall back automatically.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preferredWorkerRegion">Preferred region</Label>
+                  <Input
+                    id="preferredWorkerRegion"
+                    value={operations.preferredWorkerRegion}
+                    onChange={(e) => operations.setPreferredWorkerRegion(e.target.value)}
+                    placeholder="us-east-1"
+                    className="bg-muted/50 font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Matched against worker tags as <span className="font-mono">region:&lt;value&gt;</span> before falling back.
+                  </p>
+                </div>
+              </div>
             </div>
           </SettingsSection>
 

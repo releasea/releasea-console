@@ -30,8 +30,12 @@ import type {
   ScmCredential,
   Service,
   ServiceGitOpsDriftStatus,
+  ServiceGitOpsLayoutPreset,
+  ServiceGitOpsRepositoryPolicyCheck,
   ServiceGitOpsPullRequest,
+  ServiceGitOpsTimelineEvent,
   ServiceDesiredStateExport,
+  ServiceDesiredStateValidation,
   ServicePodList,
   ServiceTemplate,
   Team,
@@ -372,6 +376,30 @@ export const fetchWorkers = async (): Promise<Worker[]> =>
 export const fetchWorkerPools = async (): Promise<WorkerPool[]> =>
   fetchResource({ fallback: EMPTY_WORKER_POOLS, endpoint: '/workers/pools', label: 'fetchWorkerPools' });
 
+export const setWorkerPoolMaintenance = async (
+  poolId: string,
+  payload: { enabled: boolean; reason?: string },
+): Promise<boolean> => {
+  const response = await apiClient.post(`/workers/pools/${encodeURIComponent(poolId)}/maintenance`, payload);
+  if (response.error) {
+    clientLogger.warn('api.setWorkerPoolMaintenance', 'Request failed', { poolId, error: response.error });
+    return false;
+  }
+  return true;
+};
+
+export const setWorkerPoolDrain = async (
+  poolId: string,
+  payload: { enabled: boolean; reason?: string },
+): Promise<boolean> => {
+  const response = await apiClient.post(`/workers/pools/${encodeURIComponent(poolId)}/drain`, payload);
+  if (response.error) {
+    clientLogger.warn('api.setWorkerPoolDrain', 'Request failed', { poolId, error: response.error });
+    return false;
+  }
+  return true;
+};
+
 export const fetchWorkerRegistrations = async (): Promise<WorkerRegistration[]> =>
   fetchResource({
     fallback: EMPTY_WORKER_REGISTRATIONS,
@@ -428,6 +456,16 @@ export const fetchRegistryCredentials = async (): Promise<RegistryCredential[]> 
 
 export const fetchServiceTemplates = async (): Promise<ServiceTemplate[]> =>
   fetchResource({ fallback: [], endpoint: '/templates', label: 'fetchServiceTemplates' });
+
+export const verifyServiceTemplates = async (
+  payload: Partial<ServiceTemplate>[],
+): Promise<ServiceTemplate[]> =>
+  postResource({
+    fallback: payload as ServiceTemplate[],
+    endpoint: '/templates/verify',
+    payload,
+    label: 'verifyServiceTemplates',
+  });
 
 export const createServiceTemplate = async (payload: Partial<ServiceTemplate>): Promise<ServiceTemplate | null> => {
   const response = await apiClient.post<ServiceTemplate>('/templates', payload);
@@ -659,6 +697,31 @@ export const fetchServiceDesiredStateExport = async (
   return { exportData: response.data, error: null, code: null };
 };
 
+export type ServiceDesiredStateValidationResult = {
+  validation: ServiceDesiredStateValidation | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export const fetchServiceDesiredStateValidation = async (
+  serviceId: string,
+): Promise<ServiceDesiredStateValidationResult> => {
+  const response = await apiClient.get<ServiceDesiredStateValidation>(`/services/${serviceId}/desired-state/validation`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceDesiredStateValidation', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      validation: null,
+      error: response.error || 'Failed to validate desired state',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { validation: response.data, error: null, code: null };
+};
+
 export type ServiceGitOpsPullRequestResult = {
   pullRequest: ServiceGitOpsPullRequest | null;
   error: string | null;
@@ -722,8 +785,54 @@ export const createServiceArgoCDGitOpsPullRequest = async (
   return { pullRequest: response.data, error: null, code: null };
 };
 
+export const createServiceFluxGitOpsPullRequest = async (
+  serviceId: string,
+  payload?: {
+    baseBranch?: string;
+    title?: string;
+    body?: string;
+    commitMessage?: string;
+  },
+): Promise<ServiceGitOpsPullRequestResult> => {
+  const response = await apiClient.post<ServiceGitOpsPullRequest>(
+    `/services/${serviceId}/gitops/flux/pull-requests`,
+    payload ?? {},
+  );
+  if (response.error || !response.data) {
+    clientLogger.warn('api.createServiceFluxGitOpsPullRequest', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      pullRequest: null,
+      error: response.error || 'Failed to create Flux GitOps pull request',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { pullRequest: response.data, error: null, code: null };
+};
+
 export type ServiceGitOpsDriftResult = {
   drift: ServiceGitOpsDriftStatus | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export type ServiceGitOpsRepositoryPolicyCheckResult = {
+  policyCheck: ServiceGitOpsRepositoryPolicyCheck | null;
+  error: string | null;
+  code?: string | null;
+};
+
+export type ServiceGitOpsLayoutPresetsResult = {
+  presets: ServiceGitOpsLayoutPreset[];
+  error: string | null;
+  code?: string | null;
+};
+
+export type ServiceGitOpsTimelineResult = {
+  events: ServiceGitOpsTimelineEvent[];
   error: string | null;
   code?: string | null;
 };
@@ -745,6 +854,63 @@ export const fetchServiceGitOpsDrift = async (
     };
   }
   return { drift: response.data, error: null, code: null };
+};
+
+export const fetchServiceGitOpsRepositoryPolicyCheck = async (
+  serviceId: string,
+): Promise<ServiceGitOpsRepositoryPolicyCheckResult> => {
+  const response = await apiClient.get<ServiceGitOpsRepositoryPolicyCheck>(`/services/${serviceId}/gitops/repository-policy-check`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceGitOpsRepositoryPolicyCheck', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      policyCheck: null,
+      error: response.error || 'Failed to evaluate GitOps repository policy',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { policyCheck: response.data, error: null, code: null };
+};
+
+export const fetchServiceGitOpsLayoutPresets = async (
+  serviceId: string,
+): Promise<ServiceGitOpsLayoutPresetsResult> => {
+  const response = await apiClient.get<ServiceGitOpsLayoutPreset[]>(`/services/${serviceId}/gitops/layout-presets`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceGitOpsLayoutPresets', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      presets: [],
+      error: response.error || 'Failed to load GitOps layout presets',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { presets: response.data, error: null, code: null };
+};
+
+export const fetchServiceGitOpsTimeline = async (
+  serviceId: string,
+): Promise<ServiceGitOpsTimelineResult> => {
+  const response = await apiClient.get<ServiceGitOpsTimelineEvent[]>(`/services/${serviceId}/gitops/timeline`);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.fetchServiceGitOpsTimeline', 'Request failed', { error: response.error, serviceId });
+    const errorBody =
+      typeof response.errorBody === 'object' && response.errorBody !== null
+        ? (response.errorBody as Record<string, unknown>)
+        : null;
+    return {
+      events: [],
+      error: response.error || 'Failed to load GitOps timeline',
+      code: typeof errorBody?.code === 'string' ? errorBody.code : null,
+    };
+  }
+  return { events: response.data, error: null, code: null };
 };
 
 export const fetchRulePublishPolicyCheck = async (
@@ -799,7 +965,7 @@ export const fetchEnvironments = async (): Promise<EnvironmentConfig[]> => {
   const response = await apiClient.get<EnvironmentConfig[]>('/environments');
   if (!response.error && response.data) {
     saveEnvironmentConfigs(response.data);
-    return response.data;
+    return getEnvironmentConfigs();
   }
   return fallback;
 };

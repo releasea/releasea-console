@@ -6,6 +6,7 @@ import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { FirstDeployGuide } from '@/components/dashboard/FirstDeployGuide';
 import { GettingStartedChecklist } from '@/components/dashboard/GettingStartedChecklist';
+import { OperatorHealthReport } from '@/components/dashboard/OperatorHealthReport';
 import { ProviderReadinessChecks } from '@/components/dashboard/ProviderReadinessChecks';
 import { ServicesList } from '@/components/dashboard/ServicesList';
 import { Button } from '@/components/ui/button';
@@ -19,11 +20,13 @@ import {
   fetchRegistryCredentials,
   fetchScmCredentials,
   fetchServices,
+  fetchWorkerPools,
   fetchWorkerRegistrations,
   fetchWorkers,
 } from '@/lib/data';
 import { isFailedDeployStatus, isSuccessfulDeployStatus } from '@/lib/deploy-status';
 import { getDocsUrl } from '@/lib/docs-url';
+import { buildOperatorHealthReport } from '@/lib/operator-health';
 import type {
   Deploy,
   Project,
@@ -33,6 +36,7 @@ import type {
   ScmCredential,
   Service,
   Worker,
+  WorkerPool,
   WorkerRegistration,
 } from '@/types/releasea';
 
@@ -44,6 +48,7 @@ const Dashboard = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [deploys, setDeploys] = useState<Deploy[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workerPools, setWorkerPools] = useState<WorkerPool[]>([]);
   const [workerRegistrations, setWorkerRegistrations] = useState<WorkerRegistration[]>([]);
   const [scmCredentials, setScmCredentials] = useState<ScmCredential[]>([]);
   const [registryCredentials, setRegistryCredentials] = useState<RegistryCredential[]>([]);
@@ -54,31 +59,46 @@ const Dashboard = () => {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [projectsData, servicesData, deploysData, workersData, workerRegistrationsData, scmCredentialsData, registryCredentialsData, providerStatusData] = await Promise.all([
+      const [
+        projectsData,
+        servicesData,
+        deploysData,
+        workersData,
+        workerPoolsData,
+        workerRegistrationsData,
+        scmCredentialsData,
+        registryCredentialsData,
+        providerStatusData,
+        providerHealthData,
+      ] = await Promise.all([
         fetchProjects(),
         fetchServices(),
         fetchDeploys(),
         fetchWorkers(),
+        fetchWorkerPools(),
         fetchWorkerRegistrations(),
         fetchScmCredentials(),
         fetchRegistryCredentials(),
         fetchProviderStatus(),
+        isAdmin ? fetchProviderHealth() : Promise.resolve(null),
       ]);
       if (!active) return;
       setProjects(projectsData);
       setServices(servicesData);
       setDeploys(deploysData);
       setWorkers(workersData);
+      setWorkerPools(workerPoolsData);
       setWorkerRegistrations(workerRegistrationsData);
       setScmCredentials(scmCredentialsData);
       setRegistryCredentials(registryCredentialsData);
       setProviderStatus(providerStatusData);
+      setProviderHealth(providerHealthData);
     };
     load();
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAdmin]);
 
   const handleRunProviderHealthChecks = useCallback(async () => {
     setIsRunningProviderHealth(true);
@@ -105,6 +125,11 @@ const Dashboard = () => {
   const newServiceHref = primaryProjectId ? `/services/new?project=${primaryProjectId}` : '/services/new';
   const emptyServiceActionHref = projects.length > 0 ? newServiceHref : '/projects?action=create';
   const emptyServiceActionLabel = projects.length > 0 ? 'New Service' : 'Create Project';
+  const operatorHealthReport = buildOperatorHealthReport({
+    providerHealth,
+    workerPools,
+    deploys,
+  });
 
   return (
     <AppLayout>
@@ -181,6 +206,10 @@ const Dashboard = () => {
             </div>
           </div>
         )}
+
+        {isAdmin && !showGettingStartedChecklist ? (
+          <OperatorHealthReport report={operatorHealthReport} />
+        ) : null}
 
         {/* Operational summary */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

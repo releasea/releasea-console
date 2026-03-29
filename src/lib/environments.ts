@@ -2,31 +2,59 @@ import type { Environment, EnvironmentConfig } from '@/types/releasea';
 
 const STORAGE_KEY = 'releasea.environments';
 
+export const DEFAULT_ENVIRONMENT_SLO_TARGETS = {
+  availabilityPct: 99.5,
+  latencyP95Ms: 500,
+} as const;
+
 const DEFAULT_ENVIRONMENTS: EnvironmentConfig[] = [
   {
     id: 'dev',
     name: 'Development',
     description: 'Internal testing and experiments',
+    sloTargets: { ...DEFAULT_ENVIRONMENT_SLO_TARGETS },
   },
   {
     id: 'staging',
     name: 'Staging',
     description: 'Pre-production validation',
+    sloTargets: { ...DEFAULT_ENVIRONMENT_SLO_TARGETS },
   },
   {
     id: 'prod',
     name: 'Production',
     description: 'Customer facing workloads',
+    sloTargets: { ...DEFAULT_ENVIRONMENT_SLO_TARGETS },
   },
 ];
 
+const withDefaultSloTargets = (config: EnvironmentConfig): EnvironmentConfig => ({
+  ...config,
+  sloTargets: {
+    availabilityPct: config.sloTargets?.availabilityPct ?? DEFAULT_ENVIRONMENT_SLO_TARGETS.availabilityPct,
+    latencyP95Ms: config.sloTargets?.latencyP95Ms ?? DEFAULT_ENVIRONMENT_SLO_TARGETS.latencyP95Ms,
+  },
+});
+
 const mergeWithDefaults = (configs: EnvironmentConfig[]) => {
   const byId = new Map(configs.map((config) => [config.id, config]));
-  return DEFAULT_ENVIRONMENTS.map((env) => ({
-    ...env,
-    ...(byId.get(env.id) ?? {}),
-  }));
+  const defaults = DEFAULT_ENVIRONMENTS.map((env) =>
+    withDefaultSloTargets({
+      ...env,
+      ...(byId.get(env.id) ?? {}),
+    }),
+  );
+  const defaultIds = new Set(DEFAULT_ENVIRONMENTS.map((env) => env.id));
+  const custom = configs
+    .filter((config) => !defaultIds.has(config.id))
+    .map((config) => withDefaultSloTargets(config));
+  return [...defaults, ...custom];
 };
+
+export const resolveEnvironmentSloTargets = (config?: EnvironmentConfig | null) => ({
+  availabilityPct: config?.sloTargets?.availabilityPct ?? DEFAULT_ENVIRONMENT_SLO_TARGETS.availabilityPct,
+  latencyP95Ms: config?.sloTargets?.latencyP95Ms ?? DEFAULT_ENVIRONMENT_SLO_TARGETS.latencyP95Ms,
+});
 
 export const getEnvironmentConfigs = (): EnvironmentConfig[] => {
   if (typeof window === 'undefined') {

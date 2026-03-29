@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { Tabs } from '@/components/ui/tabs';
-import { SummaryTab } from '@/pages/services/details/tabs/SummaryTab';
+import { DeliveryTab } from '@/pages/services/details/tabs/DeliveryTab';
 import type { Service } from '@/types/releasea';
 
 const serviceFixture: Service = {
@@ -18,26 +18,14 @@ const serviceFixture: Service = {
   ruleIds: [],
 };
 
-describe('SummaryTab deploy policy preflight', () => {
+describe('DeliveryTab deploy policy preflight', () => {
   it('renders policy preflight blockers when violations are present', () => {
     render(
-      <Tabs value="summary">
-        <SummaryTab
+      <Tabs value="delivery">
+        <DeliveryTab
           service={serviceFixture}
-          serviceTypeLabel="Microservice"
-          runtimeLabel="Standard"
-          isServiceActive
-          instanceLabel="2 replicas"
           viewEnvLabel="Production"
-          displayStatus="healthy"
-          repositoryUrl="https://github.com/releasea/checkout-api"
-          dockerImageLabel={null}
-          branchName="main"
-          dockerfileLabel="Dockerfile"
-          dockerContextLabel="."
-          envCountLabel="0 vars"
-          healthPath="/health"
-          appUrls={[]}
+          managementTransitionRequirements={[]}
           deployPolicyPreflight={{
             environment: 'prod',
             trigger: 'manual',
@@ -56,24 +44,16 @@ describe('SummaryTab deploy policy preflight', () => {
             ],
           }}
           deployPolicyPreflightLoading={false}
-          deployBusy={false}
-          deployDisabled={false}
-          onDeployLatest={() => {}}
-          onOpenVersionPicker={() => {}}
-          cpuAvgLabel="20%"
-          cpuPeakLabel="40%"
-          memoryAvgLabel="200 MiB"
-          memoryPeakLabel="260 MiB"
-          latencyAvgLabel="40 ms"
-          latencyPeakLabel="90 ms"
-          requestsAvgLabel="20 rpm"
-          requestsPeakLabel="120 rpm"
+          gitOpsDrift={null}
+          gitOpsDriftLoading={false}
+          desiredStateValidation={null}
+          desiredStateValidationLoading={false}
           releaseIntelligence={null}
         />
       </Tabs>,
     );
 
-    expect(screen.getByText(/deploy policy preflight has blockers/i)).toBeInTheDocument();
+    expect(screen.getByText(/current blockers/i)).toBeInTheDocument();
     expect(screen.getByText(/version pinning is required in production/i)).toBeInTheDocument();
   });
 });

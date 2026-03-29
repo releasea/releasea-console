@@ -62,7 +62,9 @@ import {
   fetchWorkerPools,
   fetchWorkerRegistrations,
   fetchWorkers,
+  setWorkerPoolDrain,
   restartWorker,
+  setWorkerPoolMaintenance,
   updateWorker,
 } from '@/lib/data';
 import { getDocsUrl } from '@/lib/docs-url';
@@ -208,12 +210,54 @@ const poolCapacityLabel = (state: WorkerPool['capacityState']) => {
       return 'Ready';
     case 'constrained':
       return 'Constrained';
+    case 'maintenance':
+      return 'Maintenance';
+    case 'draining':
+      return 'Draining';
     case 'bootstrap':
       return 'Bootstrap';
     case 'degraded':
       return 'Degraded';
     default:
       return 'Unavailable';
+  }
+};
+
+const poolSaturationLabel = (state: WorkerPool['saturationState']) => {
+  switch (state) {
+    case 'saturated':
+      return 'Saturated';
+    case 'hot':
+      return 'Hot';
+    case 'active':
+      return 'Active';
+    case 'draining':
+      return 'Draining';
+    case 'maintenance':
+      return 'Maintenance';
+    case 'unavailable':
+      return 'Unavailable';
+    default:
+      return 'Idle';
+  }
+};
+
+const poolSaturationBarClass = (state: WorkerPool['saturationState']) => {
+  switch (state) {
+    case 'saturated':
+      return 'bg-destructive';
+    case 'hot':
+      return 'bg-warning';
+    case 'active':
+      return 'bg-info';
+    case 'draining':
+      return 'bg-warning/80';
+    case 'maintenance':
+      return 'bg-destructive/80';
+    case 'unavailable':
+      return 'bg-muted';
+    default:
+      return 'bg-emerald-500';
   }
 };
 
@@ -229,6 +273,7 @@ const normalizePoolTagInput = (value: string | string[] | undefined | null) => {
 };
 
 const poolSupportsFallback = (pool: WorkerPool, environment: Environment | 'all', requiredTags: string[]) => {
+  if (pool.maintenanceEnabled || pool.drainEnabled) return false;
   const matchesEnvironment =
     environment === 'all' || environmentsShareNamespace(pool.environment, environment);
   if (!matchesEnvironment) return false;
@@ -293,6 +338,10 @@ const Workers = () => {
   const [poolRequiredTags, setPoolRequiredTags] = useState('');
   const [selectedPool, setSelectedPool] = useState<WorkerPoolPreview | null>(null);
   const [poolDetailsOpen, setPoolDetailsOpen] = useState(false);
+  const [poolMaintenanceReason, setPoolMaintenanceReason] = useState('');
+  const [isPoolMaintenanceSaving, setIsPoolMaintenanceSaving] = useState(false);
+  const [poolDrainReason, setPoolDrainReason] = useState('');
+  const [isPoolDrainSaving, setIsPoolDrainSaving] = useState(false);
   const [bootstrapProfile, setBootstrapProfile] = useState<WorkerBootstrapProfile>(fallbackBootstrapProfile);
   const effectiveBootstrapProfile = normalizeBootstrapProfile(bootstrapProfile);
 
@@ -481,6 +530,12 @@ const Workers = () => {
     () => (selectedPool ? registrations.filter((registration) => workerBelongsToPool(registration, selectedPool)) : []),
     [registrations, selectedPool],
   );
+  useEffect(() => {
+    setPoolMaintenanceReason(selectedPool?.maintenanceReason ?? '');
+  }, [selectedPool]);
+  useEffect(() => {
+    setPoolDrainReason(selectedPool?.drainReason ?? '');
+  }, [selectedPool]);
 
   const getWorkerActionId = (worker: Worker) => worker.primaryId ?? worker.id;
 
@@ -640,6 +695,110 @@ const Workers = () => {
     });
   };
 
+  const refreshWorkerPools = async () => {
+    const nextPools = await fetchWorkerPools();
+    const compatiblePools = nextPools
+      .filter((pool) => poolSupportsFallback(pool, poolEnvironmentFilter, requiredPoolTags))
+      .sort((left, right) => {
+        const leftRank = poolFallbackSortValue(left, requiredPoolTags);
+        const rightRank = poolFallbackSortValue(right, requiredPoolTags);
+        if (leftRank.extraTags !== rightRank.extraTags) return leftRank.extraTags - rightRank.extraTags;
+        if (left.capacityScore !== right.capacityScore) return right.capacityScore - left.capacityScore;
+        if (leftRank.onlineAgents !== rightRank.onlineAgents) return rightRank.onlineAgents - leftRank.onlineAgents;
+        if (leftRank.onlineWorkers !== rightRank.onlineWorkers) return rightRank.onlineWorkers - leftRank.onlineWorkers;
+        if (leftRank.lastHeartbeat !== rightRank.lastHeartbeat) return rightRank.lastHeartbeat - leftRank.lastHeartbeat;
+        return left.id.localeCompare(right.id);
+      });
+    const fallbackRank = new Map<string, number>();
+    compatiblePools.forEach((pool, index) => fallbackRank.set(pool.id, index + 1));
+
+    setWorkerPools(nextPools);
+    setSelectedPool((current) => {
+      if (!current) return null;
+      const nextSelected = nextPools.find((pool) => pool.id === current.id);
+      return nextSelected ? {
+        ...nextSelected,
+        compatible: poolSupportsFallback(nextSelected, poolEnvironmentFilter, requiredPoolTags),
+        fallbackRank: fallbackRank.get(nextSelected.id) ?? null,
+      } : null;
+    });
+    return nextPools;
+  };
+
+  const handleSetPoolMaintenance = async (pool: WorkerPoolPreview, enabled: boolean) => {
+    if (enabled && !poolMaintenanceReason.trim()) {
+      toast({
+        title: 'Maintenance reason required',
+        description: 'Describe why this pool is being removed from routing before enabling maintenance mode.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsPoolMaintenanceSaving(true);
+    try {
+      const ok = await setWorkerPoolMaintenance(pool.id, {
+        enabled,
+        reason: enabled ? poolMaintenanceReason.trim() : '',
+      });
+      if (!ok) {
+        throw new Error('Unable to update worker pool maintenance mode.');
+      }
+      await refreshWorkerPools();
+      toast({
+        title: enabled ? 'Pool maintenance enabled' : 'Pool maintenance disabled',
+        description: enabled
+          ? 'This pool is now excluded from routing and fallback selection.'
+          : 'This pool is eligible for routing again.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to update pool maintenance',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPoolMaintenanceSaving(false);
+    }
+  };
+
+  const handleSetPoolDrain = async (pool: WorkerPoolPreview, enabled: boolean) => {
+    if (enabled && !poolDrainReason.trim()) {
+      toast({
+        title: 'Drain reason required',
+        description: 'Describe why this pool should stop accepting new work before enabling drain mode.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsPoolDrainSaving(true);
+    try {
+      const ok = await setWorkerPoolDrain(pool.id, {
+        enabled,
+        reason: enabled ? poolDrainReason.trim() : '',
+      });
+      if (!ok) {
+        throw new Error('Unable to update worker pool drain mode.');
+      }
+      await refreshWorkerPools();
+      toast({
+        title: enabled ? 'Pool drain enabled' : 'Pool drain disabled',
+        description: enabled
+          ? 'New operations will no longer be claimed from this pool until drain mode is disabled.'
+          : 'This pool can claim new operations again.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to update pool drain',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPoolDrainSaving(false);
+    }
+  };
+
   const handleCreateRegistration = async () => {
     const parsedTags = registrationTags.split(',').map((t) => t.trim()).filter(Boolean);
     const registrationWorkerName =
@@ -794,6 +953,16 @@ const Workers = () => {
                       <Badge variant="outline" className="text-xs">
                         {getEnvironmentLabel(pool.environment)}
                       </Badge>
+                      {pool.maintenanceEnabled ? (
+                        <Badge variant="destructive" className="text-xs">
+                          Maintenance
+                        </Badge>
+                      ) : null}
+                      {pool.drainEnabled ? (
+                        <Badge variant="outline" className="text-xs border-warning/60 text-warning">
+                          Draining
+                        </Badge>
+                      ) : null}
                       <Badge variant="outline" className="text-xs">
                         {poolCapacityLabel(pool.capacityState)} · {pool.capacityScore}
                       </Badge>
@@ -847,8 +1016,29 @@ const Workers = () => {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <span>Saturation</span>
+                      <span className="normal-case tracking-normal text-foreground">
+                        {poolSaturationLabel(pool.saturationState)} · {pool.saturationPercent}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted/60 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${poolSaturationBarClass(pool.saturationState)}`}
+                        style={{ width: `${pool.saturationPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>{poolStatusLabel(pool.status)} pool</span>
+                    <span>
+                      {pool.maintenanceEnabled
+                        ? 'Maintenance mode'
+                        : pool.drainEnabled
+                          ? 'Drain mode'
+                          : `${poolStatusLabel(pool.status)} pool`}
+                    </span>
                     <span>{pool.lastHeartbeat ? `Last online ${formatHeartbeat(pool.lastHeartbeat)}` : 'No heartbeat yet'}</span>
                   </div>
 
@@ -1468,6 +1658,16 @@ const Workers = () => {
                     No tags
                   </Badge>
                 )}
+                {selectedPool.maintenanceEnabled ? (
+                  <Badge variant="destructive" className="text-xs">
+                    Maintenance
+                  </Badge>
+                ) : null}
+                {selectedPool.drainEnabled ? (
+                  <Badge variant="outline" className="text-xs border-warning/60 text-warning">
+                    Draining
+                  </Badge>
+                ) : null}
                 {selectedPool.compatible && selectedPool.fallbackRank ? (
                   <Badge variant="secondary" className="text-xs">
                     Fallback #{selectedPool.fallbackRank}
@@ -1493,6 +1693,113 @@ const Workers = () => {
                 Capacity state: <span className="font-medium text-foreground">{poolCapacityLabel(selectedPool.capacityState)}</span>
                 {' · '}
                 Score <span className="font-medium text-foreground">{selectedPool.capacityScore}/100</span>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                  <span>
+                    Saturation: <span className="font-medium text-foreground">{poolSaturationLabel(selectedPool.saturationState)}</span>
+                  </span>
+                  <span className="font-medium text-foreground">{selectedPool.saturationPercent}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${poolSaturationBarClass(selectedPool.saturationState)}`}
+                    style={{ width: `${selectedPool.saturationPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Pool maintenance mode</p>
+                    <p className="text-xs text-muted-foreground">
+                      Maintenance pools stay visible in inventory but are excluded from routing and fallback ranking.
+                    </p>
+                  </div>
+                  <Button
+                    variant={selectedPool.maintenanceEnabled ? 'outline' : 'default'}
+                    size="sm"
+                    disabled={isPoolMaintenanceSaving}
+                    onClick={() => void handleSetPoolMaintenance(selectedPool, !selectedPool.maintenanceEnabled)}
+                  >
+                    {selectedPool.maintenanceEnabled ? 'Disable maintenance' : 'Enable maintenance'}
+                  </Button>
+                </div>
+                {selectedPool.maintenanceEnabled ? (
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>
+                      Reason: <span className="text-foreground">{selectedPool.maintenanceReason || 'No reason recorded'}</span>
+                    </p>
+                    {selectedPool.maintenanceUpdatedAt ? (
+                      <p>
+                        Updated {formatHeartbeat(selectedPool.maintenanceUpdatedAt)}
+                        {selectedPool.maintenanceUpdatedBy ? ` by ${selectedPool.maintenanceUpdatedBy}` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="pool-maintenance-reason">Maintenance reason</Label>
+                    <Textarea
+                      id="pool-maintenance-reason"
+                      value={poolMaintenanceReason}
+                      onChange={(event) => setPoolMaintenanceReason(event.target.value)}
+                      rows={3}
+                      className="bg-background"
+                      placeholder="Planned cluster maintenance, capacity isolation, dependency change..."
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Pool drain mode</p>
+                    <p className="text-xs text-muted-foreground">
+                      Draining keeps the pool visible and lets in-flight work finish, but prevents new operations from being claimed.
+                    </p>
+                  </div>
+                  <Button
+                    variant={selectedPool.drainEnabled ? 'outline' : 'default'}
+                    size="sm"
+                    disabled={selectedPool.maintenanceEnabled || isPoolDrainSaving}
+                    onClick={() => void handleSetPoolDrain(selectedPool, !selectedPool.drainEnabled)}
+                  >
+                    {selectedPool.drainEnabled ? 'Disable drain' : 'Enable drain'}
+                  </Button>
+                </div>
+                {selectedPool.maintenanceEnabled ? (
+                  <p className="text-xs text-muted-foreground">
+                    Disable maintenance mode before enabling drain mode on this pool.
+                  </p>
+                ) : null}
+                {selectedPool.drainEnabled ? (
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>
+                      Reason: <span className="text-foreground">{selectedPool.drainReason || 'No reason recorded'}</span>
+                    </p>
+                    {selectedPool.drainUpdatedAt ? (
+                      <p>
+                        Updated {formatHeartbeat(selectedPool.drainUpdatedAt)}
+                        {selectedPool.drainUpdatedBy ? ` by ${selectedPool.drainUpdatedBy}` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="pool-drain-reason">Drain reason</Label>
+                    <Textarea
+                      id="pool-drain-reason"
+                      value={poolDrainReason}
+                      onChange={(event) => setPoolDrainReason(event.target.value)}
+                      rows={3}
+                      className="bg-background"
+                      placeholder="Scale down this cluster, migrate work elsewhere, or finish current traffic before maintenance..."
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

@@ -70,6 +70,10 @@ export type ServiceSettingsFormStore = {
     setProfileId: (value: string) => void;
     workerTags: string;
     setWorkerTags: (value: string) => void;
+    preferredWorkerCluster: string;
+    setPreferredWorkerCluster: (value: string) => void;
+    preferredWorkerRegion: string;
+    setPreferredWorkerRegion: (value: string) => void;
     profiles: RuntimeProfile[];
     minReplicas: string;
     setMinReplicas: (value: string) => void;

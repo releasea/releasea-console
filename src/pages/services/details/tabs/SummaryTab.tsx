@@ -4,11 +4,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TabsContent } from '@/components/ui/tabs';
 import type { DeployStatusValue, Service, ServiceStatus } from '@/types/releasea';
-import type { DeployPolicyPreflight } from '@/types/governance';
-import type { ReleaseIntelligenceSummary } from '@/lib/release-intelligence';
-import { OBSERVED_MODE_RESTRICTIONS } from '@/lib/management-mode';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertTriangle, ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, ShieldCheck, Timer, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, Timer, TrendingUp } from 'lucide-react';
 import { sanitizeExternalURL } from '@/platform/security/data-security';
 
 type AppUrl = {
@@ -38,8 +35,6 @@ type SummaryTabProps = {
   envCountLabel: string;
   healthPath: string;
   appUrls: AppUrl[];
-  deployPolicyPreflight: DeployPolicyPreflight | null;
-  deployPolicyPreflightLoading: boolean;
   deployBusy: boolean;
   deployDisabled: boolean;
   deployRestrictionMessage?: string;
@@ -59,7 +54,6 @@ type SummaryTabProps = {
   latencyPeakLabel: string;
   requestsAvgLabel: string;
   requestsPeakLabel: string;
-  releaseIntelligence: ReleaseIntelligenceSummary | null;
   isLive?: boolean;
   liveSyncError?: string | null;
 };
@@ -81,8 +75,6 @@ export const SummaryTab = ({
   envCountLabel,
   healthPath,
   appUrls,
-  deployPolicyPreflight,
-  deployPolicyPreflightLoading,
   deployBusy,
   deployDisabled,
   deployRestrictionMessage,
@@ -101,31 +93,11 @@ export const SummaryTab = ({
   latencyPeakLabel,
   requestsAvgLabel,
   requestsPeakLabel,
-  releaseIntelligence,
   isLive,
   liveSyncError,
 }: SummaryTabProps) => {
   const safeRepositoryURL = repositoryUrl ? sanitizeExternalURL(repositoryUrl) : null;
   const managementMode = service.managementMode ?? 'managed';
-  const deployPolicyViolations = deployPolicyPreflight?.violations ?? [];
-  const overallSloState = releaseIntelligence?.slo.overallState ?? 'unknown';
-  const rollbackState = releaseIntelligence?.rollback.recommendation ?? 'insufficient-data';
-  const overallSloClasses =
-    overallSloState === 'meeting'
-      ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-      : overallSloState === 'at-risk'
-        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
-        : overallSloState === 'breached'
-          ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
-          : 'border-border/60 text-muted-foreground';
-  const rollbackClasses =
-    rollbackState === 'stable'
-      ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-      : rollbackState === 'watch'
-        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
-        : rollbackState === 'rollback'
-          ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
-          : 'border-border/60 text-muted-foreground';
 
   return (
     <TabsContent value="summary" className="space-y-6">
@@ -217,40 +189,6 @@ export const SummaryTab = ({
         </div>
 
         <div className="pt-3 border-t border-border/60 space-y-2">
-          {managementMode === 'observed' && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground space-y-2">
-              <p className="font-medium text-foreground">Observed mode operating rules</p>
-              <p>
-                This service is currently observed only. Releasea keeps visibility and settings, but operating control
-                stays locked until you switch it to managed mode.
-              </p>
-              <ul className="list-disc space-y-1 pl-5">
-                {OBSERVED_MODE_RESTRICTIONS.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {deployPolicyPreflightLoading && (
-            <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              Checking deploy policy for {viewEnvLabel}...
-            </div>
-          )}
-          {!deployPolicyPreflightLoading && deployPolicyViolations.length > 0 && (
-            <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-3 text-xs">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Deploy policy preflight has blockers</p>
-                  <ul className="space-y-1 text-muted-foreground">
-                    {deployPolicyViolations.map((violation, index) => (
-                      <li key={`${violation.code}-${index}`}>{violation.message}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex flex-wrap gap-2">
               {deployDisabled && deployRestrictionMessage ? (
@@ -396,138 +334,7 @@ export const SummaryTab = ({
         )}
       </div>
     </div>
-
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="rounded-lg border border-border bg-card p-4 space-y-4 lg:col-span-2">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-foreground">Release Intelligence</h3>
-            <p className="text-sm text-muted-foreground">
-              Compares the latest managed release with current telemetry and the immediately previous successful deploy.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className={`text-xs normal-case ${overallSloClasses}`}>
-              SLO: {overallSloState === 'unknown' ? 'unknown' : overallSloState}
-            </Badge>
-            <Badge variant="outline" className={`text-xs normal-case ${rollbackClasses}`}>
-              Rollback: {rollbackState.replace('-', ' ')}
-            </Badge>
-          </div>
-        </div>
-
-        {releaseIntelligence ? (
-          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ShieldCheck className="w-4 h-4" />
-                <span className="text-xs">SLO Snapshot</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Availability</p>
-                  <p className="text-lg font-semibold text-foreground">
-                    {releaseIntelligence.slo.availabilityPct == null ? '--' : `${releaseIntelligence.slo.availabilityPct}%`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Target {releaseIntelligence.slo.availabilityTargetPct}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">5xx error rate</p>
-                  <p className="text-lg font-semibold text-foreground">
-                    {releaseIntelligence.slo.errorRatePct == null ? '--' : `${releaseIntelligence.slo.errorRatePct}%`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Current telemetry window</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Latency p95</p>
-                  <p className="text-lg font-semibold text-foreground">
-                    {releaseIntelligence.slo.latencyP95AvgMs == null ? '--' : `${releaseIntelligence.slo.latencyP95AvgMs} ms`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Target {releaseIntelligence.slo.latencyTargetMs} ms
-                  </p>
-                </div>
-              </div>
-              <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                Latest release <span className="font-mono text-foreground">{releaseIntelligence.latestReleaseLabel}</span>
-                {releaseIntelligence.previousReleaseLabel ? (
-                  <>
-                    {' '}is compared with previous successful release{' '}
-                    <span className="font-mono text-foreground">{releaseIntelligence.previousReleaseLabel}</span>.
-                  </>
-                ) : (
-                  '. There is no previous successful release available for direct comparison.'
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <TrendingUp className="w-4 h-4" />
-                <span className="text-xs">Deploy Baseline</span>
-              </div>
-              {releaseIntelligence.baseline.available ? (
-                <div className="space-y-3 text-sm">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Latency before</p>
-                      <p className="font-semibold text-foreground">
-                        {releaseIntelligence.baseline.latencyBeforeMs == null ? '--' : `${releaseIntelligence.baseline.latencyBeforeMs} ms`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Latency after</p>
-                      <p className="font-semibold text-foreground">
-                        {releaseIntelligence.baseline.latencyAfterMs == null ? '--' : `${releaseIntelligence.baseline.latencyAfterMs} ms`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">5xx before</p>
-                      <p className="font-semibold text-foreground">
-                        {releaseIntelligence.baseline.errorRateBeforePct == null ? '--' : `${releaseIntelligence.baseline.errorRateBeforePct}%`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">5xx after</p>
-                      <p className="font-semibold text-foreground">
-                        {releaseIntelligence.baseline.errorRateAfterPct == null ? '--' : `${releaseIntelligence.baseline.errorRateAfterPct}%`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
-                    <div>
-                      Latency change:{' '}
-                      <span className="font-medium text-foreground">
-                        {releaseIntelligence.baseline.latencyChangePct == null ? '--' : `${releaseIntelligence.baseline.latencyChangePct}%`}
-                      </span>
-                    </div>
-                    <div>
-                      5xx change:{' '}
-                      <span className="font-medium text-foreground">
-                        {releaseIntelligence.baseline.errorRateChangePct == null ? '--' : `${releaseIntelligence.baseline.errorRateChangePct}%`}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Not enough telemetry exists before and after the latest deploy to compute a baseline yet.
-                </p>
-              )}
-              <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                {releaseIntelligence.rollback.message}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Release intelligence needs at least one successful deploy and a metrics window with telemetry.
-          </p>
-        )}
-      </div>
-
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">App URL</h3>
