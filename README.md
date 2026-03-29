@@ -16,8 +16,8 @@ The Console is the primary UI for service lifecycle, deploy workflows, observabi
 - Environments and workers: [docs.releasea.io/?doc=environments-and-workers](https://docs.releasea.io/?doc=environments-and-workers)
 - Public components: [docs.releasea.io/?doc=public-components](https://docs.releasea.io/?doc=public-components)
 - Templates guide: [docs.releasea.io/?doc=templates](https://docs.releasea.io/?doc=templates)
-- Contribution guide: [../CONTRIBUTING.md](../CONTRIBUTING.md)
-- Public roadmap: [../ROADMAP.md](../ROADMAP.md)
+- Contribution guide: [docs.releasea.io/?doc=community-contributing](https://docs.releasea.io/?doc=community-contributing)
+- Public roadmap: [docs.releasea.io/?doc=public-roadmap](https://docs.releasea.io/?doc=public-roadmap)
 
 ## Running Locally
 
@@ -53,4 +53,4 @@ npm run test
 
 ## License
 
-Apache 2.0 - See [LICENSE](LICENSE) for details.
+Apache 2.0 - See [docs.releasea.io/?doc=license-and-usage](https://docs.releasea.io/?doc=license-and-usage) for details.
