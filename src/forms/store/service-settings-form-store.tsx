@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { createContext, useContext } from 'react';
 import type {
   DeployStrategyType,
+  Environment,
   Project,
   RegistryCredential,
   ScmCredential,
@@ -46,6 +47,10 @@ export type ServiceSettingsFormStore = {
     setPreDeployCommand: (value: string) => void;
     autoDeploy: boolean;
     setAutoDeploy: (value: boolean) => void;
+    autoDeployEnvironment: Environment;
+    setAutoDeployEnvironment: (value: Environment) => void;
+    autoDeployEnvironmentOptions: Array<{ id: Environment; name: string }>;
+    autoDeployEnvironmentLabel: string;
   };
   runtime: {
     servicePort: string;

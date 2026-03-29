@@ -279,6 +279,7 @@ export interface Service {
   status: ServiceStatus;
   isActive?: boolean;
   autoDeploy?: boolean;
+  autoDeployEnvironment?: Environment;
   pauseOnIdle?: boolean;
   pauseIdleTimeoutSeconds?: number;
   projectId: string;
