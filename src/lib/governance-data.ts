@@ -4,6 +4,8 @@ import type {
   AuditLogEntry,
   GovernancePolicyDocument,
   GovernanceSettings,
+  GovernanceTemporaryException,
+  GovernanceTemporaryExceptionInput,
 } from '@/types/governance';
 import { apiClient } from '@/lib/api-client';
 
@@ -15,6 +17,7 @@ const EMPTY_GOVERNANCE_SETTINGS: GovernanceSettings = {
   },
   deployPolicy: {
     enabled: false,
+    dryRun: false,
     rules: [],
   },
   rulePublishApproval: {
@@ -39,6 +42,7 @@ const normalizeGovernanceSettings = (settings?: GovernanceSettings | null): Gove
     deployPolicy: {
       ...EMPTY_GOVERNANCE_SETTINGS.deployPolicy,
       ...settings.deployPolicy,
+      dryRun: settings.deployPolicy?.dryRun ?? false,
       rules: (settings.deployPolicy?.rules ?? []).map((rule) => ({
         environment: rule.environment ?? '',
         allowAutoDeploy: rule.allowAutoDeploy ?? false,
@@ -119,6 +123,24 @@ const normalizeAuditLogEntry = (entry: Partial<AuditLogEntry> & Record<string, u
   ipAddress: typeof entry.ipAddress === 'string' ? entry.ipAddress : undefined,
 });
 
+const normalizeGovernanceTemporaryException = (
+  item?: Partial<GovernanceTemporaryException> | null,
+): GovernanceTemporaryException => ({
+  id: item?.id?.trim() || `gexc-${Math.random().toString(16).slice(2)}`,
+  policy: item?.policy?.trim() || 'deploy-policy',
+  serviceId: item?.serviceId?.trim() || '',
+  serviceName: item?.serviceName?.trim() || 'Unknown service',
+  environment: item?.environment?.trim() || 'prod',
+  codes: Array.isArray(item?.codes) && item?.codes.length > 0 ? item.codes.filter(Boolean) : ['*'],
+  reason: item?.reason?.trim() || '',
+  expiresAt: item?.expiresAt?.trim() || new Date(0).toISOString(),
+  status: item?.status?.trim() || 'expired',
+  createdAt: item?.createdAt?.trim() || new Date(0).toISOString(),
+  createdBy: item?.createdBy,
+  revokedAt: item?.revokedAt?.trim() || undefined,
+  revokedBy: item?.revokedBy,
+});
+
 export const fetchApprovalRequests = async (): Promise<ApprovalRequest[]> => {
   const response = await apiClient.get<ApprovalRequest[]>('/governance/approvals');
   if (response.error) {
@@ -143,6 +165,14 @@ export const fetchAuditLogs = async (): Promise<AuditLogEntry[]> => {
   return (response.data ?? []).map((entry) => normalizeAuditLogEntry(entry as Partial<AuditLogEntry> & Record<string, unknown>));
 };
 
+export const fetchGovernanceExceptions = async (): Promise<GovernanceTemporaryException[]> => {
+  const response = await apiClient.get<GovernanceTemporaryException[]>('/governance/exceptions');
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  return (response.data ?? []).map((item) => normalizeGovernanceTemporaryException(item));
+};
+
 export const updateGovernanceSettings = async (
   settings: GovernanceSettings
 ): Promise<GovernanceSettings> => {
@@ -151,6 +181,26 @@ export const updateGovernanceSettings = async (
     throw new Error(response.error);
   }
   return normalizeGovernanceSettings(response.data ?? settings);
+};
+
+export const createGovernanceException = async (
+  payload: GovernanceTemporaryExceptionInput,
+): Promise<GovernanceTemporaryException> => {
+  const response = await apiClient.post<GovernanceTemporaryException>('/governance/exceptions', payload);
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  return normalizeGovernanceTemporaryException(response.data);
+};
+
+export const revokeGovernanceException = async (
+  exceptionId: string,
+): Promise<GovernanceTemporaryException> => {
+  const response = await apiClient.delete<GovernanceTemporaryException>(`/governance/exceptions/${exceptionId}`);
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  return normalizeGovernanceTemporaryException(response.data);
 };
 
 export const buildGovernancePolicyDocument = (

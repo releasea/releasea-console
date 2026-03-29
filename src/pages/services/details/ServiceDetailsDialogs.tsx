@@ -153,7 +153,8 @@ export const ServiceDetailsDialogs = ({
   const hasPublishTargets = publishRule.publishTargets.internal || publishRule.publishTargets.external;
   const publishSummaryLabel = getPublicationLabel(publishRule.publishTargets);
   const publishPolicyViolations = publishRule.preflight?.violations ?? [];
-  const publishBlockedByPolicy = publishPolicyViolations.length > 0;
+  const publishPolicyDryRun = publishRule.preflight?.dryRun === true;
+  const publishBlockedByPolicy = publishPolicyViolations.length > 0 && !publishPolicyDryRun;
 
   return (
     <>
@@ -708,6 +709,8 @@ export const ServiceDetailsDialogs = ({
                 'rounded-lg border p-4 space-y-2 text-sm',
                 publishBlockedByPolicy
                   ? 'border-destructive/40 bg-destructive/10'
+                  : publishPolicyViolations.length > 0
+                    ? 'border-amber-500/40 bg-amber-500/10'
                   : 'border-border bg-muted/20',
               )}
             >
@@ -716,13 +719,19 @@ export const ServiceDetailsDialogs = ({
                   ? 'Checking publish policy'
                   : publishBlockedByPolicy
                     ? 'Publication blocked by policy'
+                    : publishPolicyViolations.length > 0
+                      ? 'Publication warnings in dry-run mode'
                     : 'No policy blockers for this publication'}
               </p>
               {publishRule.preflightLoading ? (
                 <p className="text-muted-foreground">Evaluating governance rules for the selected targets.</p>
-              ) : publishBlockedByPolicy ? (
+              ) : publishPolicyViolations.length > 0 ? (
                 <>
-                  <p className="text-muted-foreground">{summarizeDeployPolicyViolations(publishPolicyViolations)}</p>
+                  <p className="text-muted-foreground">
+                    {publishPolicyDryRun
+                      ? 'Releasea will audit these governance warnings, but it will not block this publication while dry-run mode stays enabled.'
+                      : summarizeDeployPolicyViolations(publishPolicyViolations)}
+                  </p>
                   <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
                     {publishPolicyViolations.map((violation) => (
                       <li key={`${violation.environment}:${violation.code}`}>{violation.message}</li>

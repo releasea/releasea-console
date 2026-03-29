@@ -105,8 +105,40 @@ describe('CreateServicePage cluster import', () => {
         kind: 'Deployment',
         name: 'payments',
         containers: [
-          { name: 'payments', image: 'ghcr.io/acme/payments:1.2.3', ports: [8080], imported: true },
-          { name: 'metrics-sidecar', image: 'ghcr.io/acme/metrics:0.4.0', ports: [9090] },
+          {
+            name: 'payments',
+            image: 'ghcr.io/acme/payments:1.2.3',
+            ports: [8080],
+            imported: true,
+            healthCheckPath: '/ready',
+            probes: [
+              { type: 'readiness', handler: 'httpGet', containerName: 'payments', path: '/ready', port: '8080' },
+            ],
+            environmentVariables: [
+              { key: 'PAYMENTS_MODE', value: 'cluster' },
+              { key: 'LOG_LEVEL', value: 'debug' },
+              { key: 'DB_PASSWORD', sourceType: 'secretKeyRef', reference: 'secret:payments#password', importable: false },
+            ],
+            command: ['/bin/payments'],
+            args: ['serve', '--port', '8080'],
+            cpuMilli: 500,
+            memoryMi: 512,
+          },
+          {
+            name: 'metrics-sidecar',
+            image: 'ghcr.io/acme/metrics:0.4.0',
+            ports: [9090],
+            probes: [
+              { type: 'liveness', handler: 'tcpSocket', containerName: 'metrics-sidecar', port: '9090' },
+            ],
+            environmentVariables: [
+              { key: 'METRICS_PORT', value: '9090' },
+            ],
+            command: ['/bin/metrics-sidecar'],
+            args: ['--listen', '0.0.0.0:9090'],
+            cpuMilli: 250,
+            memoryMi: 256,
+          },
         ],
         serviceHints: [
           { name: 'payments', type: 'ClusterIP', ports: [80, 8080] },
@@ -224,8 +256,9 @@ describe('CreateServicePage cluster import', () => {
     expect(screen.getByText(/1 cluster-native reference\(s\) still require manual recreation/i)).toBeInTheDocument();
     expect(await screen.findByText(/Detected probes/i)).toBeInTheDocument();
     expect(screen.getByText(/readiness \(payments\): HTTP \/ready on 8080/i)).toBeInTheDocument();
-    expect(screen.getByText(/Additional containers were detected and were not imported into the service form/i)).toBeInTheDocument();
-    expect(screen.getByText(/metrics-sidecar/i)).toBeInTheDocument();
+    const additionalContainersWarning = screen.getByText(/Other containers are still outside the service form/i).closest('div');
+    expect(additionalContainersWarning).not.toBeNull();
+    expect(within(additionalContainersWarning as HTMLElement).getByText(/metrics-sidecar/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByLabelText('Service Name')).toHaveValue('payments');
@@ -242,6 +275,27 @@ describe('CreateServicePage cluster import', () => {
     expect(screen.getByText(/DB_PASSWORD/i)).toBeInTheDocument();
     expect(screen.getAllByText('medium (500m, 512Mi)').length).toBeGreaterThan(0);
 
+    const containerTrigger = within(importSection as HTMLElement).getAllByRole('combobox')[1];
+    fireEvent.click(containerTrigger);
+    fireEvent.click(await screen.findByRole('option', { name: /metrics-sidecar/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Docker Image')).toHaveValue('ghcr.io/acme/metrics:0.4.0');
+      expect(screen.getByLabelText('Port')).toHaveValue(9090);
+    });
+    const metricsKeyInput = screen.getByDisplayValue('METRICS_PORT');
+    const metricsRow = metricsKeyInput.closest('div.grid');
+    expect(metricsRow).not.toBeNull();
+    expect(within(metricsRow as HTMLElement).getByDisplayValue('9090')).toBeInTheDocument();
+    const updatedAdditionalContainersWarning = screen
+      .getByText(/Other containers are still outside the service form/i)
+      .closest('div');
+    expect(updatedAdditionalContainersWarning).not.toBeNull();
+    expect(within(updatedAdditionalContainersWarning as HTMLElement).getByText('payments')).toBeInTheDocument();
+    expect(
+      within(updatedAdditionalContainersWarning as HTMLElement).getByText(/ghcr\.io\/acme\/payments:1\.2\.3/i),
+    ).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: /create service/i }));
 
     await waitFor(() => {
@@ -251,14 +305,95 @@ describe('CreateServicePage cluster import', () => {
     const payload = createService.mock.calls[0]?.[0];
     expect(payload).toEqual(
       expect.objectContaining({
-        dockerCommand: '/bin/payments serve --port 8080',
-        profileId: 'rp-medium',
+        dockerCommand: '/bin/metrics-sidecar --listen 0.0.0.0:9090',
+        dockerImage: 'ghcr.io/acme/metrics:0.4.0',
+        port: 9090,
+        profileId: 'rp-small',
         environment: {
-          LOG_LEVEL: 'debug',
-          PAYMENTS_MODE: 'cluster',
+          METRICS_PORT: '9090',
         },
       }),
     );
+    expect(payload?.environment?.PAYMENTS_MODE).toBeUndefined();
     expect(payload?.environment?.DB_PASSWORD).toBeUndefined();
+  });
+
+  it('groups the catalog by workload blueprint and supports starter-path filters', async () => {
+    fetchServiceTemplates.mockResolvedValue([
+      {
+        id: 'tpl-api',
+        type: 'microservice',
+        label: 'API Blueprint',
+        description: 'HTTP service starter',
+        icon: 'server',
+        category: 'Services',
+        owner: 'releasea',
+        bestFor: 'APIs',
+        defaults: 'Git repo + health checks',
+        setupTime: '5 min',
+        tier: 'core',
+        highlights: ['recommended'],
+        templateKind: 'service',
+        repoMode: 'template',
+        allowTemplateToggle: true,
+      },
+      {
+        id: 'tpl-job',
+        type: 'microservice',
+        label: 'Nightly Cleanup Job',
+        description: 'Recurring cleanup',
+        icon: 'clock',
+        category: 'Jobs',
+        owner: 'releasea',
+        bestFor: 'Maintenance',
+        defaults: 'Cron runtime',
+        setupTime: '4 min',
+        tier: 'core',
+        highlights: ['cron'],
+        templateKind: 'scheduled-job',
+        repoMode: 'template',
+        allowTemplateToggle: true,
+      },
+      {
+        id: 'tpl-vite',
+        type: 'static-site',
+        label: 'Vite Marketing Site',
+        description: 'Frontend starter',
+        icon: 'globe',
+        category: 'Sites',
+        owner: 'releasea',
+        bestFor: 'Web apps',
+        defaults: 'Vite build',
+        setupTime: '3 min',
+        tier: 'core',
+        highlights: ['vite'],
+        templateKind: 'service',
+        repoMode: 'template',
+        allowTemplateToggle: true,
+        templateDefaults: {
+          framework: 'vite',
+        },
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/services/create?project=proj-1']}>
+        <CreateServicePage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Services and APIs' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Scheduled Jobs' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Static Sites' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Static Sites · 1' }));
+    expect(await screen.findByRole('heading', { name: 'Static Sites' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Services and APIs' })).not.toBeInTheDocument();
+    expect(screen.queryByText('API Blueprint')).not.toBeInTheDocument();
+    expect(screen.getByText('Vite Marketing Site')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vite · 1' }));
+    expect(screen.getByText('Vite Marketing Site')).toBeInTheDocument();
+    expect(screen.queryByText('Nightly Cleanup Job')).not.toBeInTheDocument();
   });
 });

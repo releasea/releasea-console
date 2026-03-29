@@ -127,6 +127,19 @@ export interface TemplateSource {
   path?: string;
 }
 
+export interface TemplateVerificationIssue {
+  code: string;
+  level: 'warning' | 'error' | (string & {});
+  message: string;
+}
+
+export interface TemplateVerification {
+  verified: boolean;
+  status: 'verified' | 'needs-review' | 'invalid' | (string & {});
+  summary: string;
+  issues: TemplateVerificationIssue[];
+}
+
 export interface TemplateDefaults {
   serviceName?: string;
   sourceType?: 'git' | 'docker';
@@ -171,6 +184,7 @@ export interface ServiceTemplate {
   templateSource?: TemplateSource;
   repoMode?: TemplateRepoMode;
   allowTemplateToggle?: boolean;
+  verification?: TemplateVerification;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -186,6 +200,10 @@ export interface EnvironmentConfig {
   name: string;
   description?: string;
   namespace?: string;
+  sloTargets?: {
+    availabilityPct: number;
+    latencyP95Ms: number;
+  };
 }
 
 export interface Team {
@@ -275,6 +293,8 @@ export interface Service {
   deployTemplateId?: string;
   secretProviderId?: string;
   workerTags?: string[];
+  preferredWorkerCluster?: string;
+  preferredWorkerRegion?: string;
   managementMode?: ServiceManagementMode;
   runtime?: Record<string, ServiceRuntimeState>;
   repoManaged?: boolean;
@@ -404,6 +424,8 @@ export interface ServiceDesiredStateDocument {
         memory?: number;
         profileId?: string;
         workerTags: string[];
+        preferredWorkerCluster?: string;
+        preferredWorkerRegion?: string;
         deploymentStrategy?: Record<string, unknown>;
       };
       credentials: {
@@ -427,11 +449,41 @@ export interface ServiceDesiredStateDocument {
   rules: ServiceDesiredStateRule[];
 }
 
+export interface ServiceDesiredStateValidationIssue {
+  code: string;
+  level: 'error' | 'warning' | string;
+  path?: string;
+  message: string;
+}
+
+export interface ServiceDesiredStateValidation {
+  status: 'verified' | 'needs-review' | 'invalid' | string;
+  summary: string;
+  issues?: ServiceDesiredStateValidationIssue[];
+}
+
 export interface ServiceDesiredStateExport {
   document: ServiceDesiredStateDocument;
   yaml: string;
   filename: string;
   warnings?: string[];
+  validation: ServiceDesiredStateValidation;
+}
+
+export interface ServiceGitOpsRepositoryPolicyCheckItem {
+  id: string;
+  label: string;
+  state: 'verified' | 'needs-review' | 'invalid' | string;
+  message: string;
+}
+
+export interface ServiceGitOpsRepositoryPolicyCheck {
+  status: 'verified' | 'needs-review' | 'invalid' | string;
+  summary: string;
+  repoUrl: string;
+  baseBranch: string;
+  provider: string;
+  checks: ServiceGitOpsRepositoryPolicyCheckItem[];
 }
 
 export interface ServiceGitOpsPullRequest {
@@ -453,6 +505,26 @@ export interface ServiceGitOpsDriftStatus {
   filePath: string;
   expectedHash: string;
   actualHash?: string;
+}
+
+export interface ServiceGitOpsLayoutPreset {
+  id: string;
+  label: string;
+  kind: 'direct' | 'starter' | string;
+  description: string;
+  primaryFilePath: string;
+  supportingFilePaths?: string[];
+  available: boolean;
+  availabilityReason?: string;
+}
+
+export interface ServiceGitOpsTimelineEvent {
+  id: string;
+  action: string;
+  status?: string;
+  message?: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Deploy {
@@ -602,7 +674,7 @@ export interface WorkerRegistration {
 export interface WorkerPool {
   id: string;
   status: WorkerStatus;
-  capacityState: 'ready' | 'constrained' | 'degraded' | 'bootstrap' | 'unavailable' | (string & {});
+  capacityState: 'ready' | 'constrained' | 'degraded' | 'bootstrap' | 'maintenance' | 'draining' | 'unavailable' | (string & {});
   environment: Environment;
   cluster: string;
   namespacePrefix: string;
@@ -621,7 +693,17 @@ export interface WorkerPool {
   onlineAgents: number;
   availableAgents: number;
   capacityScore: number;
+  saturationPercent: number;
+  saturationState: 'idle' | 'active' | 'hot' | 'saturated' | 'draining' | 'maintenance' | 'unavailable' | (string & {});
   lastHeartbeat?: string;
+  maintenanceEnabled?: boolean;
+  maintenanceReason?: string;
+  maintenanceUpdatedAt?: string;
+  maintenanceUpdatedBy?: string;
+  drainEnabled?: boolean;
+  drainReason?: string;
+  drainUpdatedAt?: string;
+  drainUpdatedBy?: string;
 }
 
 export interface DiscoveredEnvironmentVariable {
@@ -637,6 +719,13 @@ export interface DiscoveredContainer {
   image?: string;
   ports?: number[];
   imported?: boolean;
+  healthCheckPath?: string;
+  probes?: DiscoveredProbe[];
+  environmentVariables?: DiscoveredEnvironmentVariable[];
+  command?: string[];
+  args?: string[];
+  cpuMilli?: number;
+  memoryMi?: number;
 }
 
 export interface DiscoveredServiceHint {

@@ -47,6 +47,7 @@ import {
   fetchScmCredentials,
   fetchServices,
   fetchServiceTemplates,
+  verifyServiceTemplates,
   createServiceTemplate,
   updateServiceTemplate,
   deleteServiceTemplate,
@@ -75,6 +76,7 @@ import {
   formatTemplateMode,
   formatTemplateSource,
   formatTemplateType,
+  formatTemplateVerificationStatus,
   parseTemplateImport,
 } from './template-utils';
 
@@ -160,6 +162,8 @@ const SettingsPage = () => {
   const [registryCredentials, setRegistryCredentials] = useState<RegistryCredential[]>([]);
   const [serviceTemplates, setServiceTemplates] = useState<ServiceTemplate[]>([]);
   const [templateImportPayload, setTemplateImportPayload] = useState('');
+  const [templateVerificationPreview, setTemplateVerificationPreview] = useState<ServiceTemplate[]>([]);
+  const [isVerifyingTemplates, setIsVerifyingTemplates] = useState(false);
   const [isImportingTemplates, setIsImportingTemplates] = useState(false);
   const [scmName, setScmName] = useState('');
   const [scmProvider, setScmProvider] = useState('github');
@@ -503,22 +507,42 @@ const SettingsPage = () => {
     setServiceTemplates(Array.isArray(templatesData) ? templatesData : []);
   };
 
-  const handleImportTemplates = async () => {
+  const parseImportedTemplates = () => {
     if (!templateImportPayload.trim()) {
-      toast({ title: 'Missing template payload', description: 'Paste a YAML or JSON template to import.' });
-      return;
+      toast({ title: 'Missing template payload', description: 'Paste a YAML or JSON template to verify or import.' });
+      return null;
     }
-    let templates: ServiceTemplate[] = [];
     try {
-      templates = parseTemplateImport(templateImportPayload.trim());
-    } catch (error) {
+      const templates = parseTemplateImport(templateImportPayload.trim());
+      if (templates.length === 0) {
+        toast({ title: 'No templates found', description: 'Provide at least one template definition.' });
+        return null;
+      }
+      return templates;
+    } catch {
       toast({ title: 'Invalid template payload', description: 'Check the YAML or JSON format and try again.' });
-      return;
+      return null;
     }
-    if (templates.length === 0) {
-      toast({ title: 'No templates found', description: 'Provide at least one template definition.' });
-      return;
-    }
+  };
+
+  const handleVerifyTemplates = async () => {
+    const templates = parseImportedTemplates();
+    if (!templates) return;
+    setIsVerifyingTemplates(true);
+    const preview = await verifyServiceTemplates(templates);
+    setTemplateVerificationPreview(Array.isArray(preview) ? preview : []);
+    setIsVerifyingTemplates(false);
+    const verified = preview.filter((template) => template.verification?.status === 'verified').length;
+    const invalid = preview.filter((template) => template.verification?.status === 'invalid').length;
+    toast({
+      title: 'Template verification completed',
+      description: `${verified} verified, ${invalid} invalid.`,
+    });
+  };
+
+  const handleImportTemplates = async () => {
+    const templates = parseImportedTemplates();
+    if (!templates) return;
 
     setIsImportingTemplates(true);
     const existing = new Set(serviceTemplates.map((template) => template.id));
@@ -556,6 +580,7 @@ const SettingsPage = () => {
 
     if (created + updated > 0) {
       setTemplateImportPayload('');
+      setTemplateVerificationPreview([]);
     }
     if (failed > 0) {
       toast({
@@ -1934,6 +1959,7 @@ const SettingsPage = () => {
                         <th className="px-4 py-3 text-left font-medium">Type</th>
                         <th className="px-4 py-3 text-left font-medium">Source</th>
                         <th className="px-4 py-3 text-left font-medium">Mode</th>
+                        <th className="px-4 py-3 text-left font-medium">Verification</th>
                         <th className="px-4 py-3 text-left font-medium">Updated</th>
                         <th className="px-4 py-3 text-right font-medium">Actions</th>
                       </tr>
@@ -1958,6 +1984,29 @@ const SettingsPage = () => {
                           <td className="px-4 py-3 text-muted-foreground">
                             {formatTemplateMode(template)}
                           </td>
+                          <td className="px-4 py-3">
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className={
+                                  template.verification?.status === 'verified'
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                    : template.verification?.status === 'invalid'
+                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                      : 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                }
+                              >
+                                {formatTemplateVerificationStatus(template)}
+                              </Badge>
+                              {template.verification?.issues?.length ? (
+                                <p className="text-xs text-muted-foreground">
+                                  {template.verification.issues.length} issue{template.verification.issues.length === 1 ? '' : 's'}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">No issues</p>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             {template.updatedAt
                               ? new Date(template.updatedAt).toLocaleDateString()
@@ -1979,7 +2028,7 @@ const SettingsPage = () => {
                       ))}
                       {serviceTemplates.length === 0 && (
                         <TableEmptyRow
-                          colSpan={6}
+                          colSpan={7}
                           icon={<LayoutTemplate className="h-5 w-5 text-muted-foreground" />}
                           title="No templates yet"
                           description="Import a template definition to populate the service catalog."
@@ -2001,21 +2050,78 @@ const SettingsPage = () => {
                   <Textarea
                     rows={8}
                     value={templateImportPayload}
-                    onChange={(event) => setTemplateImportPayload(event.target.value)}
+                    onChange={(event) => {
+                      setTemplateImportPayload(event.target.value);
+                      setTemplateVerificationPreview([]);
+                    }}
                     placeholder="id: microservice-node\nlabel: Node.js Microservice\n..."
                   />
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
                       Templates with matching IDs will be updated.
                     </p>
-                    <Button
-                      type="button"
-                      onClick={handleImportTemplates}
-                      disabled={isImportingTemplates}
-                    >
-                      {isImportingTemplates ? 'Importing...' : 'Import templates'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleVerifyTemplates}
+                        disabled={isVerifyingTemplates || isImportingTemplates}
+                      >
+                        {isVerifyingTemplates ? 'Verifying...' : 'Verify templates'}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleImportTemplates}
+                        disabled={isImportingTemplates}
+                      >
+                        {isImportingTemplates ? 'Importing...' : 'Import templates'}
+                      </Button>
+                    </div>
                   </div>
+                  {templateVerificationPreview.length > 0 && (
+                    <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Verification preview</p>
+                        <p className="text-xs text-muted-foreground">
+                          Review template issues before importing them into the catalog.
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        {templateVerificationPreview.map((template) => (
+                          <div key={`${template.id || template.label || 'template'}-preview`} className="rounded-md border border-border/70 bg-muted/20 p-3 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="font-medium text-foreground">{template.label || template.id || 'Untitled template'}</p>
+                                <p className="text-xs text-muted-foreground">{template.id || 'No template id yet'}</p>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  template.verification?.status === 'verified'
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                    : template.verification?.status === 'invalid'
+                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                      : 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                }
+                              >
+                                {formatTemplateVerificationStatus(template)}
+                              </Badge>
+                            </div>
+                            {template.verification?.summary ? (
+                              <p className="text-xs text-muted-foreground">{template.verification.summary}</p>
+                            ) : null}
+                            {(template.verification?.issues ?? []).length > 0 && (
+                              <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                {template.verification?.issues.map((issue) => (
+                                  <li key={`${template.id}-${issue.code}-${issue.message}`}>{issue.message}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </SettingsSection>

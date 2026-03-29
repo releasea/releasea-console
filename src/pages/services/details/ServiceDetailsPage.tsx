@@ -1,25 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Activity, Copy, Download, ExternalLink, FileText, GitPullRequest, Rocket, Settings, ShieldCheck, Terminal } from 'lucide-react';
+import { Activity, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ServiceTypeIcon } from '@/components/ui/service-type-icon';
 import {
   createServiceArgoCDGitOpsPullRequest,
+  createServiceFluxGitOpsPullRequest,
   createRule,
   createServiceGitOpsPullRequest,
   deleteRule,
   fetchDeploys,
+  fetchEnvironments,
   fetchScmCommits,
   fetchRuleDeploys,
   fetchServiceDeployPolicyCheck,
   fetchServiceGitOpsDrift,
+  fetchServiceGitOpsLayoutPresets,
   fetchServiceDesiredStateExport,
+  fetchServiceGitOpsRepositoryPolicyCheck,
+  fetchServiceGitOpsTimeline,
+  fetchServiceDesiredStateValidation,
   fetchServiceGovernanceEvents,
   fetchServiceLogs,
   fetchServicePods,
@@ -63,6 +70,7 @@ import type {
   DeployStatusValue,
   DeployStrategyType,
   Environment,
+  EnvironmentConfig,
   LogEntry,
   ManagedRule,
   Metrics,
@@ -76,7 +84,11 @@ import type {
   SecretProvider,
   Service,
   ServiceGitOpsDriftStatus,
+  ServiceGitOpsLayoutPreset,
+  ServiceGitOpsRepositoryPolicyCheck,
+  ServiceGitOpsTimelineEvent,
   ServiceDesiredStateExport,
+  ServiceDesiredStateValidation,
   ServiceManagementMode,
   ServiceStatus,
   ServiceStatusSnapshot,
@@ -93,6 +105,7 @@ import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
 import { ManagementModeTransitionDialog, type ManagementTransitionRequirement } from './ManagementModeTransitionDialog';
+import { DeliveryTab } from './tabs/DeliveryTab';
 import { EventsTab, type ServiceEvent } from './tabs/EventsTab';
 import { LogsTab } from './tabs/LogsTab';
 import { MetricsTab } from './tabs/MetricsTab';
@@ -221,6 +234,8 @@ function buildServiceSettingsHydrationKey(service: Service): string {
     registryCredentialId: service.registryCredentialId ?? '',
     secretProviderId: service.secretProviderId ?? '',
     workerTags: service.workerTags ?? [],
+    preferredWorkerCluster: service.preferredWorkerCluster ?? '',
+    preferredWorkerRegion: service.preferredWorkerRegion ?? '',
     environment: service.environment ?? {},
   });
 }
@@ -268,6 +283,7 @@ const ServiceDetails = () => {
   const [commits, setCommits] = useState<ScmCommit[]>([]);
   const [desiredStateExportBusy, setDesiredStateExportBusy] = useState(false);
   const [gitOpsArgoCDPullRequestBusy, setGitOpsArgoCDPullRequestBusy] = useState(false);
+  const [gitOpsFluxPullRequestBusy, setGitOpsFluxPullRequestBusy] = useState(false);
   const [gitOpsPullRequestBusy, setGitOpsPullRequestBusy] = useState(false);
   const [deployLogOpen, setDeployLogOpen] = useState(false);
   const [selectedDeployLog, setSelectedDeployLog] = useState<Deploy | null>(null);
@@ -320,6 +336,8 @@ const ServiceDetails = () => {
   const [pauseIdleTimeoutMinutes, setPauseIdleTimeoutMinutes] = useState('60');
   const [profileId, setProfileId] = useState('');
   const [workerTags, setWorkerTags] = useState('');
+  const [preferredWorkerCluster, setPreferredWorkerCluster] = useState('');
+  const [preferredWorkerRegion, setPreferredWorkerRegion] = useState('');
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [minReplicas, setMinReplicas] = useState('1');
   const [maxReplicas, setMaxReplicas] = useState('3');
@@ -359,6 +377,7 @@ const ServiceDetails = () => {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [environmentConfigs, setEnvironmentConfigs] = useState<EnvironmentConfig[]>(() => getEnvironmentConfigs());
   const [workerRegistrations, setWorkerRegistrations] = useState<WorkerRegistration[]>([]);
   const [deploysData, setDeploysData] = useState<Deploy[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -366,8 +385,17 @@ const ServiceDetails = () => {
   const [governanceEventsData, setGovernanceEventsData] = useState<AuditLogEntry[]>([]);
   const [deployPolicyPreflight, setDeployPolicyPreflight] = useState<DeployPolicyPreflight | null>(null);
   const [deployPolicyPreflightLoading, setDeployPolicyPreflightLoading] = useState(false);
+  const [desiredStateValidation, setDesiredStateValidation] = useState<ServiceDesiredStateValidation | null>(null);
+  const [desiredStateValidationLoading, setDesiredStateValidationLoading] = useState(false);
+  const [gitOpsRepositoryPolicyCheck, setGitOpsRepositoryPolicyCheck] = useState<ServiceGitOpsRepositoryPolicyCheck | null>(null);
+  const [gitOpsRepositoryPolicyCheckLoading, setGitOpsRepositoryPolicyCheckLoading] = useState(false);
   const [gitOpsDrift, setGitOpsDrift] = useState<ServiceGitOpsDriftStatus | null>(null);
   const [gitOpsDriftLoading, setGitOpsDriftLoading] = useState(false);
+  const [gitOpsDriftRefreshing, setGitOpsDriftRefreshing] = useState(false);
+  const [gitOpsLayoutPresets, setGitOpsLayoutPresets] = useState<ServiceGitOpsLayoutPreset[]>([]);
+  const [gitOpsLayoutPresetsLoading, setGitOpsLayoutPresetsLoading] = useState(false);
+  const [gitOpsTimeline, setGitOpsTimeline] = useState<ServiceGitOpsTimelineEvent[]>([]);
+  const [gitOpsTimelineLoading, setGitOpsTimelineLoading] = useState(false);
   const [publishPolicyPreflight, setPublishPolicyPreflight] = useState<RulePublishPolicyPreflight | null>(null);
   const [publishPolicyPreflightLoading, setPublishPolicyPreflightLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -405,7 +433,7 @@ const ServiceDetails = () => {
   const backTarget = (location.state as ServiceDetailsLocationState | null)?.from;
   const backLink = backTarget?.pathname ?? '/services';
   const backLabel = backTarget?.label ?? 'Services';
-  const environmentOptions = getEnvironmentConfigs();
+  const environmentOptions = environmentConfigs;
   const selectableEnvironmentOptions = useMemo(
     () =>
       environmentOptions.filter((option) =>
@@ -414,6 +442,17 @@ const ServiceDetails = () => {
     [environmentOptions, workers, workerRegistrations],
   );
   const hasSelectableEnvironment = selectableEnvironmentOptions.length > 0;
+
+  useEffect(() => {
+    let active = true;
+    void fetchEnvironments().then((configs) => {
+      if (!active) return;
+      setEnvironmentConfigs(configs);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectableEnvironmentOptions.length === 0) return;
@@ -676,6 +715,27 @@ const ServiceDetails = () => {
     selectedServiceScmCredential ?? inheritedServiceScmCredential ?? platformServiceScmCredential;
   const effectiveServiceRegistryCredential =
     selectedServiceRegistryCredential ?? inheritedServiceRegistryCredential ?? platformServiceRegistryCredential;
+  const hasService = Boolean(service);
+  const serviceManagementMode = service?.managementMode ?? 'managed';
+  const serviceRepoUrlValue = service?.repoUrl?.trim() ?? '';
+  const serviceSourceTypeValue = service?.sourceType ?? '';
+  const serviceDockerImageValue = service?.dockerImage ?? '';
+  const serviceDeployTemplateIdValue = service?.deployTemplateId ?? '';
+  const serviceNameValue = service?.name ?? '';
+  const gitOpsDriftRef = useRef<ServiceGitOpsDriftStatus | null>(null);
+
+  useEffect(() => {
+    gitOpsDriftRef.current = gitOpsDrift;
+  }, [gitOpsDrift]);
+
+  const refreshGitOpsTimeline = useCallback(async () => {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+      setGitOpsTimeline([]);
+      return;
+    }
+    const result = await fetchServiceGitOpsTimeline(id);
+    setGitOpsTimeline(result.events ?? []);
+  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
 
   useEffect(() => {
     let active = true;
@@ -716,13 +776,130 @@ const ServiceDetails = () => {
 
   useEffect(() => {
     let active = true;
-    if (!id || !service || (service.managementMode ?? 'managed') === 'observed' || !service.repoUrl?.trim()) {
-      setGitOpsDrift(null);
-      setGitOpsDriftLoading(false);
+    if (!id || !hasService || serviceManagementMode === 'observed') {
+      setDesiredStateValidation(null);
+      setDesiredStateValidationLoading(false);
       return;
     }
 
-    setGitOpsDriftLoading(true);
+    setDesiredStateValidationLoading(true);
+    void fetchServiceDesiredStateValidation(id)
+      .then((result) => {
+        if (!active) return;
+        setDesiredStateValidation(result.validation);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDesiredStateValidation(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setDesiredStateValidationLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, hasService, serviceManagementMode, serviceRepoUrlValue, serviceSourceTypeValue, serviceDockerImageValue, serviceDeployTemplateIdValue]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+      setGitOpsRepositoryPolicyCheck(null);
+      setGitOpsRepositoryPolicyCheckLoading(false);
+      return;
+    }
+
+    setGitOpsRepositoryPolicyCheckLoading(true);
+    void fetchServiceGitOpsRepositoryPolicyCheck(id)
+      .then((result) => {
+        if (!active) return;
+        setGitOpsRepositoryPolicyCheck(result.policyCheck);
+      })
+      .catch(() => {
+        if (!active) return;
+        setGitOpsRepositoryPolicyCheck(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setGitOpsRepositoryPolicyCheckLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, hasService, serviceManagementMode, serviceRepoUrlValue, serviceSourceTypeValue, serviceDockerImageValue, serviceDeployTemplateIdValue, service?.branch, service?.scmCredentialId]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id || !hasService) {
+      setGitOpsLayoutPresets([]);
+      setGitOpsLayoutPresetsLoading(false);
+      return;
+    }
+
+    setGitOpsLayoutPresetsLoading(true);
+    void fetchServiceGitOpsLayoutPresets(id)
+      .then((result) => {
+        if (!active) return;
+        setGitOpsLayoutPresets(result.presets ?? []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setGitOpsLayoutPresets([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setGitOpsLayoutPresetsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [hasService, id, serviceManagementMode, serviceNameValue, serviceRepoUrlValue]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+      setGitOpsTimeline([]);
+      setGitOpsTimelineLoading(false);
+      return;
+    }
+
+    setGitOpsTimelineLoading(true);
+    void fetchServiceGitOpsTimeline(id)
+      .then((result) => {
+        if (!active) return;
+        setGitOpsTimeline(result.events ?? []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setGitOpsTimeline([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setGitOpsTimelineLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
+
+  useEffect(() => {
+    let active = true;
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+      setGitOpsDrift(null);
+      setGitOpsDriftLoading(false);
+      setGitOpsDriftRefreshing(false);
+      return;
+    }
+
+    if (gitOpsDriftRef.current) {
+      setGitOpsDriftRefreshing(true);
+    } else {
+      setGitOpsDriftLoading(true);
+    }
     void fetchServiceGitOpsDrift(id)
       .then((result) => {
         if (!active) return;
@@ -735,12 +912,35 @@ const ServiceDetails = () => {
       .finally(() => {
         if (!active) return;
         setGitOpsDriftLoading(false);
+        setGitOpsDriftRefreshing(false);
       });
 
     return () => {
       active = false;
     };
-  }, [id, service, service?.managementMode, service?.repoUrl]);
+  }, [id, hasService, serviceManagementMode, serviceRepoUrlValue]);
+
+  const gitOpsDriftStateValue = gitOpsDrift?.state ?? '';
+  const gitOpsDriftExpectedHashValue = gitOpsDrift?.expectedHash ?? '';
+  const gitOpsDriftActualHashValue = gitOpsDrift?.actualHash ?? '';
+  const gitOpsDriftFilePathValue = gitOpsDrift?.filePath ?? '';
+
+  useEffect(() => {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue || !gitOpsDriftStateValue) {
+      return;
+    }
+    void refreshGitOpsTimeline();
+  }, [
+    gitOpsDriftActualHashValue,
+    gitOpsDriftExpectedHashValue,
+    gitOpsDriftFilePathValue,
+    gitOpsDriftStateValue,
+    hasService,
+    id,
+    refreshGitOpsTimeline,
+    serviceManagementMode,
+    serviceRepoUrlValue,
+  ]);
 
   useEffect(() => {
     if (servicePoller.current) {
@@ -1312,6 +1512,8 @@ const ServiceDetails = () => {
     setServicePort(service.port ? String(service.port) : '');
     setProfileId(service.profileId ?? '');
     setWorkerTags((service.workerTags ?? []).join(', '));
+    setPreferredWorkerCluster(service.preferredWorkerCluster ?? '');
+    setPreferredWorkerRegion(service.preferredWorkerRegion ?? '');
     const serviceMinReplicas = service.minReplicas ?? service.replicas ?? 1;
     const serviceMaxReplicas = service.maxReplicas ?? Math.max(serviceMinReplicas, 3);
     setMinReplicas(String(serviceMinReplicas));
@@ -1607,6 +1809,62 @@ const ServiceDetails = () => {
   const dockerfileLabel = dockerfilePath;
   const dockerContextLabel = dockerContext;
   const healthPath = healthCheckPath || '/healthz';
+  const exportActionsDisabled =
+    desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed';
+  const gitOpsActionsDisabled =
+    (service.managementMode ?? 'managed') === 'observed' || !service.repoUrl?.trim();
+  const desiredStateBadgeClassName = [
+    'text-xs normal-case',
+    desiredStateValidationLoading
+      ? 'border-border/60 text-muted-foreground'
+      : desiredStateValidation?.status === 'verified'
+        ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+        : desiredStateValidation?.status === 'needs-review'
+          ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+          : desiredStateValidation?.status === 'invalid'
+            ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+            : 'border-border/60 text-muted-foreground',
+  ].join(' ');
+  const desiredStateBadgeLabel = desiredStateValidationLoading
+    ? 'Desired state: checking'
+    : desiredStateValidation?.status === 'verified'
+      ? 'Desired state: valid'
+      : desiredStateValidation?.status === 'needs-review'
+        ? 'Desired state: review'
+        : desiredStateValidation?.status === 'invalid'
+          ? 'Desired state: invalid'
+          : 'Desired state: unavailable';
+  const gitOpsDriftIndicatorClassName = [
+    'inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs',
+    gitOpsDrift?.state === 'in-sync'
+      ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+      : gitOpsDrift?.state === 'missing'
+        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+        : gitOpsDrift?.state === 'out-of-sync'
+          ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+          : 'border-border/60 text-muted-foreground',
+  ].join(' ');
+  const gitOpsDriftDotClassName = [
+    'h-2 w-2 rounded-full',
+    gitOpsDrift?.state === 'in-sync'
+      ? 'bg-emerald-500'
+      : gitOpsDrift?.state === 'missing'
+        ? 'bg-amber-500'
+        : gitOpsDrift?.state === 'out-of-sync'
+          ? 'bg-rose-500'
+          : 'bg-muted-foreground/70',
+    gitOpsDriftRefreshing ? 'animate-pulse' : '',
+  ].join(' ');
+  const gitOpsDriftLabel =
+    gitOpsDrift?.state === 'in-sync'
+      ? 'In sync'
+      : gitOpsDrift?.state === 'missing'
+        ? 'File missing'
+        : gitOpsDrift?.state === 'out-of-sync'
+          ? 'Drift'
+          : gitOpsDriftLoading
+            ? 'Checking'
+            : 'Unavailable';
   const requiresManagedTransitionReview =
     (service.managementMode ?? 'managed') === 'observed' && managementMode === 'managed';
   const managementTransitionRequirements: ManagementTransitionRequirement[] = [
@@ -1746,7 +2004,8 @@ const ServiceDetails = () => {
   };
   const requestsAvgLabel = formatRequests(requestsAvg);
   const requestsPeakLabel = formatRequests(requestsPeak);
-  const releaseIntelligence = buildReleaseIntelligenceSummary(deploysSorted, metrics);
+  const currentEnvironmentConfig = environmentOptions.find((environment) => environment.id === viewEnv) ?? null;
+  const releaseIntelligence = buildReleaseIntelligenceSummary(deploysSorted, metrics, currentEnvironmentConfig);
 
   const toKubernetesName = (value: string) =>
     value
@@ -1891,6 +2150,8 @@ const ServiceDetails = () => {
       registryCredentialId,
       secretProviderId,
       workerTags: normalizedWorkerTags,
+      preferredWorkerCluster: preferredWorkerCluster.trim() || undefined,
+      preferredWorkerRegion: preferredWorkerRegion.trim() || undefined,
       deployTemplateId,
       autoDeploy: managementMode === 'observed' ? false : autoDeploy,
       deployStrategyType,
@@ -2600,6 +2861,7 @@ const ServiceDetails = () => {
         });
         return null;
       }
+      setDesiredStateValidation(result.exportData.validation);
       return result.exportData;
     } finally {
       setDesiredStateExportBusy(false);
@@ -2668,6 +2930,28 @@ const ServiceDetails = () => {
     }
   };
 
+  const ensureGitOpsActionsReady = () => {
+    if (!service) {
+      return false;
+    }
+    if (gitOpsRepositoryPolicyCheckLoading) {
+      toast({
+        title: 'GitOps checks still running',
+        description: 'Wait for the repository policy checks to finish before opening a GitOps pull request.',
+      });
+      return false;
+    }
+    if (gitOpsRepositoryPolicyCheck && gitOpsRepositoryPolicyCheck.status !== 'verified') {
+      toast({
+        title: 'Repository policy blocked',
+        description: gitOpsRepositoryPolicyCheck.summary,
+        variant: 'destructive',
+      });
+      return false;
+    }
+    return true;
+  };
+
   const handleOpenGitOpsPullRequest = async () => {
     if (!service) return;
     if ((service.managementMode ?? 'managed') === 'observed') {
@@ -2684,6 +2968,17 @@ const ServiceDetails = () => {
         description: 'This service does not have a repository URL configured, so Releasea cannot open a GitOps pull request.',
         variant: 'destructive',
       });
+      return;
+    }
+    if (desiredStateValidation?.status === 'invalid') {
+      toast({
+        title: 'Desired state invalid',
+        description: desiredStateValidation.summary,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!ensureGitOpsActionsReady()) {
       return;
     }
 
@@ -2703,6 +2998,7 @@ const ServiceDetails = () => {
         title: 'GitOps PR created',
         description: `${result.pullRequest.title} is ready in ${result.pullRequest.baseBranch}.`,
       });
+      void refreshGitOpsTimeline();
     } finally {
       setGitOpsPullRequestBusy(false);
     }
@@ -2726,6 +3022,17 @@ const ServiceDetails = () => {
       });
       return;
     }
+    if (desiredStateValidation?.status === 'invalid') {
+      toast({
+        title: 'Desired state invalid',
+        description: desiredStateValidation.summary,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!ensureGitOpsActionsReady()) {
+      return;
+    }
 
     setGitOpsArgoCDPullRequestBusy(true);
     try {
@@ -2743,6 +3050,7 @@ const ServiceDetails = () => {
         title: 'Argo CD PR created',
         description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
       });
+      void refreshGitOpsTimeline();
       if (service.id) {
         void fetchServiceGitOpsDrift(service.id).then((result) => {
           setGitOpsDrift(result.drift);
@@ -2750,6 +3058,63 @@ const ServiceDetails = () => {
       }
     } finally {
       setGitOpsArgoCDPullRequestBusy(false);
+    }
+  };
+
+  const handleOpenFluxGitOpsPullRequest = async () => {
+    if (!service) return;
+    if ((service.managementMode ?? 'managed') === 'observed') {
+      toast({
+        title: 'GitOps PR unavailable',
+        description: 'Flux GitOps pull request delivery is only available for services managed directly by Releasea.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!service.repoUrl?.trim()) {
+      toast({
+        title: 'Repository required',
+        description: 'This service does not have a repository URL configured, so Releasea cannot open a Flux starter pull request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (desiredStateValidation?.status === 'invalid') {
+      toast({
+        title: 'Desired state invalid',
+        description: desiredStateValidation.summary,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!ensureGitOpsActionsReady()) {
+      return;
+    }
+
+    setGitOpsFluxPullRequestBusy(true);
+    try {
+      const result = await createServiceFluxGitOpsPullRequest(service.id);
+      if (!result.pullRequest) {
+        toast({
+          title: 'Flux PR failed',
+          description: result.error ?? 'Unable to create a Flux GitOps pull request for this service.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
+      toast({
+        title: 'Flux PR created',
+        description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
+      });
+      void refreshGitOpsTimeline();
+      if (service.id) {
+        void fetchServiceGitOpsDrift(service.id).then((result) => {
+          setGitOpsDrift(result.drift);
+        });
+      }
+    } finally {
+      setGitOpsFluxPullRequestBusy(false);
     }
   };
 
@@ -2811,6 +3176,10 @@ const ServiceDetails = () => {
       setProfileId,
       workerTags,
       setWorkerTags,
+      preferredWorkerCluster,
+      setPreferredWorkerCluster,
+      preferredWorkerRegion,
+      setPreferredWorkerRegion,
       profiles,
       minReplicas,
       setMinReplicas,
@@ -2894,32 +3263,20 @@ const ServiceDetails = () => {
                     >
                       {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
                     </Badge>
+                    {(service.managementMode ?? 'managed') !== 'observed' && (
+                    <Badge
+                      variant="outline"
+                      className={desiredStateBadgeClassName}
+                    >
+                      {desiredStateBadgeLabel}
+                    </Badge>
+                    )}
                     {service.repoUrl?.trim() && (service.managementMode ?? 'managed') !== 'observed' && (
-                      <Badge
-                        variant="outline"
-                        className={[
-                          'text-xs normal-case',
-                          gitOpsDriftLoading
-                            ? 'border-border/60 text-muted-foreground'
-                            : gitOpsDrift?.state === 'in-sync'
-                              ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                              : gitOpsDrift?.state === 'missing'
-                                ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
-                                : gitOpsDrift?.state === 'out-of-sync'
-                                  ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
-                                  : 'border-border/60 text-muted-foreground',
-                        ].join(' ')}
-                      >
-                        {gitOpsDriftLoading
-                          ? 'GitOps: checking'
-                          : gitOpsDrift?.state === 'in-sync'
-                            ? 'GitOps: in sync'
-                            : gitOpsDrift?.state === 'missing'
-                              ? 'GitOps: file missing'
-                              : gitOpsDrift?.state === 'out-of-sync'
-                                ? 'GitOps: drift'
-                                : 'GitOps: unavailable'}
-                      </Badge>
+                      <span className={gitOpsDriftIndicatorClassName}>
+                        <span className={gitOpsDriftDotClassName} aria-hidden="true" />
+                        <span>GitOps {gitOpsDriftLabel}</span>
+                        {gitOpsDriftRefreshing && <span className="text-[10px] text-muted-foreground">refreshing</span>}
+                      </span>
                     )}
                     {servicePublicURL.href ? (
                       <a
@@ -2938,70 +3295,81 @@ const ServiceDetails = () => {
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleCopyDesiredStateJSON()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <Copy className="h-4 w-4" />
-                Copy JSON
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleCopyDesiredStateYAML()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <FileText className="h-4 w-4" />
-                Copy YAML
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleDownloadDesiredStateYAML()}
-                disabled={desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed'}
-              >
-                <Download className="h-4 w-4" />
-                Download YAML
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleOpenGitOpsPullRequest()}
-                disabled={
-                  gitOpsPullRequestBusy ||
-                  (service.managementMode ?? 'managed') === 'observed' ||
-                  !service.repoUrl?.trim()
-                }
-              >
-                <GitPullRequest className="h-4 w-4" />
-                Open GitOps PR
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
-                disabled={
-                  gitOpsArgoCDPullRequestBusy ||
-                  (service.managementMode ?? 'managed') === 'observed' ||
-                  !service.repoUrl?.trim()
-                }
-              >
-                <GitPullRequest className="h-4 w-4" />
-                Open Argo CD PR
-              </Button>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    Export
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={() => void handleCopyDesiredStateJSON()}
+                    disabled={exportActionsDisabled}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy JSON
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void handleCopyDesiredStateYAML()}
+                    disabled={exportActionsDisabled}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Copy YAML
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void handleDownloadDesiredStateYAML()}
+                    disabled={exportActionsDisabled}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download YAML
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="gap-2">
+                    <GitPullRequest className="h-4 w-4" />
+                    GitOps
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuLabel>Pull requests</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={() => void handleOpenGitOpsPullRequest()}
+                    disabled={
+                      gitOpsPullRequestBusy ||
+                      gitOpsActionsDisabled
+                    }
+                  >
+                    <GitPullRequest className="mr-2 h-4 w-4" />
+                    Open GitOps PR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
+                    disabled={
+                      gitOpsArgoCDPullRequestBusy ||
+                      gitOpsActionsDisabled
+                    }
+                  >
+                    <GitPullRequest className="mr-2 h-4 w-4" />
+                    Open Argo CD PR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void handleOpenFluxGitOpsPullRequest()}
+                    disabled={
+                      gitOpsFluxPullRequestBusy ||
+                      gitOpsActionsDisabled
+                    }
+                  >
+                    <GitPullRequest className="mr-2 h-4 w-4" />
+                    Open Flux PR
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -3055,6 +3423,10 @@ const ServiceDetails = () => {
               <FileText className="w-4 h-4" />
               Summary
             </TabsTrigger>
+            <TabsTrigger value="delivery" className="gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Delivery
+            </TabsTrigger>
             <TabsTrigger value="metrics" className="gap-2">
               <Activity className="w-4 h-4" />
               Metrics
@@ -3094,8 +3466,6 @@ const ServiceDetails = () => {
             envCountLabel={envCountLabel}
             healthPath={healthPath}
             appUrls={appUrls}
-            deployPolicyPreflight={deployPolicyPreflight}
-            deployPolicyPreflightLoading={deployPolicyPreflightLoading}
             deployBusy={deployBusy}
             deployDisabled={deployActionTemporarilyBlocked}
             deployRestrictionMessage={deployActionTemporarilyBlocked ? deployBlockedMessage : undefined}
@@ -3117,9 +3487,27 @@ const ServiceDetails = () => {
             latencyPeakLabel={latencyPeakLabel}
             requestsAvgLabel={requestsAvgLabel}
             requestsPeakLabel={requestsPeakLabel}
-            releaseIntelligence={releaseIntelligence}
             isLive={isLiveSyncConnected || isFastPolling}
             liveSyncError={realtimeSyncError}
+          />
+
+          <DeliveryTab
+            service={service}
+            viewEnvLabel={viewEnvLabel}
+            managementTransitionRequirements={managementTransitionRequirements}
+            deployPolicyPreflight={deployPolicyPreflight}
+            deployPolicyPreflightLoading={deployPolicyPreflightLoading}
+            gitOpsRepositoryPolicyCheck={gitOpsRepositoryPolicyCheck}
+            gitOpsRepositoryPolicyCheckLoading={gitOpsRepositoryPolicyCheckLoading}
+            gitOpsDrift={gitOpsDrift}
+            gitOpsDriftLoading={gitOpsDriftLoading}
+            gitOpsLayoutPresets={gitOpsLayoutPresets}
+            gitOpsLayoutPresetsLoading={gitOpsLayoutPresetsLoading}
+            gitOpsTimeline={gitOpsTimeline}
+            gitOpsTimelineLoading={gitOpsTimelineLoading}
+            desiredStateValidation={desiredStateValidation}
+            desiredStateValidationLoading={desiredStateValidationLoading}
+            releaseIntelligence={releaseIntelligence}
           />
 
           <MetricsTab

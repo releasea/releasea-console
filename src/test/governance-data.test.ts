@@ -9,6 +9,7 @@ describe('governance data helpers', () => {
         deployApproval: { enabled: true, environments: ['prod'], minApprovers: 2 },
         deployPolicy: {
           enabled: true,
+          dryRun: false,
           rules: [
             {
               environment: 'prod',

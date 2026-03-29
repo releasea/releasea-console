@@ -54,7 +54,11 @@ describe('buildReleaseIntelligenceSummary', () => {
     expect(summary?.previousReleaseLabel).toBe('123456abcdef');
     expect(summary?.slo.overallState).toBe('meeting');
     expect(summary?.baseline.available).toBe(true);
+    expect(summary?.comparison.verdict).toBe('steady');
+    expect(summary?.deployImpactTimeline[0]?.impact).toBe('steady');
     expect(summary?.rollback.recommendation).toBe('stable');
+    expect(summary?.rollback.confidence).toBe('medium');
+    expect(summary?.anomalies).toHaveLength(0);
   });
 
   it('recommends rollback when post-deploy latency and errors regress sharply', () => {
@@ -66,6 +70,15 @@ describe('buildReleaseIntelligenceSummary', () => {
         commit: 'feedfacecafebeef',
         triggeredBy: 'admin',
         startedAt: '2026-03-28T12:10:00Z',
+        logs: [],
+      },
+      {
+        id: 'dep-1',
+        serviceId: 'svc-1',
+        status: 'completed',
+        commit: 'abcdefabcdefabcd',
+        triggeredBy: 'admin',
+        startedAt: '2026-03-28T11:40:00Z',
         logs: [],
       },
     ];
@@ -96,7 +109,58 @@ describe('buildReleaseIntelligenceSummary', () => {
     expect(summary).not.toBeNull();
     expect(summary?.baseline.available).toBe(true);
     expect(summary?.baseline.latencyChangePct).toBeGreaterThan(50);
+    expect(summary?.comparison.verdict).toBe('regressed');
+    expect(summary?.deployImpactTimeline[0]?.impact).toBe('regressed');
     expect(summary?.rollback.recommendation).toBe('rollback');
+    expect(summary?.rollback.confidence).toBe('medium');
+    expect(summary?.anomalies.some((anomaly) => anomaly.id === 'error-rate-baseline-shift')).toBe(true);
     expect(summary?.slo.overallState).toBe('breached');
+  });
+
+  it('uses environment-specific SLO targets when provided', () => {
+    const deploys: Deploy[] = [
+      {
+        id: 'dep-2',
+        serviceId: 'svc-1',
+        status: 'completed',
+        commit: '0123456789abcdef',
+        triggeredBy: 'admin',
+        startedAt: '2026-03-28T12:10:00Z',
+        logs: [],
+      },
+    ];
+
+    const metrics: Metrics = {
+      serviceId: 'svc-1',
+      environment: 'prod',
+      timestamps: [
+        '2026-03-28T12:00:00Z',
+        '2026-03-28T12:05:00Z',
+        '2026-03-28T12:10:00Z',
+        '2026-03-28T12:15:00Z',
+      ],
+      cpu: [40, 42, 41, 43],
+      memory: [35, 36, 37, 38],
+      latencyP95: [430, 440, 445, 450],
+      requests: [90, 92, 95, 96],
+      statusCodes: {
+        '2xx': [100, 100, 100, 100],
+        '4xx': [0, 0, 0, 0],
+        '5xx': [0, 0, 0, 0],
+      },
+    };
+
+    const summary = buildReleaseIntelligenceSummary(deploys, metrics, {
+      id: 'prod',
+      name: 'Production',
+      sloTargets: {
+        availabilityPct: 99.9,
+        latencyP95Ms: 400,
+      },
+    });
+
+    expect(summary?.slo.availabilityTargetPct).toBe(99.9);
+    expect(summary?.slo.latencyTargetMs).toBe(400);
+    expect(summary?.slo.latencyState).toBe('at-risk');
   });
 });

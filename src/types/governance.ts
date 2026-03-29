@@ -38,6 +38,7 @@ export interface GovernanceSettings {
   };
   deployPolicy: {
     enabled: boolean;
+    dryRun: boolean;
     rules: Array<{
       environment: string;
       allowAutoDeploy: boolean;
@@ -68,6 +69,50 @@ export interface GovernancePolicyDocument {
   spec: GovernanceSettings;
 }
 
+export interface GovernanceTemporaryException {
+  id: string;
+  policy: 'deploy-policy' | (string & {});
+  serviceId: string;
+  serviceName: string;
+  environment: string;
+  codes: string[];
+  reason: string;
+  expiresAt: string;
+  status: 'active' | 'expired' | 'revoked' | (string & {});
+  createdAt: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  revokedAt?: string;
+  revokedBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
+export interface GovernanceTemporaryExceptionInput {
+  policy: 'deploy-policy';
+  serviceId: string;
+  environment: string;
+  codes: string[];
+  reason: string;
+  expiresAt: string;
+}
+
+export interface DeployPolicyExceptionApplied {
+  id: string;
+  policy: string;
+  environment: string;
+  codes: string[];
+  reason: string;
+  expiresAt: string;
+  createdAt?: string;
+  status?: string;
+}
+
 export interface DeployPolicyViolation {
   code: string;
   environment: string;
@@ -83,12 +128,14 @@ export interface DeployPolicyPreflight {
   strategyType: string;
   replicas: number;
   explicitVersion: boolean;
+  dryRun?: boolean;
   target: {
     profileId?: string;
     scmProvider?: string;
     registryProvider?: string;
     secretProvider?: string;
   };
+  exceptionsApplied?: DeployPolicyExceptionApplied[];
   violations: DeployPolicyViolation[];
 }
 
@@ -96,6 +143,7 @@ export interface RulePublishPolicyPreflight {
   environment: string;
   internal: boolean;
   external: boolean;
+  dryRun?: boolean;
   violations: DeployPolicyViolation[];
 }
 

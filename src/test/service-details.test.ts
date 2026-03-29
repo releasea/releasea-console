@@ -83,6 +83,37 @@ describe('fetchServiceLogs parameter validation', () => {
   });
 });
 
+describe('fetchServiceGitOpsLayoutPresets', () => {
+  it('fetches layout presets from the GitOps layout endpoint', async () => {
+    const { fetchServiceGitOpsLayoutPresets } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: [
+        {
+          id: 'legacy',
+          label: 'Direct desired-state export',
+          kind: 'direct',
+          description: 'Writes the desired-state file directly under the legacy path.',
+          primaryFilePath: '.releasea/gitops/payments.desired-state.yaml',
+          supportingFilePaths: [],
+          available: true,
+        },
+      ],
+      error: null,
+      status: 200,
+    });
+
+    const result = await fetchServiceGitOpsLayoutPresets('svc-1');
+
+    expect(getSpy).toHaveBeenCalledWith('/services/svc-1/gitops/layout-presets');
+    expect(result.presets).toHaveLength(1);
+    expect(result.presets[0]?.id).toBe('legacy');
+
+    getSpy.mockRestore();
+  });
+});
+
 describe('fetchServicePods parameter validation', () => {
   it('should require environment parameter', async () => {
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -430,6 +461,41 @@ describe('createServiceArgoCDGitOpsPullRequest', () => {
   });
 });
 
+describe('createServiceFluxGitOpsPullRequest', () => {
+  it('posts to the Flux GitOps pull request endpoint and returns the PR payload', async () => {
+    const { createServiceFluxGitOpsPullRequest } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const postSpy = vi.spyOn(apiClient.apiClient, 'post').mockResolvedValue({
+      data: {
+        url: 'https://github.com/releasea/checkout-api/pull/22',
+        number: 22,
+        baseBranch: 'main',
+        branchName: 'releasea/gitops/flux/checkout-api-20260328123456',
+        filePath: '.releasea/gitops/checkout-api/desired-state.yaml',
+        filePaths: [
+          '.releasea/gitops/checkout-api/desired-state.yaml',
+          '.releasea/gitops/checkout-api/kustomization.yaml',
+          '.releasea/gitops/flux/checkout-api-gitrepository.yaml',
+          '.releasea/gitops/flux/checkout-api-kustomization.yaml',
+        ],
+        title: 'chore(gitops): add Flux starter for checkout-api',
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await createServiceFluxGitOpsPullRequest('svc-1');
+
+    expect(postSpy).toHaveBeenCalledWith('/services/svc-1/gitops/flux/pull-requests', {});
+    expect(result.error).toBeNull();
+    expect(result.pullRequest?.number).toBe(22);
+    expect(result.pullRequest?.filePaths).toHaveLength(4);
+
+    postSpy.mockRestore();
+  });
+});
+
 describe('fetchServiceGitOpsDrift', () => {
   it('requests the GitOps drift endpoint and returns the drift payload', async () => {
     const { fetchServiceGitOpsDrift } = await import('@/lib/data');
@@ -455,6 +521,65 @@ describe('fetchServiceGitOpsDrift', () => {
     expect(getSpy).toHaveBeenCalledWith('/services/svc-1/gitops/drift');
     expect(result.error).toBeNull();
     expect(result.drift?.state).toBe('out-of-sync');
+
+    getSpy.mockRestore();
+  });
+});
+
+describe('fetchServiceGitOpsRepositoryPolicyCheck', () => {
+  it('requests the GitOps repository policy endpoint and returns the policy payload', async () => {
+    const { fetchServiceGitOpsRepositoryPolicyCheck } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: {
+        status: 'verified',
+        summary: 'GitOps repository policy checks passed for github on branch main.',
+        repoUrl: 'https://github.com/releasea/checkout-api',
+        baseBranch: 'main',
+        provider: 'github',
+        checks: [],
+      },
+      error: null,
+      status: 200,
+    });
+
+    const result = await fetchServiceGitOpsRepositoryPolicyCheck('svc-1');
+
+    expect(getSpy).toHaveBeenCalledWith('/services/svc-1/gitops/repository-policy-check');
+    expect(result.error).toBeNull();
+    expect(result.policyCheck?.status).toBe('verified');
+
+    getSpy.mockRestore();
+  });
+});
+
+describe('fetchServiceGitOpsTimeline', () => {
+  it('requests the GitOps timeline endpoint and returns timeline events', async () => {
+    const { fetchServiceGitOpsTimeline } = await import('@/lib/data');
+
+    const apiClient = await import('@/lib/api-client');
+    const getSpy = vi.spyOn(apiClient.apiClient, 'get').mockResolvedValue({
+      data: [
+        {
+          id: 'audit-1',
+          action: 'service.gitops_drift.state_changed',
+          status: 'out-of-sync',
+          message: 'Repository desired state is out of sync with the current Releasea export.',
+          createdAt: '2026-03-28T18:10:00Z',
+          metadata: { state: 'out-of-sync' },
+        },
+      ],
+      error: null,
+      status: 200,
+    });
+
+    const result = await fetchServiceGitOpsTimeline('svc-1');
+
+    expect(getSpy).toHaveBeenCalledWith('/services/svc-1/gitops/timeline');
+    expect(result.error).toBeNull();
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.action).toBe('service.gitops_drift.state_changed');
 
     getSpy.mockRestore();
   });

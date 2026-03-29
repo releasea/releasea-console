@@ -19,7 +19,7 @@ import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { SectionCard } from '@/components/layout/SectionCard';
 import { ConfirmActionModal } from '@/components/modals/ConfirmActionModal';
 import { EnvironmentConfig, Environment } from '@/types/releasea';
-import { saveEnvironmentConfigs, resolveNamespace } from '@/lib/environments';
+import { DEFAULT_ENVIRONMENT_SLO_TARGETS, resolveEnvironmentSloTargets, saveEnvironmentConfigs, resolveNamespace } from '@/lib/environments';
 import { toast } from '@/hooks/use-toast';
 import { fetchEnvironments, fetchEnvironmentLock, fetchWorkers, fetchDeploys, fetchServices, performAction } from '@/lib/data';
 
@@ -30,6 +30,12 @@ interface ExtendedEnvironment extends EnvironmentConfig {
   servicesCount: number;
   deploysToday: number;
 }
+
+const DEFAULT_COLORS: Record<string, string> = {
+  dev: '#22c55e',
+  staging: '#f59e0b',
+  prod: '#ef4444',
+};
 
 const Environments = () => {
   const [baseConfigs, setBaseConfigs] = useState<EnvironmentConfig[]>([]);
@@ -49,12 +55,12 @@ const Environments = () => {
   const [formDescription, setFormDescription] = useState('');
   const [formColor, setFormColor] = useState('#3b82f6');
   const [formIsDefault, setFormIsDefault] = useState(false);
-
-  const defaultColors: Record<string, string> = {
-    dev: '#22c55e',
-    staging: '#f59e0b',
-    prod: '#ef4444',
-  };
+  const [formAvailabilityTarget, setFormAvailabilityTarget] = useState(
+    String(DEFAULT_ENVIRONMENT_SLO_TARGETS.availabilityPct),
+  );
+  const [formLatencyTarget, setFormLatencyTarget] = useState(
+    String(DEFAULT_ENVIRONMENT_SLO_TARGETS.latencyP95Ms),
+  );
 
   useEffect(() => {
     let active = true;
@@ -73,7 +79,7 @@ const Environments = () => {
 
       const extended: ExtendedEnvironment[] = configs.map((config) => ({
         ...config,
-        color: (config as { color?: string }).color || defaultColors[config.id] || '#3b82f6',
+        color: (config as { color?: string }).color || DEFAULT_COLORS[config.id] || '#3b82f6',
         isDefault: (config as { isDefault?: boolean }).isDefault ?? config.id === 'prod',
         workersCount: workers.filter((w) => w.environment === config.id).length,
         servicesCount: services.length, // services are not env-scoped in the data model
@@ -96,6 +102,9 @@ const Environments = () => {
     setFormDescription(env.description || '');
     setFormColor(env.color);
     setFormIsDefault(env.isDefault);
+    const sloTargets = resolveEnvironmentSloTargets(env);
+    setFormAvailabilityTarget(String(sloTargets.availabilityPct));
+    setFormLatencyTarget(String(sloTargets.latencyP95Ms));
     setEditLocked(false);
     setEditLockReason('');
     setIsEditOpen(true);
@@ -110,27 +119,33 @@ const Environments = () => {
     setFormDescription('');
     setFormColor('#3b82f6');
     setFormIsDefault(false);
+    setFormAvailabilityTarget(String(DEFAULT_ENVIRONMENT_SLO_TARGETS.availabilityPct));
+    setFormLatencyTarget(String(DEFAULT_ENVIRONMENT_SLO_TARGETS.latencyP95Ms));
     setIsCreateOpen(true);
   };
 
   const handleSaveEdit = async () => {
     if (!selectedEnv) return;
+    const sloTargets = {
+      availabilityPct: Number(formAvailabilityTarget),
+      latencyP95Ms: Number(formLatencyTarget),
+    };
     await performAction({
       endpoint: `/environments/${selectedEnv.id}`,
       method: 'PUT',
-      payload: { name: formName, description: formDescription, color: formColor, isDefault: formIsDefault },
+      payload: { name: formName, description: formDescription, color: formColor, isDefault: formIsDefault, sloTargets },
       label: 'updateEnvironment',
     });
 
     setEnvironments(prev => prev.map(env => 
       env.id === selectedEnv.id 
-        ? { ...env, name: formName, description: formDescription, color: formColor, isDefault: formIsDefault }
+        ? { ...env, name: formName, description: formDescription, color: formColor, isDefault: formIsDefault, sloTargets }
         : formIsDefault ? { ...env, isDefault: false } : env
     ));
     
     // Also update the base configs
     const updatedConfigs = baseConfigs.map(c => 
-      c.id === selectedEnv.id ? { ...c, name: formName, description: formDescription } : c
+      c.id === selectedEnv.id ? { ...c, name: formName, description: formDescription, sloTargets } : c
     );
     saveEnvironmentConfigs(updatedConfigs);
     setBaseConfigs(updatedConfigs);
@@ -141,10 +156,15 @@ const Environments = () => {
 
   const handleSaveCreate = async () => {
     const newId = formName.toLowerCase().replace(/\s+/g, '-') as Environment;
+    const sloTargets = {
+      availabilityPct: Number(formAvailabilityTarget),
+      latencyP95Ms: Number(formLatencyTarget),
+    };
     const newEnv: ExtendedEnvironment = {
       id: newId,
       name: formName,
       description: formDescription,
+      sloTargets,
       color: formColor,
       isDefault: formIsDefault,
       workersCount: 0,
@@ -165,7 +185,7 @@ const Environments = () => {
     );
     const nextConfigs = [
       ...baseConfigs,
-      { id: newId, name: formName, description: formDescription },
+      { id: newId, name: formName, description: formDescription, sloTargets },
     ];
     saveEnvironmentConfigs(nextConfigs);
     setBaseConfigs(nextConfigs);
@@ -252,6 +272,15 @@ const Environments = () => {
                   {env.description}
                 </p>
               )}
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="text-[10px] normal-case">
+                  SLO {resolveEnvironmentSloTargets(env).availabilityPct}% availability
+                </Badge>
+                <Badge variant="outline" className="text-[10px] normal-case">
+                  p95 {resolveEnvironmentSloTargets(env).latencyP95Ms} ms
+                </Badge>
+              </div>
 
               <div className="grid grid-cols-3 gap-2 pt-4 border-t border-border/50">
                 <div className="text-center">
@@ -407,6 +436,33 @@ const Environments = () => {
               </div>
               <Switch checked={formIsDefault} onCheckedChange={setFormIsDefault} />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-slo-availability">Availability target (%)</Label>
+                <Input
+                  id="edit-slo-availability"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={formAvailabilityTarget}
+                  onChange={(e) => setFormAvailabilityTarget(e.target.value)}
+                  className="bg-muted/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-slo-latency">Latency p95 target (ms)</Label>
+                <Input
+                  id="edit-slo-latency"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={formLatencyTarget}
+                  onChange={(e) => setFormLatencyTarget(e.target.value)}
+                  className="bg-muted/50"
+                />
+              </div>
+            </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
@@ -483,6 +539,33 @@ const Environments = () => {
                 <p className="text-xs text-muted-foreground">New services will use this environment</p>
               </div>
               <Switch checked={formIsDefault} onCheckedChange={setFormIsDefault} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="create-slo-availability">Availability target (%)</Label>
+                <Input
+                  id="create-slo-availability"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={formAvailabilityTarget}
+                  onChange={(e) => setFormAvailabilityTarget(e.target.value)}
+                  className="bg-muted/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-slo-latency">Latency p95 target (ms)</Label>
+                <Input
+                  id="create-slo-latency"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={formLatencyTarget}
+                  onChange={(e) => setFormLatencyTarget(e.target.value)}
+                  className="bg-muted/50"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

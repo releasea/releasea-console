@@ -9,6 +9,11 @@ const fetchGovernanceSettings = vi.fn();
 const fetchAuditLogs = vi.fn();
 const updateGovernanceSettings = vi.fn();
 const reviewApproval = vi.fn();
+const fetchGovernanceExceptions = vi.fn();
+const createGovernanceException = vi.fn();
+const revokeGovernanceException = vi.fn();
+const fetchServices = vi.fn();
+const fetchServiceDeployPolicyCheck = vi.fn();
 const toast = vi.fn();
 
 vi.mock('@/lib/governance-data', () => ({
@@ -23,10 +28,18 @@ vi.mock('@/lib/governance-data', () => ({
   fetchAuditLogs: (...args: unknown[]) => fetchAuditLogs(...args),
   updateGovernanceSettings: (...args: unknown[]) => updateGovernanceSettings(...args),
   reviewApproval: (...args: unknown[]) => reviewApproval(...args),
+  fetchGovernanceExceptions: (...args: unknown[]) => fetchGovernanceExceptions(...args),
+  createGovernanceException: (...args: unknown[]) => createGovernanceException(...args),
+  revokeGovernanceException: (...args: unknown[]) => revokeGovernanceException(...args),
 }));
 
 vi.mock('@/hooks/use-toast', () => ({
   toast: (...args: unknown[]) => toast(...args),
+}));
+
+vi.mock('@/lib/data', () => ({
+  fetchServices: (...args: unknown[]) => fetchServices(...args),
+  fetchServiceDeployPolicyCheck: (...args: unknown[]) => fetchServiceDeployPolicyCheck(...args),
 }));
 
 vi.mock('@/components/layout/AppLayout', () => ({
@@ -50,6 +63,7 @@ const governanceSettingsFixture = {
   },
   deployPolicy: {
     enabled: false,
+    dryRun: false,
     rules: [],
   },
   rulePublishApproval: {
@@ -75,6 +89,11 @@ describe('GovernancePage', () => {
     fetchAuditLogs.mockResolvedValue([]);
     updateGovernanceSettings.mockImplementation(async (settings) => settings);
     reviewApproval.mockResolvedValue(true);
+    fetchGovernanceExceptions.mockResolvedValue([]);
+    createGovernanceException.mockResolvedValue({});
+    revokeGovernanceException.mockResolvedValue({});
+    fetchServices.mockResolvedValue([]);
+    fetchServiceDeployPolicyCheck.mockResolvedValue(null);
   });
 
   it('shows a default rule immediately when deploy policy is enabled', async () => {
@@ -158,5 +177,102 @@ describe('GovernancePage', () => {
     expect(await screen.findByText(/deploy queued/i)).toBeInTheDocument();
     expect(screen.getByText(/checkout api/i)).toBeInTheDocument();
     expect(screen.getByText(/developer user/i)).toBeInTheDocument();
+  });
+
+  it('runs policy simulation against current services', async () => {
+    fetchServices.mockResolvedValue([
+      {
+        id: 'svc-1',
+        name: 'checkout-api',
+        projectId: 'proj-1',
+        sourceType: 'registry',
+        managementMode: 'managed',
+      },
+    ]);
+    fetchServiceDeployPolicyCheck.mockResolvedValue({
+      environment: 'prod',
+      trigger: 'manual',
+      sourceType: 'registry',
+      strategyType: 'rolling',
+      replicas: 2,
+      explicitVersion: true,
+      dryRun: false,
+      target: {},
+      violations: [
+        {
+          code: 'explicit-version-required',
+          environment: 'prod',
+          message: 'Version pinning is required in production.',
+        },
+      ],
+    });
+
+    renderPage();
+
+    const policiesTab = await screen.findByRole('tab', { name: /policies/i });
+    fireEvent.mouseDown(policiesTab);
+    fireEvent.click(policiesTab);
+
+    const runButtons = await screen.findAllByRole('button', { name: /run simulation/i });
+    fireEvent.click(runButtons[0]);
+
+    await waitFor(() => {
+      expect(fetchServices).toHaveBeenCalled();
+      expect(fetchServiceDeployPolicyCheck).toHaveBeenCalledWith('svc-1', 'prod');
+    });
+
+    expect(await screen.findByText('checkout-api')).toBeInTheDocument();
+    expect(screen.getAllByText(/version pinning is required in production/i).length).toBeGreaterThan(0);
+  });
+
+  it('creates a temporary exception from the policies tab', async () => {
+    fetchServices.mockResolvedValue([
+      {
+        id: 'svc-1',
+        name: 'checkout-api',
+        projectId: 'proj-1',
+      },
+    ]);
+    fetchGovernanceExceptions
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'gexc-1',
+          policy: 'deploy-policy',
+          serviceId: 'svc-1',
+          serviceName: 'checkout-api',
+          environment: 'prod',
+          codes: ['*'],
+          reason: 'Migration window',
+          expiresAt: '2026-03-30T12:00:00Z',
+          status: 'active',
+          createdAt: '2026-03-29T12:00:00Z',
+        },
+      ]);
+
+    renderPage();
+
+    const policiesTab = await screen.findByRole('tab', { name: /policies/i });
+    fireEvent.mouseDown(policiesTab);
+    fireEvent.click(policiesTab);
+
+    fireEvent.click(await screen.findByRole('button', { name: /new exception/i }));
+    fireEvent.change(screen.getByPlaceholderText(/explain why this service needs a temporary exception/i), {
+      target: { value: 'Migration window' },
+    });
+    fireEvent.change(screen.getByDisplayValue(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/), {
+      target: { value: '2026-03-30T09:00' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /create exception/i }));
+
+    await waitFor(() => {
+      expect(createGovernanceException).toHaveBeenCalledWith(expect.objectContaining({
+        policy: 'deploy-policy',
+        serviceId: 'svc-1',
+        environment: 'prod',
+        reason: 'Migration window',
+      }));
+      expect(fetchGovernanceExceptions).toHaveBeenCalledTimes(2);
+    });
   });
 });

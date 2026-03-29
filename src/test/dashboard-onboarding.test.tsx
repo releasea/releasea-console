@@ -11,6 +11,7 @@ const fetchProjects = vi.fn();
 const fetchRegistryCredentials = vi.fn();
 const fetchScmCredentials = vi.fn();
 const fetchServices = vi.fn();
+const fetchWorkerPools = vi.fn();
 const fetchWorkerRegistrations = vi.fn();
 const fetchWorkers = vi.fn();
 const hasPermission = vi.fn();
@@ -23,6 +24,7 @@ vi.mock('@/lib/data', () => ({
   fetchRegistryCredentials: (...args: unknown[]) => fetchRegistryCredentials(...args),
   fetchScmCredentials: (...args: unknown[]) => fetchScmCredentials(...args),
   fetchServices: (...args: unknown[]) => fetchServices(...args),
+  fetchWorkerPools: (...args: unknown[]) => fetchWorkerPools(...args),
   fetchWorkerRegistrations: (...args: unknown[]) => fetchWorkerRegistrations(...args),
   fetchWorkers: (...args: unknown[]) => fetchWorkers(...args),
 }));
@@ -47,6 +49,7 @@ describe('Dashboard onboarding checklist', () => {
     hasPermission.mockImplementation((role: string) => role === 'developer' || role === 'admin');
     fetchProjects.mockResolvedValue([]);
     fetchServices.mockResolvedValue([]);
+    fetchWorkerPools.mockResolvedValue([]);
     fetchDeploys.mockResolvedValue([]);
     fetchWorkers.mockResolvedValue([]);
     fetchWorkerRegistrations.mockResolvedValue([]);
@@ -168,5 +171,107 @@ describe('Dashboard onboarding checklist', () => {
     expect(screen.getByRole('link', { name: 'Open guided deploy' })).toHaveAttribute('href', '/services/svc-1?action=deploy');
     expect(screen.getByText('Step 4')).toBeInTheDocument();
     expect(screen.getByText('First deploy completed')).toBeInTheDocument();
+  });
+
+  it('shows an operator health report for admins once deploy history exists', async () => {
+    fetchProjects.mockResolvedValue([
+      {
+        id: 'proj-1',
+        name: 'Payments',
+        slug: 'payments',
+        description: '',
+        teamId: 'team-1',
+        createdAt: '2026-03-28T00:00:00Z',
+        updatedAt: '2026-03-28T00:00:00Z',
+        services: [],
+      },
+    ]);
+    fetchServices.mockResolvedValue([
+      {
+        id: 'svc-1',
+        name: 'payments',
+        type: 'microservice',
+        status: 'running',
+        projectId: 'proj-1',
+        replicas: 1,
+        cpu: 250,
+        memory: 256,
+        createdAt: '2026-03-28T00:00:00Z',
+        environment: {},
+        ruleIds: [],
+        sourceType: 'git',
+      },
+    ]);
+    fetchDeploys.mockResolvedValue([
+      {
+        id: 'dep-1',
+        serviceId: 'svc-1',
+        status: 'completed',
+        startedAt: '2026-03-29T10:00:00Z',
+        logs: [],
+        triggeredBy: 'developer',
+      },
+    ]);
+    fetchWorkers.mockResolvedValue([
+      {
+        id: 'wkr-1',
+        name: 'Production Worker',
+        environment: 'prod',
+        namespace: 'releasea-apps-prod',
+        cluster: 'cluster-a',
+        version: '1.0.0',
+        status: 'online',
+        lastHeartbeat: new Date().toISOString(),
+        tasksCompleted: 0,
+        desiredAgents: 1,
+        onlineAgents: 1,
+        registeredAt: new Date().toISOString(),
+      },
+    ]);
+    fetchWorkerPools.mockResolvedValue([
+      {
+        id: 'prod:cluster-a:releasea-apps',
+        status: 'online',
+        capacityState: 'ready',
+        environment: 'prod',
+        cluster: 'cluster-a',
+        namespacePrefix: 'releasea-apps',
+        tags: ['prod'],
+        namespaces: ['releasea-apps-prod'],
+        workerCount: 1,
+        onlineWorkers: 1,
+        busyWorkers: 0,
+        offlineWorkers: 0,
+        pendingWorkers: 0,
+        registrationCount: 1,
+        activeRegistrations: 1,
+        pendingRegistrations: 0,
+        inactiveRegistrations: 0,
+        desiredAgents: 1,
+        onlineAgents: 1,
+        availableAgents: 1,
+        capacityScore: 100,
+        lastHeartbeat: '2026-03-29T10:05:00Z',
+      },
+    ]);
+    fetchProviderHealth.mockResolvedValue({
+      version: '1',
+      scm: { kind: 'scm', healthy: 1, unhealthy: 0, checks: [{ providerId: 'github', providerLabel: 'GitHub', state: 'healthy' }] },
+      registry: { kind: 'registry', healthy: 1, unhealthy: 0, checks: [{ providerId: 'ghcr', providerLabel: 'GHCR', state: 'healthy' }] },
+      secrets: { kind: 'secrets', healthy: 1, unhealthy: 0, checks: [{ providerId: 'vault', providerLabel: 'Vault', state: 'healthy' }] },
+      identity: { kind: 'identity', healthy: 0, unhealthy: 0, checks: [] },
+      notifications: { kind: 'notifications', healthy: 0, unhealthy: 0, checks: [] },
+    });
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Operator health report')).toBeInTheDocument();
+    expect(screen.getByText('Worker pools')).toBeInTheDocument();
+    expect(screen.getByText('Recent delivery')).toBeInTheDocument();
+    expect(screen.getByText(/ready for routing/i)).toBeInTheDocument();
   });
 });

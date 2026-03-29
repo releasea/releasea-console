@@ -17,6 +17,13 @@ export const formatTemplateType = (template: ServiceTemplate) => {
 export const formatTemplateMode = (template: ServiceTemplate) =>
   template.repoMode === 'existing' ? 'Existing repo' : 'Template repo';
 
+export const formatTemplateVerificationStatus = (template: ServiceTemplate) => {
+  const status = template.verification?.status ?? 'needs-review';
+  if (status === 'verified') return 'Verified';
+  if (status === 'invalid') return 'Invalid';
+  return 'Needs review';
+};
+
 export const parseTemplateImport = (raw: string): ServiceTemplate[] => {
   const parsed = YAML.parse(raw);
   if (!parsed) return [];
