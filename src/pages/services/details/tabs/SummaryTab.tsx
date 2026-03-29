@@ -195,7 +195,7 @@ export const SummaryTab = ({
                         </Button>
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs bg-yellow-50 border-yellow-200 text-yellow-900 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200">
+                    <TooltipContent side="top" className="max-w-xs border-warning/40 bg-warning/10 text-warning">
                       {deployRestrictionMessage}
                     </TooltipContent>
                   </Tooltip>
@@ -250,20 +250,20 @@ export const SummaryTab = ({
             </div>
             <div className="flex items-center gap-1.5 text-xs">
               {liveSyncError ? (
-                <span className="inline-flex items-center gap-1.5 text-yellow-500">
+                <span className="inline-flex items-center gap-1.5 text-warning">
                   <AlertTriangle className="w-3 h-3" />
                   Live sync delayed
                 </span>
               ) : isLivePaused ? (
                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-amber-400" />
+                  <span className="h-2 w-2 rounded-full bg-warning" />
                   Paused
                 </span>
               ) : isLive ? (
                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
                   </span>
                   Live
                 </span>

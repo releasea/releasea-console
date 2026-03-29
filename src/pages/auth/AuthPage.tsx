@@ -227,7 +227,7 @@ const Auth = () => {
 
           <h2 className="text-3xl xl:text-4xl font-bold text-foreground leading-tight">
             The{' '}
-            <span className="bg-gradient-to-r from-slate-100 via-slate-300 to-slate-400 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-muted-foreground via-foreground/70 to-foreground/50 bg-clip-text text-transparent">
               open source
             </span>{' '}
             Internal Developer Portal

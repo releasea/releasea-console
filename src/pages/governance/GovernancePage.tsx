@@ -1094,14 +1094,14 @@ const GovernancePage = () => {
                       <div className="space-y-4">
                         <div className="flex flex-wrap gap-2">
                           <Badge variant="outline" className="text-xs">{simulationSummary.total} services</Badge>
-                          <Badge variant="outline" className="border-emerald-500/40 text-xs text-emerald-700 dark:text-emerald-300">{simulationSummary.clear} clear</Badge>
-                          <Badge variant="outline" className="border-amber-500/40 text-xs text-amber-700 dark:text-amber-300">{simulationSummary.warning} warning</Badge>
-                          <Badge variant="outline" className="border-rose-500/40 text-xs text-rose-700 dark:text-rose-300">{simulationSummary.blocked} blocked</Badge>
+                          <Badge variant="outline" className="border-success/30 bg-success/10 text-xs text-success">{simulationSummary.clear} clear</Badge>
+                          <Badge variant="outline" className="border-warning/30 bg-warning/10 text-xs text-warning">{simulationSummary.warning} warning</Badge>
+                          <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-xs text-destructive">{simulationSummary.blocked} blocked</Badge>
                           <Badge variant="outline" className="text-xs">{simulationSummary.unavailable} unavailable</Badge>
                         </div>
 
                         {simulationFindings.length === 0 ? (
-                          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-muted-foreground">
+                          <div className="rounded-lg border border-success/20 bg-success/5 p-4 text-sm text-muted-foreground">
                             All simulated services are currently clear for {simulationEnvironment}.
                           </div>
                         ) : (
@@ -1122,9 +1122,9 @@ const GovernancePage = () => {
                                     className={cn(
                                       'text-[10px] normal-case',
                                       result.state === 'blocked'
-                                        ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+                                        ? 'border-destructive/30 text-destructive'
                                         : result.state === 'warning'
-                                          ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                          ? 'border-warning/30 text-warning'
                                           : 'border-border/60 text-muted-foreground',
                                     )}
                                   >
@@ -1202,10 +1202,10 @@ const GovernancePage = () => {
                                     className={cn(
                                       'text-[10px] normal-case',
                                       exception.status === 'active'
-                                        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                        ? 'border-warning/30 text-warning'
                                         : exception.status === 'expired'
                                           ? 'border-border/60 text-muted-foreground'
-                                          : 'border-rose-500/40 text-rose-700 dark:text-rose-300',
+                                          : 'border-destructive/30 text-destructive',
                                     )}
                                   >
                                     {exception.status}

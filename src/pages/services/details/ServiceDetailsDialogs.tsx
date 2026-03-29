@@ -710,7 +710,7 @@ export const ServiceDetailsDialogs = ({
                 publishBlockedByPolicy
                   ? 'border-destructive/40 bg-destructive/10'
                   : publishPolicyViolations.length > 0
-                    ? 'border-amber-500/40 bg-amber-500/10'
+                    ? 'border-warning/30 bg-warning/10'
                   : 'border-border bg-muted/20',
               )}
             >

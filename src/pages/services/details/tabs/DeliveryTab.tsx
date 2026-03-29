@@ -54,11 +54,11 @@ export const DeliveryTab = ({
   desiredStateValidationLoading,
   releaseIntelligence,
 }: DeliveryTabProps) => {
-  const toneReady = 'border-emerald-500/50 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200';
-  const toneReview = 'border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200';
-  const toneDanger = 'border-rose-500/50 bg-rose-500/10 text-rose-800 dark:text-rose-200';
-  const toneInfo = 'border-sky-500/50 bg-sky-500/10 text-sky-800 dark:text-sky-200';
-  const toneNeutral = 'border-border/70 bg-muted/40 text-foreground/80';
+  const toneReady = 'border-success/30 bg-success/10 text-success';
+  const toneReview = 'border-warning/30 bg-warning/10 text-warning';
+  const toneDanger = 'border-destructive/30 bg-destructive/10 text-destructive';
+  const toneInfo = 'border-info/30 bg-info/10 text-info';
+  const toneNeutral = 'border-border/60 bg-muted/30 text-muted-foreground';
   const sectionCardClass = 'rounded-lg border border-border/70 bg-card/95 p-5 shadow-sm';
   const insetCardClass = 'rounded-md border border-border/70 bg-muted/30 shadow-sm';
   const deployPolicyViolations = deployPolicyPreflight?.violations ?? [];
@@ -386,7 +386,7 @@ export const DeliveryTab = ({
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                  <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-4 shadow-sm space-y-2">
+                  <div className="rounded-md border border-warning/20 bg-warning/5 p-4 shadow-sm space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">Governance</p>
                       <Badge variant="outline" className={cn('text-xs', deployPolicyStatusClasses)}>
@@ -401,7 +401,7 @@ export const DeliveryTab = ({
                           : `No current governance blockers for ${viewEnvLabel}.`}
                     </p>
                   </div>
-                  <div className="rounded-md border border-sky-500/20 bg-sky-500/5 p-4 shadow-sm space-y-2">
+                  <div className="rounded-md border border-info/20 bg-info/5 p-4 shadow-sm space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">GitOps</p>
                       <Badge variant="outline" className={cn('text-xs', gitOpsSyncStatus.className)}>
@@ -410,7 +410,7 @@ export const DeliveryTab = ({
                     </div>
                     <p className="text-xs text-muted-foreground">{gitOpsSyncStatus.description}</p>
                   </div>
-                  <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-4 shadow-sm space-y-2">
+                  <div className="rounded-md border border-success/20 bg-success/5 p-4 shadow-sm space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">Release health</p>
                       <Badge variant="outline" className={cn('text-xs', releaseIntelSummaryClasses)}>
@@ -463,8 +463,8 @@ export const DeliveryTab = ({
                   className={cn(
                     'rounded-md px-3 py-3 text-sm',
                     deployPolicyDryRun
-                      ? 'border border-amber-500/40 bg-amber-500/5'
-                      : 'border border-warning/40 bg-warning/5',
+                       ? 'border border-warning/30 bg-warning/5'
+                       : 'border border-warning/40 bg-warning/5',
                   )}
                 >
                   <div className="flex items-start gap-2">
@@ -487,7 +487,7 @@ export const DeliveryTab = ({
                   </div>
                 </div>
               ) : deployPolicyExceptionsApplied.length > 0 ? (
-                <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-3 text-sm">
+                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-3 text-sm">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div className="space-y-2">
@@ -644,7 +644,7 @@ export const DeliveryTab = ({
                                   {preset.kind === 'starter' ? 'Starter' : 'Direct'}
                                 </Badge>
                                 {preset.matchesDesiredStatePath ? (
-                                  <Badge variant="outline" className="border-emerald-500/40 text-[10px] normal-case text-emerald-700 dark:text-emerald-300">
+                                  <Badge variant="outline" className="border-success/30 text-[10px] normal-case text-success">
                                     Current drift path
                                   </Badge>
                                 ) : null}
@@ -656,7 +656,7 @@ export const DeliveryTab = ({
                               className={cn(
                                 'text-[10px] normal-case',
                                 preset.available
-                                  ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                                  ? 'border-success/30 text-success'
                                   : 'border-border/60 text-muted-foreground',
                               )}
                             >
@@ -713,10 +713,10 @@ export const DeliveryTab = ({
                           className={cn(
                             'rounded-md border px-3 py-3 text-sm',
                             anomaly.severity === 'critical'
-                              ? 'border-rose-500/40 bg-rose-500/10 text-rose-900 dark:text-rose-100'
+                              ? 'border-destructive/30 bg-destructive/10 text-destructive'
                               : anomaly.severity === 'warning'
-                                ? 'border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100'
-                                : 'border-sky-500/40 bg-sky-500/10 text-sky-950 dark:text-sky-100',
+                                ? 'border-warning/30 bg-warning/10 text-warning'
+                                : 'border-info/30 bg-info/10 text-info',
                           )}
                         >
                           <p className="font-medium">{anomaly.title}</p>
