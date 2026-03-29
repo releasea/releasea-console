@@ -639,16 +639,42 @@ export const SettingsTab = () => {
                   />
                 </div>
                 <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3 md:col-span-2">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
-                  <p className="text-xs text-muted-foreground">Trigger deploys on repository updates.</p>
-                </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
+                    <p className="text-xs text-muted-foreground">
+                      Trigger deploys on repository updates for {source.autoDeployEnvironmentLabel}.
+                    </p>
+                  </div>
                   <Switch
                     checked={source.autoDeploy}
                     onCheckedChange={source.setAutoDeploy}
                     disabled={management.mode === 'observed'}
                   />
                 </div>
+                {source.autoDeploy && source.autoDeployEnvironmentOptions.length > 0 && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Auto-deploy environment</Label>
+                    <Select
+                      value={source.autoDeployEnvironment}
+                      onValueChange={(value) => source.setAutoDeployEnvironment(value as typeof source.autoDeployEnvironment)}
+                      disabled={management.mode === 'observed'}
+                    >
+                      <SelectTrigger className="bg-muted/50">
+                        <SelectValue placeholder="Select environment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {source.autoDeployEnvironmentOptions.map((env) => (
+                          <SelectItem key={env.id} value={env.id}>
+                            {env.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Releasea watches this repository and queues auto-deploys only for the selected environment.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
@@ -824,7 +850,9 @@ export const SettingsTab = () => {
               <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3">
                 <div>
                   <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
-                  <p className="text-xs text-muted-foreground">Deploy a new build on updates.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Deploy a new build on updates for {source.autoDeployEnvironmentLabel}.
+                  </p>
                 </div>
                 <Switch
                   checked={source.autoDeploy}
@@ -832,6 +860,30 @@ export const SettingsTab = () => {
                   disabled={management.mode === 'observed'}
                 />
               </div>
+              {source.autoDeploy && source.autoDeployEnvironmentOptions.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Auto-deploy environment</Label>
+                  <Select
+                    value={source.autoDeployEnvironment}
+                    onValueChange={(value) => source.setAutoDeployEnvironment(value as typeof source.autoDeployEnvironment)}
+                    disabled={management.mode === 'observed'}
+                  >
+                    <SelectTrigger className="bg-muted/50">
+                      <SelectValue placeholder="Select environment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {source.autoDeployEnvironmentOptions.map((env) => (
+                        <SelectItem key={env.id} value={env.id}>
+                          {env.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Releasea watches this repository and publishes new builds automatically for the selected environment.
+                  </p>
+                </div>
+              )}
             </div>
           </SettingsSection>
 

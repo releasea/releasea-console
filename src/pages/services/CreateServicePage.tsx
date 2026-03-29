@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential, ServiceManagementMode } from '@/types/releasea';
+import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential, ServiceManagementMode, Environment } from '@/types/releasea';
 import { toast } from '@/hooks/use-toast';
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { OBSERVED_MODE_RESTRICTIONS } from '@/lib/management-mode';
@@ -134,6 +134,7 @@ export default function CreateService() {
   const [dockerCommand, setDockerCommand] = useState('');
   const [preDeployCommand, setPreDeployCommand] = useState('');
   const [autoDeploy, setAutoDeploy] = useState(true);
+  const [autoDeployEnvironment, setAutoDeployEnvironment] = useState<Environment>('prod');
   const [deployStrategyType, setDeployStrategyType] = useState<DeployStrategyType>('rolling');
   const [canaryPercent, setCanaryPercent] = useState('10');
   const [blueGreenPrimary, setBlueGreenPrimary] = useState<'blue' | 'green'>('blue');
@@ -353,6 +354,24 @@ export default function CreateService() {
     if (devOption) return devOption.id;
     return bootstrapReadyEnvironments[0]?.id ?? 'prod';
   }, [bootstrapReadyEnvironments]);
+  const autoDeployEnvironmentLabel = useMemo(
+    () =>
+      bootstrapReadyEnvironments.find((environment) => environment.id === autoDeployEnvironment)?.name ??
+      autoDeployEnvironment,
+    [autoDeployEnvironment, bootstrapReadyEnvironments],
+  );
+  useEffect(() => {
+    if (!autoDeploy) {
+      setAutoDeployEnvironment(preferredFirstDeployEnvironment);
+      return;
+    }
+    setAutoDeployEnvironment((current) => {
+      if (bootstrapReadyEnvironments.some((environment) => environment.id === current)) {
+        return current;
+      }
+      return preferredFirstDeployEnvironment;
+    });
+  }, [autoDeploy, bootstrapReadyEnvironments, preferredFirstDeployEnvironment]);
   const isCreationPrerequisiteReady = hasConfiguredEnvironments && hasRegisteredWorkers;
   const creationBlockedMessage = !hasConfiguredEnvironments
     ? 'Create at least one environment before creating services.'
@@ -1183,7 +1202,7 @@ export default function CreateService() {
           endpoint: `/services/${createdService.id}/deploys`,
           method: 'POST',
           payload: {
-            environment: preferredFirstDeployEnvironment,
+            environment: autoDeployEnvironment,
             version: 'head',
             trigger: 'auto',
           },
@@ -1254,6 +1273,8 @@ export default function CreateService() {
       maxReplicas: Number(maxReplicas),
       profileId: profileId || undefined,
       autoDeploy: resolvedManagementMode === 'observed' ? false : autoDeploy,
+      autoDeployEnvironment:
+        resolvedManagementMode === 'observed' || !autoDeploy ? undefined : autoDeployEnvironment,
       pauseOnIdle: selectedType === 'microservice' ? pauseOnIdle : false,
       pauseIdleTimeoutSeconds: selectedType === 'microservice' ? pauseIdleTimeoutSeconds : undefined,
     });
@@ -2131,7 +2152,9 @@ export default function CreateService() {
                             <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3 md:col-span-2">
                               <div>
                                 <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
-                                <p className="text-xs text-muted-foreground">Trigger deploys on repository updates.</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Trigger deploys on repository updates for {autoDeployEnvironmentLabel}.
+                                </p>
                               </div>
                               <Switch
                                 checked={autoDeploy}
@@ -2139,6 +2162,30 @@ export default function CreateService() {
                                 disabled={isObservedManagementMode}
                               />
                             </div>
+                            {autoDeploy && bootstrapReadyEnvironments.length > 0 && (
+                              <div className="space-y-2 md:col-span-2">
+                                <Label>Auto-deploy environment</Label>
+                                <Select
+                                  value={autoDeployEnvironment}
+                                  onValueChange={(value) => setAutoDeployEnvironment(value as Environment)}
+                                  disabled={isObservedManagementMode}
+                                >
+                                  <SelectTrigger className="bg-muted/50">
+                                    <SelectValue placeholder="Select environment" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {bootstrapReadyEnvironments.map((environment) => (
+                                      <SelectItem key={environment.id} value={environment.id}>
+                                        {environment.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                  Releasea will watch this branch and queue new deploys only for the selected environment.
+                                </p>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -2226,7 +2273,9 @@ export default function CreateService() {
                         <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3">
                           <div>
                             <p className="text-sm font-medium text-foreground">Auto-deploy on new commits</p>
-                            <p className="text-xs text-muted-foreground">Deploy a new build on updates.</p>
+                            <p className="text-xs text-muted-foreground">
+                              Deploy a new build on updates for {autoDeployEnvironmentLabel}.
+                            </p>
                           </div>
                           <Switch
                             checked={autoDeploy}
@@ -2234,6 +2283,30 @@ export default function CreateService() {
                             disabled={isObservedManagementMode}
                           />
                         </div>
+                        {autoDeploy && bootstrapReadyEnvironments.length > 0 && (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label>Auto-deploy environment</Label>
+                            <Select
+                              value={autoDeployEnvironment}
+                              onValueChange={(value) => setAutoDeployEnvironment(value as Environment)}
+                              disabled={isObservedManagementMode}
+                            >
+                              <SelectTrigger className="bg-muted/50">
+                                <SelectValue placeholder="Select environment" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {bootstrapReadyEnvironments.map((environment) => (
+                                  <SelectItem key={environment.id} value={environment.id}>
+                                    {environment.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                              Releasea will watch this branch and publish new builds only for the selected environment.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </section>
 

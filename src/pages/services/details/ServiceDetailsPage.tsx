@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Activity, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
+import { Activity, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Loader2, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ToastAction } from '@/components/ui/toast';
 import { ServiceTypeIcon } from '@/components/ui/service-type-icon';
 import {
   createServiceArgoCDGitOpsPullRequest,
@@ -217,6 +218,7 @@ function buildServiceSettingsHydrationKey(service: Service): string {
     replicas: service.replicas ?? null,
     isActive: service.isActive ?? true,
     autoDeploy: service.autoDeploy ?? true,
+    autoDeployEnvironment: service.autoDeployEnvironment ?? '',
     managementMode: service.managementMode ?? 'managed',
     pauseOnIdle: service.pauseOnIdle ?? false,
     pauseIdleTimeoutSeconds: service.pauseIdleTimeoutSeconds ?? 3600,
@@ -329,6 +331,7 @@ const ServiceDetails = () => {
   const [serviceSecretProviderId, setServiceSecretProviderId] = useState('inherit');
   const [managementMode, setManagementMode] = useState<ServiceManagementMode>('managed');
   const [autoDeploy, setAutoDeploy] = useState(true);
+  const [autoDeployEnvironment, setAutoDeployEnvironment] = useState<Environment>('prod');
   const [deployStrategyType, setDeployStrategyType] = useState<DeployStrategyType>('rolling');
   const [canaryPercent, setCanaryPercent] = useState('10');
   const [blueGreenPrimary, setBlueGreenPrimary] = useState<'blue' | 'green'>('blue');
@@ -1615,6 +1618,7 @@ const ServiceDetails = () => {
     setHealthCheckPath(service.healthCheckPath ?? '/healthz');
     setManagementMode(service.managementMode ?? 'managed');
     setAutoDeploy(service.autoDeploy ?? true);
+    setAutoDeployEnvironment((service.autoDeployEnvironment as Environment) ?? viewEnv);
     setPauseOnIdle(service.type === 'microservice' ? (service.pauseOnIdle ?? false) : false);
     setPauseIdleTimeoutMinutes(
       String(
@@ -1661,6 +1665,13 @@ const ServiceDetails = () => {
       setAutoDeploy(false);
     }
   }, [managementMode, autoDeploy]);
+
+  useEffect(() => {
+    if (autoDeploy) {
+      return;
+    }
+    setAutoDeployEnvironment((service?.autoDeployEnvironment as Environment) ?? viewEnv);
+  }, [autoDeploy, service?.autoDeployEnvironment, viewEnv]);
 
   // Reset stale state when environment changes - ensures tabs show fresh data.
   useEffect(() => {
@@ -1869,6 +1880,14 @@ const ServiceDetails = () => {
     desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed';
   const gitOpsActionsDisabled =
     (service.managementMode ?? 'managed') === 'observed' || !service.repoUrl?.trim();
+  const gitOpsMenuBusy = gitOpsPullRequestBusy || gitOpsArgoCDPullRequestBusy || gitOpsFluxPullRequestBusy;
+  const gitOpsMenuLabel = gitOpsPullRequestBusy
+    ? 'Opening GitOps PR...'
+    : gitOpsArgoCDPullRequestBusy
+      ? 'Opening Argo CD PR...'
+      : gitOpsFluxPullRequestBusy
+        ? 'Opening Flux PR...'
+        : 'GitOps';
   const desiredStateBadgeClassName = [
     'text-xs normal-case',
     desiredStateValidationLoading
@@ -2210,6 +2229,10 @@ const ServiceDetails = () => {
       preferredWorkerRegion: preferredWorkerRegion.trim() || undefined,
       deployTemplateId,
       autoDeploy: managementMode === 'observed' ? false : autoDeploy,
+      autoDeployEnvironment:
+        managementMode === 'observed' || !autoDeploy
+          ? ''
+          : (autoDeployEnvironment || service.autoDeployEnvironment || viewEnv),
       deployStrategyType,
       canaryPercent,
       blueGreenPrimary,
@@ -2895,6 +2918,28 @@ const ServiceDetails = () => {
     setDeleteRuleOpen(true);
   };
 
+  const openPullRequestURL = (url: string, label: string) => {
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (popup) {
+      return true;
+    }
+    toast({
+      title: `${label} created`,
+      description: 'The browser blocked the new tab. Use the action below or allow popups for Releasea.',
+      action: (
+        <ToastAction
+          altText={`Open ${label}`}
+          onClick={() => {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }}
+        >
+          Open PR
+        </ToastAction>
+      ),
+    });
+    return false;
+  };
+
   const exportDesiredState = async (): Promise<ServiceDesiredStateExport | null> => {
     if (!service) return null;
     if ((service.managementMode ?? 'managed') === 'observed') {
@@ -3049,11 +3094,13 @@ const ServiceDetails = () => {
         });
         return;
       }
-      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
-      toast({
-        title: 'GitOps PR created',
-        description: `${result.pullRequest.title} is ready in ${result.pullRequest.baseBranch}.`,
-      });
+      const opened = openPullRequestURL(result.pullRequest.url, 'GitOps PR');
+      if (opened) {
+        toast({
+          title: 'GitOps PR created',
+          description: `${result.pullRequest.title} is ready in ${result.pullRequest.baseBranch}.`,
+        });
+      }
       void refreshGitOpsTimeline();
     } finally {
       setGitOpsPullRequestBusy(false);
@@ -3101,11 +3148,13 @@ const ServiceDetails = () => {
         });
         return;
       }
-      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
-      toast({
-        title: 'Argo CD PR created',
-        description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
-      });
+      const opened = openPullRequestURL(result.pullRequest.url, 'Argo CD PR');
+      if (opened) {
+        toast({
+          title: 'Argo CD PR created',
+          description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
+        });
+      }
       void refreshGitOpsTimeline();
       if (service.id) {
         void fetchServiceGitOpsDrift(service.id).then((result) => {
@@ -3158,11 +3207,13 @@ const ServiceDetails = () => {
         });
         return;
       }
-      window.open(result.pullRequest.url, '_blank', 'noopener,noreferrer');
-      toast({
-        title: 'Flux PR created',
-        description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
-      });
+      const opened = openPullRequestURL(result.pullRequest.url, 'Flux PR');
+      if (opened) {
+        toast({
+          title: 'Flux PR created',
+          description: `Starter PR #${result.pullRequest.number} is ready in the repository.`,
+        });
+      }
       void refreshGitOpsTimeline();
       if (service.id) {
         void fetchServiceGitOpsDrift(service.id).then((result) => {
@@ -3208,6 +3259,12 @@ const ServiceDetails = () => {
       setPreDeployCommand,
       autoDeploy: managementMode === 'observed' ? false : autoDeploy,
       setAutoDeploy,
+      autoDeployEnvironment,
+      setAutoDeployEnvironment,
+      autoDeployEnvironmentOptions: selectableEnvironmentOptions,
+      autoDeployEnvironmentLabel:
+        selectableEnvironmentOptions.find((env) => env.id === autoDeployEnvironment)?.name ??
+        viewEnvLabel,
     },
     runtime: {
       servicePort,
@@ -3386,10 +3443,21 @@ const ServiceDetails = () => {
               </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="gap-2">
-                    <GitPullRequest className="h-4 w-4" />
-                    GitOps
-                    <ChevronDown className="h-3.5 w-3.5" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={gitOpsMenuBusy}
+                    aria-busy={gitOpsMenuBusy}
+                  >
+                    {gitOpsMenuBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <GitPullRequest className="h-4 w-4" />
+                    )}
+                    {gitOpsMenuLabel}
+                    {!gitOpsMenuBusy && <ChevronDown className="h-3.5 w-3.5" />}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
