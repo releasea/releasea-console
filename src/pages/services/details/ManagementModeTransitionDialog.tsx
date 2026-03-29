@@ -63,8 +63,8 @@ export function ManagementModeTransitionDialog({
           <div
             className={`rounded-lg border px-4 py-3 text-sm ${
               readyToManage
-                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                : 'border-warning/40 bg-warning/10 text-warning'
+                ? 'border-success/30 bg-success/10 text-success'
+                : 'border-warning/30 bg-warning/10 text-warning'
             }`}
           >
             {readyToManage
@@ -81,7 +81,7 @@ export function ManagementModeTransitionDialog({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     {requirement.ready ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                     ) : (
                       <AlertCircle className="h-4 w-4 text-warning" />
                     )}

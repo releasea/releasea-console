@@ -374,9 +374,9 @@ const SettingsPage = () => {
       .join(' ');
 
   const providerStateBadgeClass = (state: ProviderStatus['state']) => {
-    if (state === 'configured') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
-    if (state === 'partial') return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
-    if (state === 'disabled') return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+    if (state === 'configured') return 'border-success/30 bg-success/10 text-success';
+    if (state === 'partial') return 'border-warning/30 bg-warning/10 text-warning';
+    if (state === 'disabled') return 'border-border/60 bg-muted/30 text-muted-foreground';
     return 'border-border/60 bg-muted/30 text-muted-foreground';
   };
 
@@ -387,10 +387,10 @@ const SettingsPage = () => {
       .join(' ');
 
   const providerHealthBadgeClass = (state: ProviderHealthCheck['state']) => {
-    if (state === 'healthy') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
-    if (state === 'unhealthy') return 'border-red-500/30 bg-red-500/10 text-red-300';
-    if (state === 'unsupported') return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
-    return 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+    if (state === 'healthy') return 'border-success/30 bg-success/10 text-success';
+    if (state === 'unhealthy') return 'border-destructive/30 bg-destructive/10 text-destructive';
+    if (state === 'unsupported') return 'border-warning/30 bg-warning/10 text-warning';
+    return 'border-border/60 bg-muted/30 text-muted-foreground';
   };
 
   const selectedScmProviderMeta =
@@ -1801,19 +1801,19 @@ const SettingsPage = () => {
                               <p className="text-xs text-muted-foreground">{catalogCategory?.description}</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                              <Badge variant="outline" className="border-success/30 bg-success/10 text-success">
                                 {category.healthy} healthy
                               </Badge>
-                              <Badge variant="outline" className="border-red-500/30 bg-red-500/10 text-red-300">
+                              <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
                                 {category.unhealthy} unhealthy
                               </Badge>
                               {typeof category.unsupported === 'number' && category.unsupported > 0 ? (
-                                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">
                                   {category.unsupported} unsupported
                                 </Badge>
                               ) : null}
                               {typeof category.disabled === 'number' && category.disabled > 0 ? (
-                                <Badge variant="outline" className="border-slate-500/30 bg-slate-500/10 text-slate-300">
+                                <Badge variant="outline" className="border-border/60 bg-muted/30 text-muted-foreground">
                                   {category.disabled} disabled
                                 </Badge>
                               ) : null}
@@ -1990,10 +1990,10 @@ const SettingsPage = () => {
                                 variant="outline"
                                 className={
                                   template.verification?.status === 'verified'
-                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                    ? 'border-success/30 bg-success/10 text-success'
                                     : template.verification?.status === 'invalid'
-                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                      : 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                      ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                                      : 'border-warning/30 bg-warning/10 text-warning'
                                 }
                               >
                                 {formatTemplateVerificationStatus(template)}
@@ -2098,10 +2098,10 @@ const SettingsPage = () => {
                                 variant="outline"
                                 className={
                                   template.verification?.status === 'verified'
-                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                    ? 'border-success/30 bg-success/10 text-success'
                                     : template.verification?.status === 'invalid'
-                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                      : 'border-warning/40 bg-warning/10 text-warning-foreground'
+                                      ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                                      : 'border-warning/30 bg-warning/10 text-warning'
                                 }
                               >
                                 {formatTemplateVerificationStatus(template)}

@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
 import type { OperatorHealthLane, OperatorHealthReport as OperatorHealthReportModel } from '@/lib/operator-health';
 
 const levelStyles: Record<'healthy' | 'review' | 'degraded', string> = {
-  healthy: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300',
-  review: 'border-amber-500/40 text-amber-700 dark:text-amber-300',
-  degraded: 'border-rose-500/40 text-rose-700 dark:text-rose-300',
+  healthy: 'border-success/30 text-success',
+  review: 'border-warning/30 text-warning',
+  degraded: 'border-destructive/30 text-destructive',
 };
 
 const laneIcon = (lane: OperatorHealthLane) => {
@@ -52,7 +52,7 @@ export const OperatorHealthReport = ({ report }: { report: OperatorHealthReportM
         <p className="text-xs text-muted-foreground">{report.summary}</p>
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {report.level === 'healthy' ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+        {report.level === 'healthy' ? <CheckCircle2 className="h-4 w-4 text-success" /> : <AlertTriangle className="h-4 w-4 text-warning" />}
         Dashboard snapshot
       </div>
     </div>

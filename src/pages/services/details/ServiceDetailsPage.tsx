@@ -1874,11 +1874,11 @@ const ServiceDetails = () => {
     desiredStateValidationLoading
       ? 'border-border/60 text-muted-foreground'
       : desiredStateValidation?.status === 'verified'
-        ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+        ? 'border-success/30 text-success'
         : desiredStateValidation?.status === 'needs-review'
-          ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+          ? 'border-warning/30 text-warning'
           : desiredStateValidation?.status === 'invalid'
-            ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+            ? 'border-destructive/30 text-destructive'
             : 'border-border/60 text-muted-foreground',
   ].join(' ');
   const desiredStateBadgeLabel = desiredStateValidationLoading
@@ -1893,21 +1893,21 @@ const ServiceDetails = () => {
   const gitOpsDriftIndicatorClassName = [
     'inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs',
     gitOpsDrift?.state === 'in-sync'
-      ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+      ? 'border-success/30 text-success'
       : gitOpsDrift?.state === 'missing'
-        ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+        ? 'border-warning/30 text-warning'
         : gitOpsDrift?.state === 'out-of-sync'
-          ? 'border-rose-500/40 text-rose-700 dark:text-rose-300'
+          ? 'border-destructive/30 text-destructive'
           : 'border-border/60 text-muted-foreground',
   ].join(' ');
   const gitOpsDriftDotClassName = [
     'h-2 w-2 rounded-full',
     gitOpsDrift?.state === 'in-sync'
-      ? 'bg-emerald-500'
+      ? 'bg-success'
       : gitOpsDrift?.state === 'missing'
-        ? 'bg-amber-500'
+        ? 'bg-warning'
         : gitOpsDrift?.state === 'out-of-sync'
-          ? 'bg-rose-500'
+          ? 'bg-destructive'
           : 'bg-muted-foreground/70',
     gitOpsDriftRefreshing ? 'animate-pulse' : '',
   ].join(' ');

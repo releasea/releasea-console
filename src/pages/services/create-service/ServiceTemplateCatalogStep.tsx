@@ -203,10 +203,10 @@ export function ServiceTemplateCatalogStep({
                           className={cn(
                             'rounded-full border px-2 py-1 text-[11px] font-medium',
                             verificationStatus === 'verified'
-                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                              ? 'border-success/30 bg-success/10 text-success'
                               : verificationStatus === 'invalid'
-                                ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                : 'border-warning/40 bg-warning/10 text-warning-foreground',
+                                ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                                : 'border-warning/30 bg-warning/10 text-warning',
                           )}
                         >
                           {verificationStatus === 'verified' ? 'Verified defaults' : verificationStatus === 'invalid' ? 'Invalid' : 'Needs review'}

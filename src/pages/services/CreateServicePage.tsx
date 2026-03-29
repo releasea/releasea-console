@@ -1600,9 +1600,9 @@ export default function CreateService() {
                                     className={cn(
                                       'rounded-md border px-3 py-3 text-xs space-y-3',
                                       adoptionReadiness.tone === 'ready'
-                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+                                        ? 'border-success/30 bg-success/10 text-success'
                                         : adoptionReadiness.tone === 'caution'
-                                          ? 'border-warning/40 bg-warning/10 text-muted-foreground'
+                                          ? 'border-warning/30 bg-warning/10 text-muted-foreground'
                                           : 'border-destructive/30 bg-destructive/10 text-muted-foreground',
                                     )}
                                   >
@@ -1616,10 +1616,10 @@ export default function CreateService() {
                                         className={cn(
                                           'text-xs',
                                           adoptionReadiness.tone === 'ready'
-                                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                            ? 'border-success/30 bg-success/10 text-success'
                                             : adoptionReadiness.tone === 'caution'
-                                              ? 'border-warning/40 bg-warning/10 text-warning-foreground'
-                                              : 'border-destructive/40 bg-destructive/10 text-destructive',
+                                              ? 'border-warning/30 bg-warning/10 text-warning'
+                                              : 'border-destructive/30 bg-destructive/10 text-destructive',
                                         )}
                                       >
                                         {adoptionReadiness.score}% ready
@@ -1674,12 +1674,12 @@ export default function CreateService() {
                                               variant="outline"
                                               className={cn(
                                                 item.status === 'aligned'
-                                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                                  ? 'border-success/30 bg-success/10 text-success'
                                                   : item.status === 'changed'
                                                     ? 'border-primary/30 bg-primary/10 text-primary'
                                                     : item.status === 'warning'
-                                                      ? 'border-warning/40 bg-warning/10 text-warning-foreground'
-                                                      : 'border-destructive/40 bg-destructive/10 text-destructive',
+                                                      ? 'border-warning/30 bg-warning/10 text-warning'
+                                                      : 'border-destructive/30 bg-destructive/10 text-destructive',
                                               )}
                                             >
                                               {item.status === 'aligned'
@@ -1966,7 +1966,7 @@ export default function CreateService() {
                                   variant="outline"
                                   className={cn(
                                     recommendedProfile.profileId === profileId
-                                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                      ? 'border-success/30 bg-success/10 text-success'
                                       : 'border-primary/30 bg-primary/10 text-primary',
                                   )}
                                 >

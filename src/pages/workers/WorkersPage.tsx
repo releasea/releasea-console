@@ -257,7 +257,7 @@ const poolSaturationBarClass = (state: WorkerPool['saturationState']) => {
     case 'unavailable':
       return 'bg-muted';
     default:
-      return 'bg-emerald-500';
+      return 'bg-success';
   }
 };
 
