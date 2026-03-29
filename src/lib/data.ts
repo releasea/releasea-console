@@ -24,6 +24,7 @@ import type {
   ProviderStatusCatalog,
   PlatformSettings,
   Project,
+  ControlPlaneMetrics,
   RegistryCredential,
   ManagedRule,
   RuleDeploy,
@@ -369,6 +370,9 @@ export const fetchProjects = async (): Promise<Project[]> =>
 
 export const fetchServices = async (): Promise<Service[]> =>
   fetchResource({ fallback: EMPTY_SERVICES, endpoint: '/services', label: 'fetchServices' });
+
+export const fetchService = async (serviceId: string): Promise<Service | null> =>
+  fetchResource({ fallback: null, endpoint: `/services/${serviceId}`, label: 'fetchService' });
 
 export const fetchWorkers = async (): Promise<Worker[]> =>
   fetchResource({ fallback: EMPTY_WORKERS, endpoint: '/workers?view=summary', label: 'fetchWorkers' });
@@ -1111,6 +1115,24 @@ export const fetchObservabilityHealth = async (): Promise<{
     loki: { healthy: false, url: '', error: 'Not fetched' },
   };
   return resolveResponse(apiClient.get('/observability/health'), fallback, 'fetchObservabilityHealth');
+};
+
+export const fetchControlPlaneMetrics = async (): Promise<ControlPlaneMetrics> => {
+  const fallback: ControlPlaneMetrics = {
+    version: '1',
+    queue: {
+      queueName: 'releasea.worker',
+      deadLetterEnabled: false,
+      queuedOperations: 0,
+      dispatchingOperations: 0,
+      dispatchFailedOperations: 0,
+      staleQueuedOperations: 0,
+      recentDispatchFailures: 0,
+      status: 'review',
+      summary: 'Control plane metrics not loaded.',
+    },
+  };
+  return resolveResponse(apiClient.get('/observability/control-plane'), fallback, 'fetchControlPlaneMetrics');
 };
 
 export const createProject = async (payload: {

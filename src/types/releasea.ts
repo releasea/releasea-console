@@ -120,6 +120,27 @@ export interface ProviderHealthCatalog {
   notifications: ProviderHealthCategory;
 }
 
+export interface ControlPlaneQueueMetrics {
+  queueName: string;
+  deadLetterEnabled: boolean;
+  deadLetterQueueName?: string;
+  queuedOperations: number;
+  dispatchingOperations: number;
+  dispatchFailedOperations: number;
+  staleQueuedOperations: number;
+  recentDispatchFailures: number;
+  oldestQueuedAt?: string;
+  oldestQueuedAgeSeconds?: number;
+  lastDispatchFailureAt?: string;
+  status: 'healthy' | 'review' | 'degraded' | (string & {});
+  summary: string;
+}
+
+export interface ControlPlaneMetrics {
+  version: string;
+  queue: ControlPlaneQueueMetrics;
+}
+
 export interface TemplateSource {
   provider?: string;
   owner: string;
@@ -570,13 +591,31 @@ export interface ServiceStatusSnapshot {
   deploys: Deploy[];
   rules: ManagedRule[];
   ruleDeploys: RuleDeploy[];
+  version: string;
+  cursor: string;
   emittedAt: string;
 }
 
 export interface ServicesStatusSnapshot {
   services: Service[];
   deploys: Deploy[];
+  version: string;
+  cursor: string;
   emittedAt: string;
+}
+
+export interface LiveStateChangeEvent {
+  version: string;
+  scope: string;
+  kind: 'service' | 'deploy' | 'rule' | 'worker' | 'gitops' | 'resync-required';
+  collection: string;
+  operationType: string;
+  resourceType: string;
+  resourceId: string;
+  serviceId?: string;
+  summary: string;
+  resyncRequired?: boolean;
+  reason?: string;
 }
 
 export interface Worker {

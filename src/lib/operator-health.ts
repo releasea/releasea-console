@@ -1,10 +1,10 @@
 import { isFailedDeployStatus, isLiveDeployStatus, isSuccessfulDeployStatus, parseDeployTimestamp } from '@/lib/deploy-status';
-import type { Deploy, ProviderHealthCatalog, WorkerPool } from '@/types/releasea';
+import type { ControlPlaneMetrics, Deploy, ProviderHealthCatalog, WorkerPool } from '@/types/releasea';
 
 export type OperatorHealthLevel = 'healthy' | 'review' | 'degraded';
 
 export interface OperatorHealthLane {
-  id: 'providers' | 'workers' | 'delivery';
+  id: 'providers' | 'workers' | 'delivery' | 'control-plane';
   label: string;
   level: OperatorHealthLevel;
   summary: string;
@@ -32,13 +32,15 @@ const maxHealthLevel = (levels: OperatorHealthLevel[]): OperatorHealthLevel =>
 
 export const buildOperatorHealthReport = (input: {
   providerHealth: ProviderHealthCatalog | null;
+  controlPlaneMetrics: ControlPlaneMetrics | null;
   workerPools: WorkerPool[];
   deploys: Deploy[];
 }): OperatorHealthReport => {
   const providerLane = buildProviderLane(input.providerHealth);
+  const controlPlaneLane = buildControlPlaneLane(input.controlPlaneMetrics);
   const workerLane = buildWorkerLane(input.workerPools);
   const deliveryLane = buildDeliveryLane(input.deploys);
-  const lanes = [providerLane, workerLane, deliveryLane];
+  const lanes = [providerLane, controlPlaneLane, workerLane, deliveryLane];
   const level = maxHealthLevel(lanes.map((lane) => lane.level));
   const degradedCount = lanes.filter((lane) => lane.level === 'degraded').length;
   const reviewCount = lanes.filter((lane) => lane.level === 'review').length;
@@ -161,6 +163,49 @@ const buildWorkerLane = (workerPools: WorkerPool[]): OperatorHealthLane => {
     summary: `${healthy.length} pool${healthy.length === 1 ? '' : 's'} ready for routing.`,
     detail: `${onlineWorkers} online or busy workers across active pools.`,
     href: '/workers',
+  };
+};
+
+const buildControlPlaneLane = (controlPlaneMetrics: ControlPlaneMetrics | null): OperatorHealthLane => {
+  if (!controlPlaneMetrics) {
+    return {
+      id: 'control-plane',
+      label: 'Control plane',
+      level: 'review',
+      summary: 'Queue dispatch metrics not loaded.',
+      detail: 'Load operator metrics before relying on queue health during delivery windows.',
+      href: '/governance',
+    };
+  }
+
+  const queue = controlPlaneMetrics.queue;
+  if (queue.status === 'degraded') {
+    return {
+      id: 'control-plane',
+      label: 'Control plane',
+      level: 'degraded',
+      summary: queue.summary,
+      detail: `${queue.dispatchFailedOperations} failed dispatches, ${queue.staleQueuedOperations} stale queued operations.`,
+      href: '/governance',
+    };
+  }
+  if (queue.status === 'review') {
+    return {
+      id: 'control-plane',
+      label: 'Control plane',
+      level: 'review',
+      summary: queue.summary,
+      detail: `${queue.queuedOperations} queued, ${queue.dispatchingOperations} dispatching, DLQ ${queue.deadLetterEnabled ? 'enabled' : 'disabled'}.`,
+      href: '/governance',
+    };
+  }
+  return {
+    id: 'control-plane',
+    label: 'Control plane',
+    level: 'healthy',
+    summary: queue.summary,
+    detail: `DLQ ${queue.deadLetterEnabled ? 'enabled' : 'disabled'}, no stale queued operations detected.`,
+    href: '/governance',
   };
 };
 
