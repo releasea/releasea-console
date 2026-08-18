@@ -669,11 +669,17 @@ export const fetchServiceDeployPolicyCheck = async (
   if (version) {
     query.set('version', version);
   }
-  return fetchResource({
+  const result = await fetchResource<DeployPolicyPreflight | null>({
     fallback: null,
     endpoint: `/services/${serviceId}/deploy-policy-check?${query.toString()}`,
     label: 'fetchServiceDeployPolicyCheck',
   });
+  if (!result) return null;
+  return {
+    ...result,
+    violations: Array.isArray(result.violations) ? result.violations : [],
+    exceptionsApplied: Array.isArray(result.exceptionsApplied) ? result.exceptionsApplied : [],
+  };
 };
 
 export type ServiceDesiredStateExportResult = {

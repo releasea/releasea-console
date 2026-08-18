@@ -34,6 +34,7 @@ type DeliveryTabProps = {
   desiredStateValidation: ServiceDesiredStateValidation | null;
   desiredStateValidationLoading: boolean;
   releaseIntelligence: ReleaseIntelligenceSummary | null;
+  initialSection?: 'overview' | 'governance' | 'gitops' | 'intelligence';
 };
 
 export const DeliveryTab = ({
@@ -53,6 +54,7 @@ export const DeliveryTab = ({
   desiredStateValidation,
   desiredStateValidationLoading,
   releaseIntelligence,
+  initialSection = 'overview',
 }: DeliveryTabProps) => {
   const toneReady = 'border-success/30 bg-success/10 text-success';
   const toneReview = 'border-warning/30 bg-warning/10 text-warning';
@@ -291,7 +293,7 @@ export const DeliveryTab = ({
   return (
     <TabsContent value="delivery" className="space-y-6">
       <div className="rounded-lg border border-border/70 bg-card/95 p-4 shadow-sm">
-        <Tabs defaultValue="overview" className="space-y-5">
+        <Tabs defaultValue={initialSection} className="space-y-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-1">
               <h3 className="text-sm font-semibold text-foreground">Delivery</h3>
