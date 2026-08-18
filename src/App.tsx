@@ -3,27 +3,28 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PlatformPreferencesProvider } from "@/contexts/PlatformPreferencesContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import Index from "./pages/dashboard/IndexPage";
-import Auth from "./pages/auth/AuthPage";
-import Profile from "./pages/profile/ProfilePage";
-import Projects from "./pages/projects/ProjectsPage";
-import ProjectDetails from "./pages/projects/ProjectDetailsPage";
-import Services from "./pages/services/ServicesPage";
-import CreateService from "./pages/services/CreateServicePage";
-import ServiceDetails from "./pages/services/details/ServiceDetailsPage";
-import Workers from "./pages/workers/WorkersPage";
-import Environments from "./pages/environments/EnvironmentsPage";
-import Teams from "./pages/teams/TeamsPage";
-import IdentityProvider from "./pages/identity-provider/IdentityProviderPage";
-import Governance from "./pages/governance/GovernancePage";
-import Settings from "./pages/settings/SettingsPage";
-import DocsRedirect from "./pages/docs/DocsRedirectPage";
-import NotFound from "./pages/not-found/NotFoundPage";
-import RuntimeProfiles from "./pages/runtime-profiles/RuntimeProfilesPage";
+const Index = lazy(() => import("./pages/dashboard/IndexPage"));
+const Auth = lazy(() => import("./pages/auth/AuthPage"));
+const Profile = lazy(() => import("./pages/profile/ProfilePage"));
+const Projects = lazy(() => import("./pages/projects/ProjectsPage"));
+const ProjectDetails = lazy(() => import("./pages/projects/ProjectDetailsPage"));
+const Services = lazy(() => import("./pages/services/ServicesPage"));
+const CreateService = lazy(() => import("./pages/services/CreateServicePage"));
+const ServiceDetails = lazy(() => import("./pages/services/details/ServiceDetailsPage"));
+const Workers = lazy(() => import("./pages/workers/WorkersPage"));
+const Environments = lazy(() => import("./pages/environments/EnvironmentsPage"));
+const Teams = lazy(() => import("./pages/teams/TeamsPage"));
+const IdentityProvider = lazy(() => import("./pages/identity-provider/IdentityProviderPage"));
+const Governance = lazy(() => import("./pages/governance/GovernancePage"));
+const Settings = lazy(() => import("./pages/settings/SettingsPage"));
+const DocsRedirect = lazy(() => import("./pages/docs/DocsRedirectPage"));
+const NotFound = lazy(() => import("./pages/not-found/NotFoundPage"));
+const RuntimeProfiles = lazy(() => import("./pages/runtime-profiles/RuntimeProfilesPage"));
 
 const queryClient = new QueryClient();
 
@@ -36,7 +37,8 @@ const App = () => (
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <ScrollToTop />
-            <Routes>
+            <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading Releasea…</div>}>
+              <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
@@ -56,7 +58,8 @@ const App = () => (
               <Route path="/docs/:slug" element={<DocsRedirect />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
-            </Routes>
+              </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </PlatformPreferencesProvider>
