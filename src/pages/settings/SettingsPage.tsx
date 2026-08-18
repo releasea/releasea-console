@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   LayoutTemplate,
   Trash2,
+  Bot,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -79,8 +80,9 @@ import {
   formatTemplateVerificationStatus,
   parseTemplateImport,
 } from './template-utils';
+import { AIProvidersSettings } from './AIProvidersSettings';
 
-const SETTINGS_TABS = ['display', 'general', 'notifications', 'credentials', 'templates', 'resources'] as const;
+const SETTINGS_TABS = ['display', 'general', 'notifications', 'credentials', 'ai', 'templates', 'resources'] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const normalizeSettingsTab = (value: string | null | undefined): SettingsTab =>
@@ -859,6 +861,10 @@ const SettingsPage = () => {
             <TabsTrigger value="credentials" className="gap-2">
               <KeyRound className="w-4 h-4" />
               Credentials
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="gap-2">
+              <Bot className="w-4 h-4" />
+              AI assistants
             </TabsTrigger>
             <TabsTrigger value="templates" className="gap-2">
               <LayoutTemplate className="w-4 h-4" />
@@ -1687,6 +1693,10 @@ const SettingsPage = () => {
                 </div>
               </div>
             </SettingsSection>
+          </TabsContent>
+
+          <TabsContent value="ai" className="space-y-6">
+            <AIProvidersSettings />
           </TabsContent>
 
           {/* General Tab */}
