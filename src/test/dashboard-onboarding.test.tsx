@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from '@/pages/dashboard/IndexPage';
 
 const fetchDeploys = vi.fn();
+const fetchControlPlaneMetrics = vi.fn();
 const fetchProviderHealth = vi.fn();
 const fetchProviderStatus = vi.fn();
 const fetchProjects = vi.fn();
@@ -17,6 +18,7 @@ const fetchWorkers = vi.fn();
 const hasPermission = vi.fn();
 
 vi.mock('@/lib/data', () => ({
+  fetchControlPlaneMetrics: (...args: unknown[]) => fetchControlPlaneMetrics(...args),
   fetchDeploys: (...args: unknown[]) => fetchDeploys(...args),
   fetchProviderHealth: (...args: unknown[]) => fetchProviderHealth(...args),
   fetchProviderStatus: (...args: unknown[]) => fetchProviderStatus(...args),
@@ -51,6 +53,21 @@ describe('Dashboard onboarding checklist', () => {
     fetchServices.mockResolvedValue([]);
     fetchWorkerPools.mockResolvedValue([]);
     fetchDeploys.mockResolvedValue([]);
+    fetchControlPlaneMetrics.mockResolvedValue({
+      version: '1',
+      queue: {
+        status: 'healthy',
+        summary: 'Queue dispatch and operation handoff look healthy.',
+        queueName: 'releasea.worker',
+        deadLetterEnabled: true,
+        deadLetterQueueName: 'releasea.worker.dead-letter',
+        queuedOperations: 0,
+        dispatchingOperations: 0,
+        dispatchFailedOperations: 0,
+        staleQueuedOperations: 0,
+        recentDispatchFailures: 0,
+      },
+    });
     fetchWorkers.mockResolvedValue([]);
     fetchWorkerRegistrations.mockResolvedValue([]);
     fetchScmCredentials.mockResolvedValue([]);
