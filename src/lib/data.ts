@@ -12,6 +12,9 @@ import {
 } from '@/platform/http/contracts/contracts';
 import type {
   AuthUser,
+  AIAnalysis,
+  AIAnalysisKind,
+  AIProvider,
   DiscoveredWorkload,
   Deploy,
   Environment,
@@ -1014,6 +1017,55 @@ export const fetchPlatformSettings = async (): Promise<PlatformSettings> =>
     endpoint: '/settings/platform',
     label: 'fetchPlatformSettings',
   });
+
+export const fetchAIProviders = async (): Promise<AIProvider[]> =>
+  fetchResource({ fallback: [], endpoint: '/ai/providers', label: 'fetchAIProviders' });
+
+export type AIProviderInput = Omit<
+  AIProvider,
+  'id' | 'hasApiKey' | 'health' | 'createdAt' | 'updatedAt'
+> & { apiKey?: string };
+
+export const createAIProvider = async (payload: AIProviderInput): Promise<AIProvider | null> =>
+  resolveResponse(apiClient.post<AIProvider>('/ai/providers', payload), null, 'createAIProvider');
+
+export const updateAIProvider = async (id: string, payload: AIProviderInput): Promise<AIProvider | null> =>
+  resolveResponse(apiClient.put<AIProvider>(`/ai/providers/${encodeURIComponent(id)}`, payload), null, 'updateAIProvider');
+
+export const deleteAIProvider = async (id: string): Promise<boolean> =>
+  deleteResource(`/ai/providers/${encodeURIComponent(id)}`, 'deleteAIProvider');
+
+export const testAIProvider = async (id: string): Promise<{
+  state: string;
+  message: string;
+  models: string[];
+  capabilities: string[];
+  modelConfigured: boolean;
+} | null> => resolveResponse(
+  apiClient.post(`/ai/providers/${encodeURIComponent(id)}/test`, {}),
+  null,
+  'testAIProvider',
+);
+
+export interface AIUsageSummary {
+  from: string;
+  providers: Array<{ _id: string; analyses: number; inputTokens: number; outputTokens: number; totalTokens: number }>;
+}
+
+export const fetchAIUsage = async (): Promise<AIUsageSummary> =>
+  fetchResource({ fallback: { from: '', providers: [] }, endpoint: '/ai/usage', label: 'fetchAIUsage' });
+
+export const fetchServiceAIAnalyses = async (serviceId: string): Promise<AIAnalysis[]> =>
+  fetchResource({ fallback: [], endpoint: `/services/${encodeURIComponent(serviceId)}/ai/analyses`, label: 'fetchServiceAIAnalyses' });
+
+export const createServiceAIAnalysis = async (
+  serviceId: string,
+  payload: { kind: AIAnalysisKind; providerId?: string; question?: string; environment?: string },
+): Promise<AIAnalysis | null> => resolveResponse(
+  apiClient.post<AIAnalysis>(`/services/${encodeURIComponent(serviceId)}/ai/analyses`, payload, { timeout: 190_000 }),
+  null,
+  'createServiceAIAnalysis',
+);
 
 const buildMetricTimestamps = (from?: Date, to?: Date): string[] => {
   if (!from || !to) return [];

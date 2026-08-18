@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Activity, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Loader2, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
+import { Activity, Bot, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Loader2, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
 import { Badge } from '@/components/ui/badge';
@@ -115,6 +115,7 @@ import { MetricsTab } from './tabs/MetricsTab';
 import { RulesTab } from './tabs/RulesTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { SummaryTab } from './tabs/SummaryTab';
+import { AssistantTab } from './tabs/AssistantTab';
 import { buildGateways, getGatewayTargets, getPublicationLabel, LOG_LINE_LIMIT } from './constants';
 import type { RuntimeProfile } from '@/types/runtime-profile';
 import type { EnvVar, PublicationTargets, RuleRow, ServiceDetailsLocationState } from './types';
@@ -3567,6 +3568,10 @@ const ServiceDetails = () => {
               <TrendingUp className="w-4 h-4" />
               Delivery
             </TabsTrigger>
+            <TabsTrigger value="assistant" className="gap-2">
+              <Bot className="w-4 h-4" />
+              Assistant
+            </TabsTrigger>
             <TabsTrigger value="settings" className="gap-2">
               <Settings className="w-4 h-4" />
               Settings
@@ -3689,6 +3694,8 @@ const ServiceDetails = () => {
             desiredStateValidationLoading={desiredStateValidationLoading}
             releaseIntelligence={releaseIntelligence}
           />
+
+          <AssistantTab serviceId={service.id} environment={viewEnv} />
 
           <ServiceSettingsFormStoreProvider value={settingsFormStore}>
             <SettingsTab />
