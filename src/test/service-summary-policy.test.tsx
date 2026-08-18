@@ -49,6 +49,7 @@ describe('DeliveryTab deploy policy preflight', () => {
           desiredStateValidation={null}
           desiredStateValidationLoading={false}
           releaseIntelligence={null}
+          initialSection="governance"
         />
       </Tabs>,
     );

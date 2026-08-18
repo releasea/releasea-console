@@ -136,7 +136,7 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
                 placeholder="email@example.com"
                 className="bg-muted/50 flex-1"
               />
-              <Select value={newRole} onValueChange={(v: any) => setNewRole(v)}>
+              <Select value={newRole} onValueChange={(value: InviteMember['role']) => setNewRole(value)}>
                 <SelectTrigger className="w-32 bg-muted/50">
                   <SelectValue />
                 </SelectTrigger>
