@@ -74,6 +74,15 @@ export const buildServiceReadinessScorecard = ({
   gitOpsDrift: ServiceGitOpsDriftStatus | null;
   releaseIntelligence: ReleaseIntelligenceSummary | null;
 }): ServiceReadinessScorecard => {
+  // Mongo/Go serializes an uninitialized slice as null. Treat collection fields
+  // from the API as empty here so a partially populated policy response cannot
+  // take down the entire service details page.
+  const policyViolations = Array.isArray(deployPolicyPreflight?.violations)
+    ? deployPolicyPreflight.violations
+    : [];
+  const policyExceptions = Array.isArray(deployPolicyPreflight?.exceptionsApplied)
+    ? deployPolicyPreflight.exceptionsApplied
+    : [];
   const deliveryItems: ServiceReadinessItem[] = requirements.map((requirement) => ({
     id: requirement.id,
     label: requirement.label,
@@ -95,20 +104,20 @@ export const buildServiceReadinessScorecard = ({
       id: 'deploy-policy',
       label: 'Deploy policy',
       state:
-        deployPolicyPreflight && deployPolicyPreflight.violations.length > 0
+        policyViolations.length > 0
           ? deployPolicyPreflight.dryRun
             ? 'review'
             : 'blocked'
-          : (deployPolicyPreflight?.exceptionsApplied?.length ?? 0) > 0
+          : policyExceptions.length > 0
             ? 'review'
           : 'ready',
       message:
-        deployPolicyPreflight && deployPolicyPreflight.violations.length > 0
+        policyViolations.length > 0
           ? deployPolicyPreflight.dryRun
-            ? `${deployPolicyPreflight.violations.length} policy warning(s) are being recorded in dry-run mode.`
-            : `${deployPolicyPreflight.violations.length} policy blocker(s) currently prevent a clean deploy.`
-          : (deployPolicyPreflight?.exceptionsApplied?.length ?? 0) > 0
-            ? `${deployPolicyPreflight?.exceptionsApplied?.length ?? 0} temporary exception(s) are allowing deploys past active policy rules.`
+            ? `${policyViolations.length} policy warning(s) are being recorded in dry-run mode.`
+            : `${policyViolations.length} policy blocker(s) currently prevent a clean deploy.`
+          : policyExceptions.length > 0
+            ? `${policyExceptions.length} temporary exception(s) are allowing deploys past active policy rules.`
           : 'No policy blockers are active for the selected environment.',
     },
   ];

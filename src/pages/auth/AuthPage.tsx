@@ -16,13 +16,14 @@ const Auth = () => {
   const location = useLocation();
   const { login, loginWithSSOTicket, signUp, requestPasswordReset, confirmPasswordReset, isLoading } = useAuth();
   
-  const [view, setView] = useState<AuthView>('login');
+  const passwordResetToken = new URLSearchParams(location.search).get('resetToken')?.trim() ?? '';
+  const [view, setView] = useState<AuthView>(passwordResetToken ? 'reset-password' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [resetToken, setResetToken] = useState('');
+  const [resetToken, setResetToken] = useState(passwordResetToken);
   const [isSSOEnabled, setIsSSOEnabled] = useState(false);
   const [isSSOProcessing, setIsSSOProcessing] = useState(false);
   

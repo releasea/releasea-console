@@ -116,4 +116,22 @@ describe('buildServiceReadinessScorecard', () => {
     expect(scorecard.sections.find((section) => section.id === 'delivery')?.state).toBe('blocked');
     expect(scorecard.sections.find((section) => section.id === 'governance')?.state).toBe('blocked');
   });
+
+  it('treats null policy collections returned by the API as empty', () => {
+    const scorecard = buildServiceReadinessScorecard({
+      service: { ...baseService, managementMode: 'observed' },
+      requirements: readyRequirements,
+      deployPolicyPreflight: {
+        ...cleanPolicy,
+        violations: null,
+        exceptionsApplied: null,
+      } as unknown as DeployPolicyPreflight,
+      gitOpsRepositoryPolicyCheck: verifiedRepositoryPolicy,
+      gitOpsDrift: inSyncDrift,
+      releaseIntelligence: healthyRelease,
+    });
+
+    expect(scorecard.state).toBe('review');
+    expect(scorecard.sections.find((section) => section.id === 'governance')?.state).toBe('review');
+  });
 });
