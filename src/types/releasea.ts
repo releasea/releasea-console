@@ -37,6 +37,63 @@ export type ProviderCategoryKind = 'scm' | 'registry' | 'secrets' | 'identity' |
 export type ProviderStatusState = 'configured' | 'partial' | 'not-configured' | 'disabled';
 export type ProviderHealthState = 'healthy' | 'unhealthy' | 'unsupported' | 'disabled';
 
+export type AIProviderType = 'openai' | 'openai-compatible';
+export type AIAnalysisKind = 'failed-deploy' | 'health-summary' | 'correction-plan';
+
+export interface AIProvider {
+  id: string;
+  name: string;
+  type: AIProviderType;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  default: boolean;
+  hasApiKey: boolean;
+  allowPrivateNetwork: boolean;
+  externalEgress: boolean;
+  timeoutSeconds: number;
+  maxInputChars: number;
+  maxOutputTokens: number;
+  dailyTokenLimit: number;
+  retentionDays: number;
+  capabilities?: string[];
+  health?: { state: string; message: string; checkedAt: string; capabilities?: string[] };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AIAnalysisEvidence {
+  id: string;
+  type: string;
+  label: string;
+  data: unknown;
+  observedAt?: string;
+}
+
+export interface AIAnalysis {
+  id: string;
+  serviceId: string;
+  environment?: string;
+  kind: AIAnalysisKind;
+  question?: string;
+  providerId: string;
+  providerName?: string;
+  model?: string;
+  status: 'completed' | 'failed';
+  result?: {
+    summary: string;
+    severity: 'info' | 'warning' | 'critical';
+    findings: Array<{ title: string; explanation: string; evidenceIds: string[] }>;
+    recommendations: Array<{ title: string; description: string; risk: 'low' | 'medium' | 'high'; evidenceIds: string[] }>;
+    limitations: string[];
+  };
+  evidence?: AIAnalysisEvidence[];
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  durationMs?: number;
+  error?: string;
+  createdAt: string;
+}
+
 export interface ProviderDefinition {
   id: string;
   label: string;
