@@ -15,6 +15,7 @@ import type {
   AIAnalysis,
   AIAnalysisKind,
   AIProvider,
+  AIProviderOption,
   DiscoveredWorkload,
   Deploy,
   Environment,
@@ -1020,6 +1021,9 @@ export const fetchPlatformSettings = async (): Promise<PlatformSettings> =>
 
 export const fetchAIProviders = async (): Promise<AIProvider[]> =>
   fetchResource({ fallback: [], endpoint: '/ai/providers', label: 'fetchAIProviders' });
+
+export const fetchAvailableAIProviders = async (): Promise<AIProviderOption[]> =>
+  fetchResource({ fallback: [], endpoint: '/ai/providers/available', label: 'fetchAvailableAIProviders' });
 
 export type AIProviderInput = Omit<
   AIProvider,

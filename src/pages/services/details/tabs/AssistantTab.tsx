@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bot, Clock3, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { TabsContent } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
-import { createServiceAIAnalysis, fetchServiceAIAnalyses } from '@/lib/data';
-import type { AIAnalysis, AIAnalysisKind } from '@/types/releasea';
+import { createServiceAIAnalysis, fetchAvailableAIProviders, fetchServiceAIAnalyses } from '@/lib/data';
+import type { AIAnalysis, AIAnalysisKind, AIProviderOption } from '@/types/releasea';
 
 interface AssistantTabProps {
   serviceId: string;
@@ -24,17 +25,31 @@ const severityVariant = (severity?: string): 'destructive' | 'secondary' | 'outl
 
 export function AssistantTab({ serviceId, environment }: AssistantTabProps) {
   const [history, setHistory] = useState<AIAnalysis[]>([]);
+  const [providers, setProviders] = useState<AIProviderOption[]>([]);
+  const [providerId, setProviderId] = useState('');
   const [kind, setKind] = useState<AIAnalysisKind>('health-summary');
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => setHistory(await fetchServiceAIAnalyses(serviceId)), [serviceId]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    void fetchAvailableAIProviders().then((items) => {
+      if (!active) return;
+      setProviders(items);
+      setProviderId((current) => {
+        if (current && items.some((item) => item.id === current)) return current;
+        return items.find((item) => item.default)?.id ?? items[0]?.id ?? '';
+      });
+    });
+    return () => { active = false; };
+  }, []);
   const latest = useMemo(() => history.find((item) => item.status === 'completed'), [history]);
 
   const run = async () => {
     setBusy(true);
-    const result = await createServiceAIAnalysis(serviceId, { kind, question, environment });
+    const result = await createServiceAIAnalysis(serviceId, { kind, providerId, question, environment });
     setBusy(false);
     if (!result) {
       toast({ title: 'Analysis unavailable', description: 'Configure and validate a default AI provider in Platform Settings.', variant: 'destructive' });
@@ -66,9 +81,23 @@ export function AssistantTab({ serviceId, environment }: AssistantTabProps) {
           ))}
         </div>
         <Textarea className="mt-4" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Optional: add a specific question, for example: Why did readiness fail after the latest deploy?" maxLength={2000} />
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">Environment: {environment || 'all available evidence'}</p>
-          <Button onClick={() => void run()} disabled={busy}>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Environment: {environment || 'all available evidence'}</p>
+            {providers.length > 0 ? (
+              <Select value={providerId} onValueChange={setProviderId}>
+                <SelectTrigger className="w-full sm:w-[320px]" aria-label="AI provider"><SelectValue placeholder="Select an AI provider" /></SelectTrigger>
+                <SelectContent>
+                  {providers.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.name} · {provider.model}{provider.default ? ' (default)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : <p className="text-xs text-warning">No enabled provider is available. Ask an administrator to configure one.</p>}
+          </div>
+          <Button onClick={() => void run()} disabled={busy || !providerId}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}{busy ? 'Analyzing evidence…' : 'Run analysis'}
           </Button>
         </div>
@@ -85,6 +114,7 @@ export function AssistantTab({ serviceId, environment }: AssistantTabProps) {
             <div className="space-y-3"><h4 className="text-sm font-semibold">Proposed next steps</h4>{latest.result.recommendations.map((item, index) => <div key={`${item.title}-${index}`} className="rounded-md border p-3"><div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{item.title}</p><Badge variant="outline" className="text-[10px]">{item.risk} risk</Badge></div><p className="mt-1 text-sm text-muted-foreground">{item.description}</p><div className="mt-2 flex flex-wrap gap-1">{item.evidenceIds.map((id) => <Badge key={id} variant="outline" className="text-[10px]">{id}</Badge>)}</div></div>)}</div>
           </div>
           {latest.result.limitations.length > 0 && <div className="rounded-md bg-muted/40 p-3"><p className="text-xs font-medium">Limitations</p><ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">{latest.result.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+          {latest.evidenceTruncated && <p className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs text-muted-foreground">The evidence bundle reached the provider context limit. The analysis only cites evidence that was actually included.</p>}
           <div className="flex flex-wrap items-center gap-3 border-t pt-3 text-xs text-muted-foreground"><span>{latest.providerName || latest.providerId} · {latest.model}</span><span>{latest.usage?.totalTokens ?? 0} tokens</span><span>{latest.durationMs ?? 0} ms</span></div>
         </div>
       )}
