@@ -14,6 +14,7 @@ import {
   LayoutTemplate,
   Trash2,
   Bot,
+  Plus,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -34,6 +35,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   createRegistryCredential,
   createScmCredential,
@@ -57,7 +66,6 @@ import {
 import { usePlatformPreferences, type PlatformPreferences } from '@/contexts/PlatformPreferencesContext';
 import type {
   CredentialScope,
-  PlatformIntegration,
   ProviderCatalog,
   ProviderHealthCatalog,
   ProviderHealthCheck,
@@ -87,6 +95,27 @@ type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const normalizeSettingsTab = (value: string | null | undefined): SettingsTab =>
   SETTINGS_TABS.includes(value as SettingsTab) ? (value as SettingsTab) : 'display';
+
+const numericSetting = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const cpuSetting = (value: unknown, fallback: number): number => {
+  if (typeof value === 'string' && value.trim().endsWith('m')) {
+    return numericSetting(value, fallback * 1000) / 1000;
+  }
+  return numericSetting(value, fallback);
+};
+
+const memorySetting = (value: unknown, fallback: number): number => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized.endsWith('gi')) return numericSetting(normalized, fallback / 1024) * 1024;
+    if (normalized.endsWith('mi')) return numericSetting(normalized, fallback);
+  }
+  return numericSetting(value, fallback);
+};
 
 const STARTER_TEMPLATE_IMPORT = JSON.stringify(
   [
@@ -121,13 +150,16 @@ const SettingsPage = () => {
   const location = useLocation();
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeSettingsTab(query.get('tab')));
-  const [isSaving, setIsSaving] = useState(false);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
   const { preferences, updatePreference, updatePreferences, resetPreferences } = usePlatformPreferences();
 
   // Organization settings
   const [orgName, setOrgName] = useState('Releasea');
+  const [savedOrgName, setSavedOrgName] = useState('Releasea');
   const [orgSlug, setOrgSlug] = useState('releasea');
   const [apiUrl, setApiUrl] = useState('https://api.releasea.io');
+  const [organizationConfirmOpen, setOrganizationConfirmOpen] = useState(false);
+  const [organizationConfirmation, setOrganizationConfirmation] = useState('');
 
   // Notifications
   const [notifications, setNotifications] = useState({
@@ -151,7 +183,6 @@ const SettingsPage = () => {
     defaultMemory: 512,
   });
 
-  const [integrations, setIntegrations] = useState<PlatformIntegration[]>([]);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalog | null>(null);
   const [providerHealth, setProviderHealth] = useState<ProviderHealthCatalog | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusCatalog | null>(null);
@@ -167,6 +198,7 @@ const SettingsPage = () => {
   const [templateVerificationPreview, setTemplateVerificationPreview] = useState<ServiceTemplate[]>([]);
   const [isVerifyingTemplates, setIsVerifyingTemplates] = useState(false);
   const [isImportingTemplates, setIsImportingTemplates] = useState(false);
+  const [templateImportOpen, setTemplateImportOpen] = useState(false);
   const [scmName, setScmName] = useState('');
   const [scmProvider, setScmProvider] = useState('github');
   const [scmAuthType, setScmAuthType] = useState<'token' | 'ssh'>('token');
@@ -177,6 +209,7 @@ const SettingsPage = () => {
   const [scmServiceId, setScmServiceId] = useState('');
   const [scmNotes, setScmNotes] = useState('');
   const [isSavingScm, setIsSavingScm] = useState(false);
+  const [isScmDialogOpen, setIsScmDialogOpen] = useState(false);
 
   const [registryName, setRegistryName] = useState('');
   const [registryProvider, setRegistryProvider] = useState('docker');
@@ -188,6 +221,7 @@ const SettingsPage = () => {
   const [registryServiceId, setRegistryServiceId] = useState('');
   const [registryNotes, setRegistryNotes] = useState('');
   const [isSavingRegistry, setIsSavingRegistry] = useState(false);
+  const [isRegistryDialogOpen, setIsRegistryDialogOpen] = useState(false);
 
   const [secretProviderName, setSecretProviderName] = useState('');
   const [secretProviderType, setSecretProviderType] = useState<SecretProviderType>('vault');
@@ -199,6 +233,7 @@ const SettingsPage = () => {
   const [secretAwsRegion, setSecretAwsRegion] = useState('us-east-1');
   const [secretGcpProjectId, setSecretGcpProjectId] = useState('');
   const [secretGcpServiceAccount, setSecretGcpServiceAccount] = useState('');
+  const [isSecretProviderDialogOpen, setIsSecretProviderDialogOpen] = useState(false);
 
   useEffect(() => {
     setActiveTab(normalizeSettingsTab(query.get('tab')));
@@ -207,21 +242,8 @@ const SettingsPage = () => {
   useEffect(() => {
     if (activeTab !== 'credentials') return;
     const focus = new URLSearchParams(location.search).get('focus');
-    const targetId =
-      focus === 'scm'
-        ? 'settings-scm-credential-form'
-        : focus === 'registry'
-          ? 'settings-registry-credential-form'
-          : '';
-    if (!targetId) return;
-    const timer = window.setTimeout(() => {
-      const section = document.getElementById(targetId);
-      if (!section) return;
-      section.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusTarget = section.querySelector<HTMLElement>('input, [role="combobox"], textarea');
-      focusTarget?.focus();
-    }, 120);
-    return () => window.clearTimeout(timer);
+    if (focus === 'scm') setIsScmDialogOpen(true);
+    if (focus === 'registry') setIsRegistryDialogOpen(true);
   }, [activeTab, location.search]);
 
   useEffect(() => {
@@ -236,6 +258,7 @@ const SettingsPage = () => {
       setProviderCatalog(catalog);
       setProviderStatus(status);
       setOrgName(data.organization?.name ?? '');
+      setSavedOrgName(data.organization?.name ?? '');
       setOrgSlug(data.organization?.slug ?? '');
       setApiUrl(data.organization?.apiUrl ?? '');
       setNotifications(prev => ({
@@ -245,8 +268,18 @@ const SettingsPage = () => {
         serviceDown: data.notifications?.serviceDown ?? prev.serviceDown,
         workerOffline: data.notifications?.workerOffline ?? prev.workerOffline,
         highCpu: data.notifications?.highCpu ?? prev.highCpu,
+        approvalRequired: data.notifications?.approvalRequired ?? prev.approvalRequired,
+        approvalCompleted: data.notifications?.approvalCompleted ?? prev.approvalCompleted,
       }));
-      setIntegrations(Array.isArray(data.integrations) ? data.integrations : []);
+      setResourceLimits((previous) => ({
+        maxServicesPerProject: numericSetting(data.resourceLimits?.maxServicesPerProject, previous.maxServicesPerProject),
+        maxReplicasPerService: numericSetting(data.resourceLimits?.maxReplicasPerService, previous.maxReplicasPerService),
+        maxCpuPerReplica: cpuSetting(data.resourceLimits?.maxCpuPerReplica, previous.maxCpuPerReplica),
+        maxMemoryPerReplica: memorySetting(data.resourceLimits?.maxMemoryPerReplica, previous.maxMemoryPerReplica),
+        defaultReplicas: numericSetting(data.resourceLimits?.defaultReplicas, previous.defaultReplicas),
+        defaultCpu: cpuSetting(data.resourceLimits?.defaultCpu, previous.defaultCpu),
+        defaultMemory: memorySetting(data.resourceLimits?.defaultMemory, previous.defaultMemory),
+      }));
       setSecretProviders(Array.isArray(data.secrets?.providers) ? data.secrets?.providers ?? [] : []);
       setDefaultSecretProviderId(data.secrets?.defaultProviderId ?? '');
     };
@@ -583,13 +616,14 @@ const SettingsPage = () => {
     if (created + updated > 0) {
       setTemplateImportPayload('');
       setTemplateVerificationPreview([]);
+      setTemplateImportOpen(false);
     }
     if (failed > 0) {
       toast({
         title: 'Templates imported with warnings',
         description: `${created} created, ${updated} updated, ${failed} failed.`,
       });
-      return;
+      return false;
     }
     toast({
       title: 'Templates imported',
@@ -601,7 +635,7 @@ const SettingsPage = () => {
     const ok = await deleteServiceTemplate(templateId);
     if (!ok) {
       toast({ title: 'Failed to delete template', description: 'Try again or check the API logs.' });
-      return;
+      return false;
     }
     await refreshTemplates();
     toast({ title: 'Template deleted', description: 'Template removed from the catalog.' });
@@ -657,10 +691,103 @@ const SettingsPage = () => {
       notes: secretProviderNotes.trim(),
     };
 
-    setSecretProviders((current) => [...current, next]);
-    if (!defaultSecretProviderId) {
-      setDefaultSecretProviderId(next.id);
+    const nextProviders = [...secretProviders, next];
+    const nextDefaultProviderId = defaultSecretProviderId || next.id;
+    setSecretProviders(nextProviders);
+    setDefaultSecretProviderId(nextDefaultProviderId);
+    resetSecretProviderForm();
+    setIsSecretProviderDialogOpen(false);
+    void savePlatformSection('secrets', 'Secret provider added.', {
+      secrets: { defaultProviderId: nextDefaultProviderId, providers: nextProviders },
+    });
+  };
+
+  const handleRemoveSecretProvider = (id: string) => {
+    const nextProviders = secretProviders.filter((provider) => provider.id !== id);
+    const nextDefaultProviderId = defaultSecretProviderId === id ? '' : defaultSecretProviderId;
+    setSecretProviders(nextProviders);
+    setDefaultSecretProviderId(nextDefaultProviderId);
+    void savePlatformSection('secrets', 'Secret provider removed.', {
+      secrets: { defaultProviderId: nextDefaultProviderId, providers: nextProviders },
+    });
+  };
+
+  const savePlatformSection = async (
+    section: string,
+    description: string,
+    payload: Partial<PlatformSettings>,
+  ) => {
+    setSavingSection(section);
+    const updated = await updatePlatformSettings(payload);
+    setSavingSection(null);
+    if (!updated) {
+      toast({
+        title: 'Failed to save settings',
+        description: 'The section was not persisted. Check the API and try again.',
+        variant: 'destructive',
+      });
+      return false;
     }
+    await refreshProviderStatus();
+    toast({ title: 'Settings saved', description });
+    return true;
+  };
+
+  const handleSaveOrganization = async () => {
+    const saved = await savePlatformSection(
+      'organization',
+      'Organization settings have been updated.',
+      { organization: { name: orgName, slug: orgSlug, apiUrl } },
+    );
+    if (saved) {
+      setSavedOrgName(orgName);
+      setOrganizationConfirmOpen(false);
+      setOrganizationConfirmation('');
+    }
+  };
+
+  const handleNotificationChange = (key: keyof typeof notifications, checked: boolean) => {
+    const next = { ...notifications, [key]: checked };
+    setNotifications(next);
+    void savePlatformSection('notifications', 'Notification preference updated.', { notifications: next });
+  };
+
+  const handleSaveResourceLimits = () => savePlatformSection(
+    'resources',
+    'Resource limits and defaults have been updated.',
+    { resourceLimits },
+  );
+
+  const handleResetPreferences = () => {
+    resetPreferences();
+    toast({
+      title: 'Preferences reset',
+      description: 'Display preferences have been reset to defaults.',
+    });
+  };
+
+  const resetScmForm = () => {
+    setScmName('');
+    setScmToken('');
+    setScmPrivateKey('');
+    setScmNotes('');
+    setScmScope('platform');
+    setScmProjectId('');
+    setScmServiceId('');
+  };
+
+  const resetRegistryForm = () => {
+    setRegistryName('');
+    setRegistryUrl('');
+    setRegistryUsername('');
+    setRegistryPassword('');
+    setRegistryNotes('');
+    setRegistryScope('platform');
+    setRegistryProjectId('');
+    setRegistryServiceId('');
+  };
+
+  const resetSecretProviderForm = () => {
     setSecretProviderName('');
     setSecretProviderNotes('');
     setSecretVaultAddress('');
@@ -669,54 +796,23 @@ const SettingsPage = () => {
     setSecretAwsSecretKey('');
     setSecretGcpProjectId('');
     setSecretGcpServiceAccount('');
-    toast({ title: 'Provider added', description: 'Remember to save all changes.' });
   };
 
-  const handleRemoveSecretProvider = (id: string) => {
-    setSecretProviders((current) => current.filter((provider) => provider.id !== id));
-    if (defaultSecretProviderId === id) {
-      setDefaultSecretProviderId('');
-    }
+  const handleScmDialogOpenChange = (open: boolean) => {
+    if (isSavingScm) return;
+    setIsScmDialogOpen(open);
+    if (!open) resetScmForm();
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    const payload: PlatformSettings = {
-      organization: { name: orgName, slug: orgSlug, apiUrl },
-      database: { mongoUri: '', rabbitUrl: '' },
-      identity: {
-        saml: { enabled: false, entityId: '', ssoUrl: '', certificate: '' },
-        keycloak: { enabled: false, url: '', realm: '', clientId: '', clientSecret: '' },
-      },
-      notifications: {
-        deploySuccess: notifications.deploySuccess,
-        deployFailed: notifications.deployFailed,
-        serviceDown: notifications.serviceDown,
-        workerOffline: notifications.workerOffline,
-        highCpu: notifications.highCpu,
-      },
-      security: { require2fa: false, ipAllowlist: false, auditLogs: true },
-      integrations,
-      secrets: {
-        defaultProviderId: defaultSecretProviderId,
-        providers: secretProviders,
-      },
-    };
-    await updatePlatformSettings(payload);
-    setIsSaving(false);
-    await refreshProviderStatus();
-    toast({
-      title: 'Settings saved',
-      description: 'Your platform settings have been updated.',
-    });
+  const handleRegistryDialogOpenChange = (open: boolean) => {
+    if (isSavingRegistry) return;
+    setIsRegistryDialogOpen(open);
+    if (!open) resetRegistryForm();
   };
 
-  const handleResetPreferences = () => {
-    resetPreferences();
-    toast({
-      title: 'Preferences reset',
-      description: 'Display preferences have been reset to defaults.',
-    });
+  const handleSecretProviderDialogOpenChange = (open: boolean) => {
+    setIsSecretProviderDialogOpen(open);
+    if (!open) resetSecretProviderForm();
   };
 
   const handleCreateScmCredential = async () => {
@@ -741,7 +837,7 @@ const SettingsPage = () => {
       return;
     }
     setIsSavingScm(true);
-    await createScmCredential({
+    const created = await createScmCredential({
       name: scmName.trim(),
       provider: scmProvider,
       authType: scmAuthType,
@@ -752,14 +848,18 @@ const SettingsPage = () => {
       serviceId: scmScope === 'service' ? scmServiceId : '',
       notes: scmNotes.trim(),
     });
-    setScmName('');
-    setScmToken('');
-    setScmPrivateKey('');
-    setScmNotes('');
-    setScmScope('platform');
-    setScmProjectId('');
-    setScmServiceId('');
+    if (!created || !credentialIdFromDocument(created)) {
+      setIsSavingScm(false);
+      toast({
+        title: 'Failed to add SCM credential',
+        description: 'The credential was not stored. Check the API configuration and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    resetScmForm();
     setIsSavingScm(false);
+    setIsScmDialogOpen(false);
     await refreshCredentials();
     toast({ title: 'SCM credential added', description: 'Credential stored successfully.' });
   };
@@ -782,7 +882,7 @@ const SettingsPage = () => {
       return;
     }
     setIsSavingRegistry(true);
-    await createRegistryCredential({
+    const created = await createRegistryCredential({
       name: registryName.trim(),
       provider: registryProvider.trim(),
       registryUrl: registryUrl.trim(),
@@ -793,15 +893,18 @@ const SettingsPage = () => {
       serviceId: registryScope === 'service' ? registryServiceId : '',
       notes: registryNotes.trim(),
     });
-    setRegistryName('');
-    setRegistryUrl('');
-    setRegistryUsername('');
-    setRegistryPassword('');
-    setRegistryNotes('');
-    setRegistryScope('platform');
-    setRegistryProjectId('');
-    setRegistryServiceId('');
+    if (!created || !credentialIdFromDocument(created)) {
+      setIsSavingRegistry(false);
+      toast({
+        title: 'Failed to add registry credential',
+        description: 'The credential was not stored. Check the API configuration and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    resetRegistryForm();
     setIsSavingRegistry(false);
+    setIsRegistryDialogOpen(false);
     await refreshCredentials();
     toast({ title: 'Registry credential added', description: 'Credential stored successfully.' });
   };
@@ -1108,13 +1211,17 @@ const SettingsPage = () => {
           </TabsContent>
 
           <TabsContent value="credentials" className="space-y-6">
-            <div id="settings-scm-credential-form">
-              <SettingsSection
-                title="SCM credentials"
-                description="Store Git provider tokens or SSH keys for build access. Service overrides project, project overrides platform."
-              >
-                <div className="space-y-4">
-                <div className="rounded-lg border border-border bg-card">
+            <SettingsSection
+              title="SCM credentials"
+              description="Store Git provider tokens or SSH keys for build access. Service overrides project, project overrides platform."
+              actions={(
+                <Button size="sm" onClick={() => setIsScmDialogOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add SCM credential
+                </Button>
+              )}
+            >
+                <div className="overflow-x-auto rounded-lg border border-border bg-card">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
@@ -1172,8 +1279,17 @@ const SettingsPage = () => {
                     </tbody>
                   </table>
                 </div>
+            </SettingsSection>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Dialog open={isScmDialogOpen} onOpenChange={handleScmDialogOpenChange}>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Add SCM credential</DialogTitle>
+                  <DialogDescription>
+                    Configure a Git provider token or SSH key and choose where it applies.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-4 py-2 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Name</Label>
                     <Input
@@ -1288,23 +1404,29 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleCreateScmCredential} disabled={isSavingScm} className="gap-2">
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => handleScmDialogOpenChange(false)} disabled={isSavingScm}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateScmCredential} disabled={isSavingScm} className="gap-2">
                       <KeyRound className="h-4 w-4" />
                       {isSavingScm ? 'Saving...' : 'Add SCM credential'}
-                    </Button>
-                  </div>
-                </div>
-              </SettingsSection>
-            </div>
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
-            <div id="settings-registry-credential-form">
-              <SettingsSection
-                title="Registry credentials"
-                description="Store container registry credentials for push and deploy operations."
-              >
-                <div className="space-y-4">
-                <div className="rounded-lg border border-border bg-card">
+            <SettingsSection
+              title="Registry credentials"
+              description="Store container registry credentials for push and deploy operations."
+              actions={(
+                <Button size="sm" onClick={() => setIsRegistryDialogOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add registry credential
+                </Button>
+              )}
+            >
+                <div className="overflow-x-auto rounded-lg border border-border bg-card">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
@@ -1364,8 +1486,17 @@ const SettingsPage = () => {
                     </tbody>
                   </table>
                 </div>
+            </SettingsSection>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Dialog open={isRegistryDialogOpen} onOpenChange={handleRegistryDialogOpenChange}>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Add registry credential</DialogTitle>
+                  <DialogDescription>
+                    Configure access to an OCI registry and choose where the credential applies.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-4 py-2 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Name</Label>
                     <Input
@@ -1480,22 +1611,30 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleCreateRegistryCredential} disabled={isSavingRegistry} className="gap-2">
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => handleRegistryDialogOpenChange(false)} disabled={isSavingRegistry}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateRegistryCredential} disabled={isSavingRegistry} className="gap-2">
                       <KeyRound className="h-4 w-4" />
                       {isSavingRegistry ? 'Saving...' : 'Add registry credential'}
-                    </Button>
-                  </div>
-                </div>
-              </SettingsSection>
-            </div>
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <SettingsSection
               title="Secret providers"
               description="Connect a secrets manager and choose the default provider for services."
+              actions={(
+                <Button size="sm" onClick={() => setIsSecretProviderDialogOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add provider
+                </Button>
+              )}
             >
               <div className="space-y-4">
-                <div className="rounded-lg border border-border bg-card">
+                <div className="overflow-x-auto rounded-lg border border-border bg-card">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
@@ -1546,14 +1685,17 @@ const SettingsPage = () => {
                   </table>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2 md:col-span-2">
+                <div className="max-w-xl space-y-2">
                     <Label>Default provider</Label>
                     <Select
                       value={defaultSecretProviderId || 'none'}
-                      onValueChange={(value) =>
-                        setDefaultSecretProviderId(value === 'none' ? '' : value)
-                      }
+                      onValueChange={(value) => {
+                        const nextDefault = value === 'none' ? '' : value;
+                        setDefaultSecretProviderId(nextDefault);
+                        void savePlatformSection('secrets', 'Default secret provider updated.', {
+                          secrets: { defaultProviderId: nextDefault, providers: secretProviders },
+                        });
+                      }}
                     >
                       <SelectTrigger className="bg-muted/40">
                         <SelectValue placeholder="No default provider" />
@@ -1567,7 +1709,19 @@ const SettingsPage = () => {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                </div>
+              </div>
+            </SettingsSection>
+
+            <Dialog open={isSecretProviderDialogOpen} onOpenChange={handleSecretProviderDialogOpenChange}>
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Add secret provider</DialogTitle>
+                  <DialogDescription>
+                    Connect a secrets manager used to resolve protected values during deployments.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-4 py-2 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Name</Label>
                     <Input
@@ -1685,14 +1839,17 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <div className="flex justify-end">
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => handleSecretProviderDialogOpenChange(false)}>
+                    Cancel
+                  </Button>
                   <Button onClick={handleAddSecretProvider} className="gap-2">
                     <KeyRound className="h-4 w-4" />
                     Add secret provider
                   </Button>
-                </div>
-              </div>
-            </SettingsSection>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-6">
@@ -1704,6 +1861,15 @@ const SettingsPage = () => {
             <SettingsSection
               title="Organization"
               description="Basic organization settings"
+              actions={(
+                <Button
+                  size="sm"
+                  onClick={() => setOrganizationConfirmOpen(true)}
+                  disabled={savingSection === 'organization'}
+                >
+                  {savingSection === 'organization' ? 'Saving...' : 'Save organization'}
+                </Button>
+              )}
             >
               <SettingsGrid columns={2}>
                 <div className="space-y-2">
@@ -1735,6 +1901,39 @@ const SettingsPage = () => {
                 />
               </div>
             </SettingsSection>
+
+            <Dialog open={organizationConfirmOpen} onOpenChange={(open) => {
+              setOrganizationConfirmOpen(open);
+              if (!open) setOrganizationConfirmation('');
+            }}>
+              <DialogContent className="sm:max-w-[460px]">
+                <DialogHeader>
+                  <DialogTitle>Confirm organization changes</DialogTitle>
+                  <DialogDescription>
+                    Organization identity affects platform URLs and references. Type <strong>{savedOrgName}</strong> to confirm these changes.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2 py-2">
+                  <Label htmlFor="organization-confirmation">Organization name</Label>
+                  <Input
+                    id="organization-confirmation"
+                    value={organizationConfirmation}
+                    onChange={(event) => setOrganizationConfirmation(event.target.value)}
+                    placeholder={savedOrgName}
+                    autoComplete="off"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setOrganizationConfirmOpen(false)}>Cancel</Button>
+                  <Button
+                    onClick={() => void handleSaveOrganization()}
+                    disabled={organizationConfirmation !== savedOrgName || savingSection === 'organization'}
+                  >
+                    {savingSection === 'organization' ? 'Saving...' : 'Confirm changes'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {providerCatalogSections.length > 0 && (
               <SettingsSection
@@ -1893,9 +2092,8 @@ const SettingsPage = () => {
                     </div>
                     <Switch
                       checked={notifications[item.id as keyof typeof notifications]}
-                      onCheckedChange={(checked) =>
-                        setNotifications(prev => ({ ...prev, [item.id]: checked }))
-                      }
+                      disabled={savingSection === 'notifications'}
+                      onCheckedChange={(checked) => handleNotificationChange(item.id as keyof typeof notifications, checked)}
                     />
                   </div>
                 ))}
@@ -1919,9 +2117,8 @@ const SettingsPage = () => {
                     </div>
                     <Switch
                       checked={notifications[item.id as keyof typeof notifications]}
-                      onCheckedChange={(checked) =>
-                        setNotifications(prev => ({ ...prev, [item.id]: checked }))
-                      }
+                      disabled={savingSection === 'notifications'}
+                      onCheckedChange={(checked) => handleNotificationChange(item.id as keyof typeof notifications, checked)}
                     />
                   </div>
                 ))}
@@ -1944,9 +2141,8 @@ const SettingsPage = () => {
                     </div>
                     <Switch
                       checked={notifications[item.id as keyof typeof notifications]}
-                      onCheckedChange={(checked) =>
-                        setNotifications(prev => ({ ...prev, [item.id]: checked }))
-                      }
+                      disabled={savingSection === 'notifications'}
+                      onCheckedChange={(checked) => handleNotificationChange(item.id as keyof typeof notifications, checked)}
                     />
                   </div>
                 ))}
@@ -1959,6 +2155,12 @@ const SettingsPage = () => {
             <SettingsSection
               title="Service templates"
               description="Manage the catalog of templates available in the New Service flow."
+              actions={(
+                <Button size="sm" onClick={() => setTemplateImportOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Import templates
+                </Button>
+              )}
             >
               <div className="space-y-4">
                 <div className="rounded-lg border border-border bg-card">
@@ -2043,14 +2245,25 @@ const SettingsPage = () => {
                           title="No templates yet"
                           description="Import a template definition to populate the service catalog."
                           actionLabel="Load starter template"
-                          onAction={() => setTemplateImportPayload(STARTER_TEMPLATE_IMPORT)}
+                          onAction={() => {
+                            setTemplateImportPayload(STARTER_TEMPLATE_IMPORT);
+                            setTemplateImportOpen(true);
+                          }}
                         />
                       )}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="space-y-3">
+                <Dialog open={templateImportOpen} onOpenChange={setTemplateImportOpen}>
+                  <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+                    <DialogHeader>
+                      <DialogTitle>Import service templates</DialogTitle>
+                      <DialogDescription>
+                        Paste a YAML or JSON template, verify the definition, and import it into the service catalog.
+                      </DialogDescription>
+                    </DialogHeader>
+                <div className="space-y-3 py-2">
                   <div className="space-y-1">
                     <Label>Import templates (YAML or JSON)</Label>
                     <p className="text-xs text-muted-foreground">
@@ -2066,27 +2279,10 @@ const SettingsPage = () => {
                     }}
                     placeholder="id: microservice-node\nlabel: Node.js Microservice\n..."
                   />
-                  <div className="flex items-center justify-between">
+                  <div>
                     <p className="text-xs text-muted-foreground">
                       Templates with matching IDs will be updated.
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleVerifyTemplates}
-                        disabled={isVerifyingTemplates || isImportingTemplates}
-                      >
-                        {isVerifyingTemplates ? 'Verifying...' : 'Verify templates'}
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={handleImportTemplates}
-                        disabled={isImportingTemplates}
-                      >
-                        {isImportingTemplates ? 'Importing...' : 'Import templates'}
-                      </Button>
-                    </div>
                   </div>
                   {templateVerificationPreview.length > 0 && (
                     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -2133,6 +2329,22 @@ const SettingsPage = () => {
                     </div>
                   )}
                 </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setTemplateImportOpen(false)}>Cancel</Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleVerifyTemplates}
+                        disabled={isVerifyingTemplates || isImportingTemplates}
+                      >
+                        {isVerifyingTemplates ? 'Verifying...' : 'Verify templates'}
+                      </Button>
+                      <Button type="button" onClick={handleImportTemplates} disabled={isImportingTemplates}>
+                        {isImportingTemplates ? 'Importing...' : 'Import templates'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             </SettingsSection>
           </TabsContent>
@@ -2152,6 +2364,7 @@ const SettingsPage = () => {
                     onChange={(e) =>
                       setResourceLimits(prev => ({ ...prev, maxServicesPerProject: parseInt(e.target.value) || 50 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2163,6 +2376,7 @@ const SettingsPage = () => {
                     onChange={(e) =>
                       setResourceLimits(prev => ({ ...prev, maxReplicasPerService: parseInt(e.target.value) || 10 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2170,10 +2384,12 @@ const SettingsPage = () => {
                   <Label>Max CPU cores per replica</Label>
                   <Input
                     type="number"
+                    step="0.1"
                     value={resourceLimits.maxCpuPerReplica}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, maxCpuPerReplica: parseInt(e.target.value) || 4 }))
+                      setResourceLimits(prev => ({ ...prev, maxCpuPerReplica: parseFloat(e.target.value) || 4 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2186,6 +2402,7 @@ const SettingsPage = () => {
                   onChange={(e) =>
                     setResourceLimits(prev => ({ ...prev, maxMemoryPerReplica: parseInt(e.target.value) || 8192 }))
                   }
+                  onBlur={() => void handleSaveResourceLimits()}
                   className="bg-muted/40 max-w-xs"
                 />
               </div>
@@ -2204,6 +2421,7 @@ const SettingsPage = () => {
                     onChange={(e) =>
                       setResourceLimits(prev => ({ ...prev, defaultReplicas: parseInt(e.target.value) || 2 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2216,6 +2434,7 @@ const SettingsPage = () => {
                     onChange={(e) =>
                       setResourceLimits(prev => ({ ...prev, defaultCpu: parseFloat(e.target.value) || 0.5 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2227,6 +2446,7 @@ const SettingsPage = () => {
                     onChange={(e) =>
                       setResourceLimits(prev => ({ ...prev, defaultMemory: parseInt(e.target.value) || 512 }))
                     }
+                    onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
                   />
                 </div>
@@ -2236,11 +2456,6 @@ const SettingsPage = () => {
 
         </Tabs>
 
-        <div className="flex justify-end pt-4 border-t border-border">
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Saving...' : 'Save all changes'}
-          </Button>
-        </div>
       </div>
     </AppLayout>
   );

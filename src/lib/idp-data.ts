@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/api-client';
 import { clientLogger } from '@/platform/logging/client-logger';
 import type {
   IdentityProviderConfig,
+  IdpConnection,
   GroupMapping,
   IdpSession,
   IdpAuditLog,
@@ -116,6 +117,42 @@ export const updateIdpConfig = async (
     apiClient.put<IdentityProviderConfig>('/identity/config', config),
     config,
     'updateIdpConfig'
+  );
+};
+
+export const fetchIdpConnections = async (): Promise<IdpConnection[]> => {
+  return resolveResponse(
+    apiClient.get<IdpConnection[]>('/identity/connections'),
+    [],
+    'fetchIdpConnections'
+  );
+};
+
+export const createIdpConnection = async (
+  connection: Omit<IdpConnection, 'id' | 'createdAt'>
+): Promise<IdpConnection | null> => {
+  const { data, error } = await apiClient.post<IdpConnection>('/identity/connections', connection);
+  if (error || !data) {
+    clientLogger.warn('api.createIdpConnection', 'Action failed', { error });
+    return null;
+  }
+  return data;
+};
+
+export const updateIdpConnection = async (
+  id: string,
+  connection: Partial<IdpConnection>
+): Promise<boolean> => {
+  return resolveAction(
+    apiClient.put(`/identity/connections/${id}`, connection),
+    'updateIdpConnection'
+  );
+};
+
+export const deleteIdpConnection = async (id: string): Promise<boolean> => {
+  return resolveAction(
+    apiClient.delete(`/identity/connections/${id}`),
+    'deleteIdpConnection'
   );
 };
 

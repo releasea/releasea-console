@@ -270,87 +270,116 @@ const GovernancePage = () => {
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
   const [reviewComment, setReviewComment] = useState('');
 
-  const updateDeployPolicyRule = (index: number, patch: Partial<DeployPolicyRule>) => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        deployPolicy: {
-          ...prev.deployPolicy,
-          rules: prev.deployPolicy.rules.map((rule, ruleIndex) =>
-            ruleIndex === index ? { ...rule, ...patch } : rule
-          ),
-        },
-      };
-    });
+  const persistGovernanceSettings = async (nextSettings: GovernanceSettings) => {
+    setIsSaving(true);
+    try {
+      const updatedSettings = await updateGovernanceSettings(nextSettings);
+      setSettings((current) => current === nextSettings ? updatedSettings : current);
+      setAuditLogs(await fetchAuditLogs());
+      toast({ title: 'Setting updated', description: 'The policy change was saved automatically.' });
+    } catch (error) {
+      toast({
+        title: 'Failed to save governance settings',
+        description: error instanceof Error ? error.message : 'Try again in a few moments.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateSettingsSection = <K extends keyof GovernanceSettings,>(
+    section: K,
+    value: GovernanceSettings[K],
+    persist = true,
+  ) => {
+    if (!settings) return;
+    const next = { ...settings, [section]: value };
+    setSettings(next);
+    if (persist) void persistGovernanceSettings(next);
+  };
+
+  const updateDeployPolicyRule = (index: number, patch: Partial<DeployPolicyRule>, persist = false) => {
+    if (!settings) return;
+    const next = {
+      ...settings,
+      deployPolicy: {
+        ...settings.deployPolicy,
+        rules: settings.deployPolicy.rules.map((rule, ruleIndex) =>
+          ruleIndex === index ? { ...rule, ...patch } : rule
+        ),
+      },
+    };
+    setSettings(next);
+    if (persist) void persistGovernanceSettings(next);
   };
 
   const addDeployPolicyRule = () => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
+    if (!settings) return;
+    const next = {
+        ...settings,
         deployPolicy: {
-          ...prev.deployPolicy,
+          ...settings.deployPolicy,
           rules: [
-            ...prev.deployPolicy.rules,
+            ...settings.deployPolicy.rules,
             {
               ...createDefaultDeployPolicyRule(),
             },
           ],
         },
       };
-    });
+    setSettings(next);
+    void persistGovernanceSettings(next);
   };
 
   const seedStarterDeployPolicyRule = () => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
+    if (!settings) return;
+    const next = {
+        ...settings,
         deployPolicy: {
-          ...prev.deployPolicy,
+          ...settings.deployPolicy,
           enabled: true,
-          rules: prev.deployPolicy.rules.length > 0 ? prev.deployPolicy.rules : [createDefaultDeployPolicyRule()],
+          rules: settings.deployPolicy.rules.length > 0 ? settings.deployPolicy.rules : [createDefaultDeployPolicyRule()],
         },
       };
-    });
+    setSettings(next);
+    void persistGovernanceSettings(next);
   };
 
   const removeDeployPolicyRule = (index: number) => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
+    if (!settings) return;
+    const next = {
+        ...settings,
         deployPolicy: {
-          ...prev.deployPolicy,
-          rules: prev.deployPolicy.rules.filter((_, ruleIndex) => ruleIndex !== index),
+          ...settings.deployPolicy,
+          rules: settings.deployPolicy.rules.filter((_, ruleIndex) => ruleIndex !== index),
         },
       };
-    });
+    setSettings(next);
+    void persistGovernanceSettings(next);
   };
 
   const applyDeployPolicyPreset = (rules: DeployPolicyRule[]) => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
+    if (!settings) return;
+    const next = {
+        ...settings,
         deployPolicy: {
-          ...prev.deployPolicy,
+          ...settings.deployPolicy,
           enabled: true,
           rules,
         },
       };
-    });
+    setSettings(next);
+    void persistGovernanceSettings(next);
   };
 
   const applyPolicyPack = (packId: string) => {
-    setSettings(prev => {
-      if (!prev) return prev;
-      const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === packId);
-      if (!pack) return prev;
-      return applyGovernancePolicyPack(prev, pack);
-    });
+    if (!settings) return;
+    const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === packId);
+    if (!pack) return;
+    const next = applyGovernancePolicyPack(settings, pack);
+    setSettings(next);
+    void persistGovernanceSettings(next);
   };
 
   const runPolicySimulation = async () => {
@@ -825,29 +854,6 @@ const GovernancePage = () => {
     setReviewComment('');
   };
 
-  const handleSaveSettings = async () => {
-    if (!settings) return;
-    setIsSaving(true);
-    try {
-      const updatedSettings = await updateGovernanceSettings(settings);
-      const refreshedAuditLogs = await fetchAuditLogs();
-      setSettings(updatedSettings);
-      setAuditLogs(refreshedAuditLogs);
-      toast({
-        title: 'Settings saved',
-        description: 'Governance settings have been updated.',
-      });
-    } catch (error) {
-      toast({
-        title: 'Failed to save governance settings',
-        description: error instanceof Error ? error.message : 'Try again in a few moments.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const getStatusBadge = (status: ApprovalRequest['status']) => {
     switch (status) {
       case 'pending':
@@ -1014,6 +1020,9 @@ const GovernancePage = () => {
 
           {/* Policies Tab */}
           <TabsContent value="policies" className="space-y-6">
+            {isSaving && (
+              <div className="text-right text-xs text-muted-foreground" role="status">Saving policy change...</div>
+            )}
             {settings && (
               <>
                 <SettingsSection
@@ -1252,12 +1261,10 @@ const GovernancePage = () => {
                       </div>
                       <Switch
                         checked={settings.deployApproval.enabled}
-                        onCheckedChange={(checked) =>
-                          setSettings(prev => prev ? {
-                            ...prev,
-                            deployApproval: { ...prev.deployApproval, enabled: checked }
-                          } : prev)
-                        }
+                        onCheckedChange={(checked) => updateSettingsSection('deployApproval', {
+                          ...settings.deployApproval,
+                          enabled: checked,
+                        })}
                       />
                     </div>
                     {settings.deployApproval.enabled && (
@@ -1266,15 +1273,11 @@ const GovernancePage = () => {
                           <Label>Environments requiring approval</Label>
                           <Input
                             value={settings.deployApproval.environments.join(', ')}
-                            onChange={(e) =>
-                              setSettings(prev => prev ? {
-                                ...prev,
-                                deployApproval: {
-                                  ...prev.deployApproval,
-                                  environments: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                                }
-                              } : prev)
-                            }
+                            onChange={(e) => updateSettingsSection('deployApproval', {
+                              ...settings.deployApproval,
+                              environments: e.target.value.split(',').map(s => s.trim()).filter(Boolean),
+                            }, false)}
+                            onBlur={() => void persistGovernanceSettings(settings)}
                             className="bg-muted/40"
                             placeholder="prod, staging"
                           />
@@ -1286,15 +1289,11 @@ const GovernancePage = () => {
                             type="number"
                             min={1}
                             value={settings.deployApproval.minApprovers}
-                            onChange={(e) =>
-                              setSettings(prev => prev ? {
-                                ...prev,
-                                deployApproval: {
-                                  ...prev.deployApproval,
-                                  minApprovers: parseInt(e.target.value) || 1
-                                }
-                              } : prev)
-                            }
+                            onChange={(e) => updateSettingsSection('deployApproval', {
+                              ...settings.deployApproval,
+                              minApprovers: parseInt(e.target.value) || 1,
+                            }, false)}
+                            onBlur={() => void persistGovernanceSettings(settings)}
                             className="bg-muted/40"
                           />
                         </div>
@@ -1315,18 +1314,13 @@ const GovernancePage = () => {
                       </div>
                       <Switch
                         checked={settings.deployPolicy.enabled}
-                        onCheckedChange={(checked) =>
-                          setSettings(prev => prev ? {
-                            ...prev,
-                            deployPolicy: {
-                              ...prev.deployPolicy,
-                              enabled: checked,
-                              rules: checked && (prev.deployPolicy.rules?.length ?? 0) === 0
-                                ? [createDefaultDeployPolicyRule()]
-                                : (prev.deployPolicy.rules ?? []),
-                            }
-                          } : prev)
-                        }
+                        onCheckedChange={(checked) => updateSettingsSection('deployPolicy', {
+                          ...settings.deployPolicy,
+                          enabled: checked,
+                          rules: checked && (settings.deployPolicy.rules?.length ?? 0) === 0
+                            ? [createDefaultDeployPolicyRule()]
+                            : (settings.deployPolicy.rules ?? []),
+                        })}
                       />
                     </div>
 
@@ -1337,15 +1331,10 @@ const GovernancePage = () => {
                       </div>
                       <Switch
                         checked={settings.deployPolicy.dryRun}
-                        onCheckedChange={(checked) =>
-                          setSettings(prev => prev ? {
-                            ...prev,
-                            deployPolicy: {
-                              ...prev.deployPolicy,
-                              dryRun: checked,
-                            }
-                          } : prev)
-                        }
+                        onCheckedChange={(checked) => updateSettingsSection('deployPolicy', {
+                          ...settings.deployPolicy,
+                          dryRun: checked,
+                        })}
                         disabled={!settings.deployPolicy.enabled}
                       />
                     </div>
@@ -1433,6 +1422,7 @@ const GovernancePage = () => {
                                     <Input
                                       value={rule.environment}
                                       onChange={(e) => updateDeployPolicyRule(index, { environment: e.target.value })}
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="prod"
                                     />
@@ -1446,6 +1436,7 @@ const GovernancePage = () => {
                                           allowedSourceTypes: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="git, registry"
                                     />
@@ -1460,6 +1451,7 @@ const GovernancePage = () => {
                                           allowedProfileIds: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="rp-medium, rp-large"
                                     />
@@ -1474,6 +1466,7 @@ const GovernancePage = () => {
                                           allowedRegistries: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="ghcr.io, us-central1-docker.pkg.dev"
                                     />
@@ -1488,6 +1481,7 @@ const GovernancePage = () => {
                                           allowedScmProviders: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="github, gitlab"
                                     />
@@ -1502,6 +1496,7 @@ const GovernancePage = () => {
                                           allowedRegistryProviders: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="ghcr, docker, ecr"
                                     />
@@ -1516,6 +1511,7 @@ const GovernancePage = () => {
                                           allowedSecretProviders: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="vault, aws, gcp"
                                     />
@@ -1530,6 +1526,7 @@ const GovernancePage = () => {
                                           allowedStrategies: parsePolicyList(e.target.value),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                       placeholder="rolling, canary"
                                     />
@@ -1546,6 +1543,7 @@ const GovernancePage = () => {
                                           maxReplicas: Math.max(0, parseInt(e.target.value, 10) || 0),
                                         })
                                       }
+                                      onBlur={() => void persistGovernanceSettings(settings)}
                                       className="bg-muted/40"
                                     />
                                     <p className="text-xs text-muted-foreground">Use `0` for no replica limit.</p>
@@ -1560,7 +1558,7 @@ const GovernancePage = () => {
                                     </div>
                                     <Switch
                                       checked={rule.allowAutoDeploy}
-                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { allowAutoDeploy: checked })}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { allowAutoDeploy: checked }, true)}
                                     />
                                   </div>
                                   <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3">
@@ -1570,7 +1568,7 @@ const GovernancePage = () => {
                                     </div>
                                     <Switch
                                       checked={rule.requireExplicitVersion}
-                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { requireExplicitVersion: checked })}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { requireExplicitVersion: checked }, true)}
                                     />
                                   </div>
                                   <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 p-3">
@@ -1580,7 +1578,7 @@ const GovernancePage = () => {
                                     </div>
                                     <Switch
                                       checked={rule.blockExternalExposure}
-                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { blockExternalExposure: checked })}
+                                      onCheckedChange={(checked) => updateDeployPolicyRule(index, { blockExternalExposure: checked }, true)}
                                     />
                                   </div>
                                 </div>
@@ -1605,12 +1603,10 @@ const GovernancePage = () => {
                       </div>
                       <Switch
                         checked={settings.rulePublishApproval.enabled}
-                        onCheckedChange={(checked) =>
-                          setSettings(prev => prev ? {
-                            ...prev,
-                            rulePublishApproval: { ...prev.rulePublishApproval, enabled: checked }
-                          } : prev)
-                        }
+                        onCheckedChange={(checked) => updateSettingsSection('rulePublishApproval', {
+                          ...settings.rulePublishApproval,
+                          enabled: checked,
+                        })}
                       />
                     </div>
                     {settings.rulePublishApproval.enabled && (
@@ -1622,12 +1618,10 @@ const GovernancePage = () => {
                           </div>
                           <Switch
                             checked={settings.rulePublishApproval.externalOnly}
-                            onCheckedChange={(checked) =>
-                              setSettings(prev => prev ? {
-                                ...prev,
-                                rulePublishApproval: { ...prev.rulePublishApproval, externalOnly: checked }
-                              } : prev)
-                            }
+                            onCheckedChange={(checked) => updateSettingsSection('rulePublishApproval', {
+                              ...settings.rulePublishApproval,
+                              externalOnly: checked,
+                            })}
                           />
                         </div>
                         <div className="space-y-2 max-w-xs">
@@ -1636,15 +1630,11 @@ const GovernancePage = () => {
                             type="number"
                             min={1}
                             value={settings.rulePublishApproval.minApprovers}
-                            onChange={(e) =>
-                              setSettings(prev => prev ? {
-                                ...prev,
-                                rulePublishApproval: {
-                                  ...prev.rulePublishApproval,
-                                  minApprovers: parseInt(e.target.value) || 1
-                                }
-                              } : prev)
-                            }
+                            onChange={(e) => updateSettingsSection('rulePublishApproval', {
+                              ...settings.rulePublishApproval,
+                              minApprovers: parseInt(e.target.value) || 1,
+                            }, false)}
+                            onBlur={() => void persistGovernanceSettings(settings)}
                             className="bg-muted/40"
                           />
                         </div>
@@ -1663,23 +1653,14 @@ const GovernancePage = () => {
                       type="number"
                       min={30}
                       value={settings.auditRetentionDays}
-                      onChange={(e) =>
-                        setSettings(prev => prev ? {
-                          ...prev,
-                          auditRetentionDays: parseInt(e.target.value) || 90
-                        } : prev)
-                      }
+                      onChange={(e) => updateSettingsSection('auditRetentionDays', parseInt(e.target.value) || 90, false)}
+                      onBlur={() => void persistGovernanceSettings(settings)}
                       className="bg-muted/40"
                     />
                     <p className="text-xs text-muted-foreground">Minimum 30 days</p>
                   </div>
                 </SettingsSection>
 
-                <div className="flex justify-end pt-4 border-t border-border">
-                  <Button onClick={handleSaveSettings} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : 'Save policies'}
-                  </Button>
-                </div>
               </>
             )}
           </TabsContent>

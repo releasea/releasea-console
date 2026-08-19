@@ -2,8 +2,11 @@
 const productionDefaultApiBaseUrl = typeof window !== 'undefined'
   ? `${window.location.origin}/api`
   : '/api';
+const developmentDefaultApiBaseUrl = typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.hostname}:8070/api`
+  : 'http://localhost:8070/api';
 const defaultApiBaseUrl = import.meta.env.DEV
-  ? 'http://localhost:8070/api'
+  ? developmentDefaultApiBaseUrl
   : productionDefaultApiBaseUrl;
 
 const rawApiBaseUrl = import.meta.env.RELEASEA_API_BASE_URL || defaultApiBaseUrl;
