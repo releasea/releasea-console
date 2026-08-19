@@ -1,20 +1,27 @@
 import { ReactNode } from 'react';
+import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SettingsSectionProps {
+  id?: string;
   title: string;
   description?: string;
   children: ReactNode;
   actions?: ReactNode;
+  status?: 'idle' | 'saving' | 'saved' | 'error';
+  statusMessage?: string;
   className?: string;
   variant?: 'default' | 'danger';
 }
 
 export function SettingsSection({
+  id,
   title,
   description,
   children,
   actions,
+  status = 'idle',
+  statusMessage,
   className,
   variant = 'default',
 }: SettingsSectionProps) {
@@ -22,6 +29,7 @@ export function SettingsSection({
 
   return (
     <div
+      id={id}
       className={cn(
         'rounded-lg border bg-card overflow-hidden',
         isDanger ? 'border-destructive/40' : 'border-border',
@@ -38,7 +46,24 @@ export function SettingsSection({
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
         </div>
-        {actions}
+        <div className="flex flex-wrap items-center gap-2">
+          {status !== 'idle' && (
+            <div
+              role={status === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+              className={cn(
+                'flex items-center gap-1.5 text-xs',
+                status === 'error' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {status === 'saving' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {status === 'saved' && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
+              {status === 'error' && <AlertCircle className="h-3.5 w-3.5" />}
+              <span>{statusMessage ?? (status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Could not save')}</span>
+            </div>
+          )}
+          {actions}
+        </div>
       </div>
       <div className="p-4">{children}</div>
     </div>

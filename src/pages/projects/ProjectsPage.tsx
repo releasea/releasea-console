@@ -105,7 +105,8 @@ const Projects = () => {
       <div className="space-y-6">
         <ListPageHeader
           title="Projects"
-          description="Manage all projects in the platform"
+          description="Group services, credentials, and delivery ownership."
+          docsSlug="projects-and-teams"
           actions={
             <Button onClick={() => setCreateModalOpen(true)}>
               <Plus className="w-4 h-4" />
@@ -162,8 +163,10 @@ const Projects = () => {
             <div className="col-span-full rounded-lg border border-dashed border-border bg-card/60 p-10">
               <EmptyState
                 icon={<FolderKanban className="h-5 w-5 text-muted-foreground" />}
-                title="Nothing here yet"
-                description="You can add new items or adjust your search."
+                title={projects.length === 0 ? 'No projects yet' : 'No projects match your filters'}
+                description={projects.length === 0 ? 'Create a project to group services, access, and delivery settings.' : 'Adjust the search or filters to find another project.'}
+                actionLabel={projects.length === 0 ? 'Create project' : undefined}
+                onAction={projects.length === 0 ? () => setCreateModalOpen(true) : undefined}
                 tone="muted"
               />
             </div>

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, CheckCircle2, Loader2, Plus, Save, Trash2, Wifi } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronDown, Loader2, Plus, Save, Trash2, Wifi } from 'lucide-react';
 import { SettingsSection } from '@/components/layout/SettingsSection';
+import { EmptyState } from '@/components/layout/EmptyState';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
+import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +59,7 @@ export function AIProvidersSettings() {
   const [usage, setUsage] = useState<AIUsageSummary>({ from: '', providers: [] });
   const [formOpen, setFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AIProvider | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const [providerData, usageData] = await Promise.all([fetchAIProviders(), fetchAIUsage()]);
@@ -86,6 +91,7 @@ export function AIProvidersSettings() {
       apiKey: '',
     });
     setFormOpen(true);
+    setAdvancedOpen(false);
   };
 
   const changeType = (type: AIProviderType) => setForm((current) => ({
@@ -136,6 +142,7 @@ export function AIProvidersSettings() {
     setEditingId(null);
     setForm(emptyProvider());
     setFormOpen(true);
+    setAdvancedOpen(false);
   };
 
   return (
@@ -144,16 +151,25 @@ export function AIProvidersSettings() {
         title="Operational AI providers"
         description="Connect OpenAI or an OpenAI-compatible local runtime. Releasea sends sanitized, read-only operational evidence and never shares deployment credentials."
         actions={(
-          <Button size="sm" onClick={openCreate} className="gap-2">
-            <Plus className="h-4 w-4" /> Add AI provider
-          </Button>
+          <>
+            <DocumentationLink slug="operational-ai" label="AI guide" variant="button" />
+            <Button size="sm" onClick={openCreate} className="gap-2">
+              <Plus className="h-4 w-4" /> Add AI provider
+            </Button>
+          </>
         )}
       >
         <div className="space-y-3">
           {providers.length === 0 && (
-            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              No AI provider configured. Add one to enable service diagnostics.
-            </div>
+            <EmptyState
+              icon={<Bot className="h-6 w-6 text-muted-foreground" />}
+              title="No AI provider configured"
+              description="Connect OpenAI or a compatible local runtime to enable read-only service diagnostics."
+              actionLabel="Configure first provider"
+              onAction={openCreate}
+              compact
+              tone="muted"
+            />
           )}
           {providers.map((provider) => (
             <div key={provider.id} className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -188,12 +204,14 @@ export function AIProvidersSettings() {
       </SettingsSection>
 
       <SettingsSection title="Usage (last 30 days)" description="Token totals are recorded from provider responses and support quota and cost review.">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {providers.length === 0 ? (
+          <EmptyState icon={<Bot className="h-6 w-6 text-muted-foreground" />} title="Usage will appear here" description="Add and use an AI provider to start collecting token and analysis totals." compact tone="muted" />
+        ) : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Analyses</p><p className="mt-1 text-2xl font-semibold">{usage.providers.reduce((sum, item) => sum + item.analyses, 0).toLocaleString()}</p></div>
           <div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Input tokens</p><p className="mt-1 text-2xl font-semibold">{usage.providers.reduce((sum, item) => sum + item.inputTokens, 0).toLocaleString()}</p></div>
           <div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Output tokens</p><p className="mt-1 text-2xl font-semibold">{usage.providers.reduce((sum, item) => sum + item.outputTokens, 0).toLocaleString()}</p></div>
           <div className="rounded-lg border p-4"><p className="text-xs text-muted-foreground">Total tokens</p><p className="mt-1 text-2xl font-semibold">{usage.providers.reduce((sum, item) => sum + item.totalTokens, 0).toLocaleString()}</p></div>
-        </div>
+        </div>}
       </SettingsSection>
 
       <Dialog open={formOpen} onOpenChange={(open) => {
@@ -206,25 +224,40 @@ export function AIProvidersSettings() {
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit AI provider' : 'Add AI provider'}</DialogTitle>
-            <DialogDescription>For Ollama, llama.cpp, vLLM, or another compatible runtime, use its OpenAI-compatible /v1 endpoint.</DialogDescription>
+            <DialogDescription>
+              Connect a model for evidence-backed diagnostics. Releasea keeps the workflow read-only and requires human review.
+            </DialogDescription>
           </DialogHeader>
+          <div className="flex justify-end">
+            <DocumentationLink slug="operational-ai" label="Review setup and security" />
+          </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="ai-name">Name</Label><Input id="ai-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production assistant" /></div>
-          <div className="space-y-2"><Label>Provider type</Label><Select value={form.type} onValueChange={(value) => changeType(value as AIProviderType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="openai">OpenAI API</SelectItem><SelectItem value="openai-compatible">OpenAI-compatible</SelectItem></SelectContent></Select></div>
-          <div className="space-y-2 md:col-span-2"><Label htmlFor="ai-url">Base URL</Label><Input id="ai-url" value={form.baseUrl} disabled={form.type === 'openai'} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-model">Model</Label><Input id="ai-model" value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Model exposed by the provider" /></div>
-          <div className="space-y-2"><Label htmlFor="ai-key">API key {editingId && '(leave blank to keep current)'}</Label><Input id="ai-key" type="password" value={form.apiKey ?? ''} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} autoComplete="new-password" /></div>
-          <div className="space-y-2"><Label htmlFor="ai-output">Maximum output tokens</Label><Input id="ai-output" type="number" min={1} max={12000} value={form.maxOutputTokens} onChange={(event) => setForm({ ...form, maxOutputTokens: Number(event.target.value) })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-limit">Daily token limit (0 = unlimited)</Label><Input id="ai-limit" type="number" min={0} value={form.dailyTokenLimit} onChange={(event) => setForm({ ...form, dailyTokenLimit: Number(event.target.value) })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-context">Maximum context characters</Label><Input id="ai-context" type="number" min={4000} max={250000} value={form.maxInputChars} onChange={(event) => setForm({ ...form, maxInputChars: Number(event.target.value) })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-timeout">Request timeout (seconds)</Label><Input id="ai-timeout" type="number" min={1} max={180} value={form.timeoutSeconds} onChange={(event) => setForm({ ...form, timeoutSeconds: Number(event.target.value) })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-retention">Analysis retention (days)</Label><Input id="ai-retention" type="number" min={1} max={365} value={form.retentionDays} onChange={(event) => setForm({ ...form, retentionDays: Number(event.target.value) })} /></div>
+          <div className="space-y-2"><Label htmlFor="ai-name">Connection name</Label><Input id="ai-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production diagnostics" /><p className="text-xs text-muted-foreground">Use a name that identifies the runtime or intended workload.</p></div>
+          <div className="space-y-2"><Label>Provider type</Label><Select value={form.type} onValueChange={(value) => changeType(value as AIProviderType)}><SelectTrigger aria-label="AI provider type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="openai">OpenAI API</SelectItem><SelectItem value="openai-compatible">OpenAI-compatible runtime</SelectItem></SelectContent></Select><p className="text-xs text-muted-foreground">Compatible runtimes include Ollama, llama.cpp, and vLLM with a /v1 endpoint.</p></div>
+          <div className="space-y-2 md:col-span-2"><Label htmlFor="ai-url">Base URL</Label><Input id="ai-url" type="url" value={form.baseUrl} disabled={form.type === 'openai'} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} /><p className="text-xs text-muted-foreground">Enter the OpenAI-compatible API root, including /v1.</p></div>
+          <div className="space-y-2"><Label htmlFor="ai-model">Model identifier</Label><Input id="ai-model" value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Model exposed by the provider" /></div>
+          <div className="space-y-2"><Label htmlFor="ai-key">API key {editingId && <span className="font-normal text-muted-foreground">(optional when unchanged)</span>}</Label><Input id="ai-key" type="password" value={form.apiKey ?? ''} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} autoComplete="new-password" /><p className="text-xs text-muted-foreground">Stored encrypted and never returned by the API.</p></div>
           <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Enabled</p><p className="text-xs text-muted-foreground">Allow read-only inference requests</p></div><Switch checked={form.enabled} onCheckedChange={(value) => setForm({ ...form, enabled: value })} /></div>
           <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Default provider</p><p className="text-xs text-muted-foreground">Selected when no provider is specified</p></div><Switch checked={form.default} onCheckedChange={(value) => setForm({ ...form, default: value })} /></div>
-          <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Private network</p><p className="text-xs text-muted-foreground">Required for local runtimes</p></div><Switch checked={form.allowPrivateNetwork} disabled={form.type === 'openai'} onCheckedChange={(value) => setForm({ ...form, allowPrivateNetwork: value })} /></div>
-          <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Inference egress</p><p className="text-xs text-muted-foreground">Master switch for provider calls</p></div><Switch checked={form.externalEgress} onCheckedChange={(value) => setForm({ ...form, externalEgress: value })} /></div>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="md:col-span-2 rounded-lg border">
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="ghost" className="w-full justify-between rounded-lg px-4">
+                Advanced settings
+                <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-4 border-t p-4 md:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="ai-output">Maximum output tokens</Label><Input id="ai-output" type="number" min={1} max={12000} value={form.maxOutputTokens} onChange={(event) => setForm({ ...form, maxOutputTokens: Number(event.target.value) })} /></div>
+              <div className="space-y-2"><Label htmlFor="ai-limit">Daily token limit (0 = unlimited)</Label><Input id="ai-limit" type="number" min={0} value={form.dailyTokenLimit} onChange={(event) => setForm({ ...form, dailyTokenLimit: Number(event.target.value) })} /></div>
+              <div className="space-y-2"><Label htmlFor="ai-context">Maximum context characters</Label><Input id="ai-context" type="number" min={4000} max={250000} value={form.maxInputChars} onChange={(event) => setForm({ ...form, maxInputChars: Number(event.target.value) })} /></div>
+              <div className="space-y-2"><Label htmlFor="ai-timeout">Request timeout (seconds)</Label><Input id="ai-timeout" type="number" min={1} max={180} value={form.timeoutSeconds} onChange={(event) => setForm({ ...form, timeoutSeconds: Number(event.target.value) })} /></div>
+              <div className="space-y-2"><Label htmlFor="ai-retention">Analysis retention (days)</Label><Input id="ai-retention" type="number" min={1} max={365} value={form.retentionDays} onChange={(event) => setForm({ ...form, retentionDays: Number(event.target.value) })} /></div>
+              <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Private network</p><p className="text-xs text-muted-foreground">Required for local runtimes</p></div><Switch checked={form.allowPrivateNetwork} disabled={form.type === 'openai'} onCheckedChange={(value) => setForm({ ...form, allowPrivateNetwork: value })} /></div>
+              <div className="flex items-center justify-between rounded-lg border p-3 md:col-span-2"><div><p className="text-sm font-medium">Inference egress</p><p className="text-xs text-muted-foreground">Master switch for provider calls</p></div><Switch checked={form.externalEgress} onCheckedChange={(value) => setForm({ ...form, externalEgress: value })} /></div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
           <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
           <Button onClick={() => void save()} disabled={busy || !form.name.trim() || !form.model.trim()}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? 'Save provider' : 'Add provider'}
@@ -233,20 +266,15 @@ export function AIProvidersSettings() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete AI provider?</DialogTitle>
-            <DialogDescription>
-              {deleteTarget?.name} will be removed. Providers with analysis history may need to be disabled instead.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteTarget && void remove(deleteTarget)}>Delete provider</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDeleteModal
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete AI provider?"
+        description={`${deleteTarget?.name ?? 'This provider'} will no longer be available for service analysis. Providers with retained analysis history may need to be disabled instead.`}
+        confirmPhrase={deleteTarget?.name ?? 'delete'}
+        confirmLabel="Delete provider"
+        onConfirm={() => deleteTarget ? remove(deleteTarget) : undefined}
+      />
     </div>
   );
 }

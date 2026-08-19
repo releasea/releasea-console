@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -37,6 +39,7 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'developer' | 'viewer'>('developer');
   const [isLoading, setIsLoading] = useState(false);
+  const [memberError, setMemberError] = useState('');
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -44,11 +47,23 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
   };
 
   const addMember = () => {
-    if (newEmail && !members.find(m => m.email === newEmail)) {
-      setMembers([...members, { email: newEmail, role: newRole }]);
-      setNewEmail('');
-      setNewRole('developer');
+    const email = newEmail.trim().toLowerCase();
+    if (!email) {
+      setMemberError('Enter an email address before adding a member.');
+      return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMemberError('Enter a valid email address.');
+      return;
+    }
+    if (members.some((member) => member.email.toLowerCase() === email)) {
+      setMemberError('This member is already included.');
+      return;
+    }
+    setMembers([...members, { email, role: newRole }]);
+    setNewEmail('');
+    setNewRole('developer');
+    setMemberError('');
   };
 
   const removeMember = (email: string) => {
@@ -59,13 +74,23 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
     e.preventDefault();
     setIsLoading(true);
 
-    await performAction({
+    const created = await performAction({
       endpoint: '/teams',
       method: 'POST',
       payload: { name, slug, members },
       label: 'createTeam',
     });
     
+    if (!created) {
+      setIsLoading(false);
+      toast({
+        title: 'Unable to create team',
+        description: 'Review the team details and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     toast({
       title: 'Team created',
       description: `The "${name}" team was created. ${members.length} invitations sent.`,
@@ -83,6 +108,13 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
     setMembers([]);
     setNewEmail('');
     setNewRole('developer');
+    setMemberError('');
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (isLoading && !nextOpen) return;
+    if (!nextOpen) resetForm();
+    onOpenChange(nextOpen);
   };
 
   const getRoleLabel = (role: string) => {
@@ -95,15 +127,18 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[500px] bg-card border-border">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">New Team</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">Create team</DialogTitle>
+          <DialogDescription>
+            Define the ownership group now. Member invitations are optional and can be sent later.
+          </DialogDescription>
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-5 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Team Name</Label>
+            <Label htmlFor="name">Team name</Label>
             <Input
               id="name"
               value={name}
@@ -128,16 +163,18 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
 
           <div className="space-y-3">
             <Label>Invite Members</Label>
+            <p className="text-xs text-muted-foreground">Add only the people who should receive access immediately.</p>
             <div className="flex gap-2">
               <Input
+                aria-label="Member email"
                 type="email"
                 value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
+                onChange={(e) => { setNewEmail(e.target.value); setMemberError(''); }}
                 placeholder="email@example.com"
                 className="bg-muted/50 flex-1"
               />
               <Select value={newRole} onValueChange={(value: InviteMember['role']) => setNewRole(value)}>
-                <SelectTrigger className="w-32 bg-muted/50">
+                <SelectTrigger className="w-32 bg-muted/50" aria-label="Member role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -146,10 +183,11 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
                   <SelectItem value="viewer">Viewer</SelectItem>
                 </SelectContent>
               </Select>
-              <Button type="button" variant="secondary" size="icon" onClick={addMember}>
+              <Button type="button" variant="secondary" size="icon" onClick={addMember} aria-label="Add member to invitation list">
                 <Plus className="w-4 h-4" />
               </Button>
             </div>
+            {memberError && <p role="alert" className="text-xs text-destructive">{memberError}</p>}
 
             {members.length > 0 && (
               <div className="space-y-2 mt-3">
@@ -171,6 +209,7 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
                       size="icon"
                       className="h-6 w-6"
                       onClick={() => removeMember(member.email)}
+                      aria-label={`Remove ${member.email} from invitation list`}
                     >
                       <X className="w-3 h-3" />
                     </Button>
@@ -180,20 +219,20 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
             )}
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <DialogFooter className="border-t border-border pt-4">
             <Button
               type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
               disabled={isLoading}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading} className="gap-2">
+            <Button type="submit" disabled={isLoading || !name.trim() || !slug.trim()} className="gap-2">
               <Plus className="w-4 h-4" />
-              {isLoading ? 'Creating...' : 'Create Team'}
+              {isLoading ? 'Creating...' : 'Create team'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

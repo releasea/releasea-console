@@ -26,7 +26,7 @@ describe('AIProvidersSettings', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add AI provider' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add AI provider' });
-    expect(within(dialog).getByLabelText('Name')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Connection name')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Add provider' })).toBeInTheDocument();
     expect(screen.getByText('Usage (last 30 days)')).toBeInTheDocument();
   });

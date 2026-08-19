@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -44,16 +46,27 @@ export function ConfirmDeleteModal({
   const handleConfirm = async () => {
     if (!isMatch || isLoading) return;
     setIsLoading(true);
-    await Promise.resolve(onConfirm());
-    setIsLoading(false);
-    onOpenChange(false);
+    try {
+      await Promise.resolve(onConfirm());
+      onOpenChange(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (isLoading && !nextOpen) return;
+    onOpenChange(nextOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[460px] bg-card border-border">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">{title}</DialogTitle>
+          <DialogDescription>
+            Confirm the target and impact before continuing.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-2">
@@ -75,15 +88,15 @@ export function ConfirmDeleteModal({
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-border">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isLoading}>
+          <DialogFooter className="border-t border-border pt-4">
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isLoading}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleConfirm} disabled={!isMatch || isLoading} className="gap-2">
               <Trash2 className="w-4 h-4" />
               {isLoading ? 'Deleting...' : confirmLabel}
             </Button>
-          </div>
+          </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>

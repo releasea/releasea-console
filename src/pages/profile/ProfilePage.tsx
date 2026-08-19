@@ -145,7 +145,8 @@ const Profile = () => {
       <div className="space-y-6 w-full">
         <ListPageHeader
           title="Profile"
-          description="Manage your account settings and preferences"
+          description="Manage your identity, preferences, and account security."
+          docsSlug="settings-identity-governance"
         />
 
         <div className="space-y-6">

@@ -67,7 +67,7 @@ export const RulesTab = ({
         </Button>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" aria-label="Traffic rules">
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 whitespace-nowrap">
@@ -203,7 +203,7 @@ export const RulesTab = ({
                   <td className="px-4 py-3 text-right whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${rule.name}`}>
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>

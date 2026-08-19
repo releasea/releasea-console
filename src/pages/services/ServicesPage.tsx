@@ -360,7 +360,7 @@ const Services = () => {
         <div onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${service.name}`}>
                 <MoreVertical className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -409,7 +409,8 @@ const Services = () => {
       <div className="space-y-6">
         <ListPageHeader
           title="Services"
-          description="Manage microservices and sites"
+          description="Create, deploy, and operate applications from one place."
+          docsSlug="services"
           actions={
             <Button onClick={() => navigate('/services/new')}>
               <Plus className="w-4 h-4" />
@@ -476,6 +477,7 @@ const Services = () => {
         </div>
 
         <DataTable
+          ariaLabel="Services"
           columns={columns}
           data={filteredServices}
           keyExtractor={(service) => service.id}

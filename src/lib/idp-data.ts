@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import { clientLogger } from '@/platform/logging/client-logger';
+import { reportApiLoadFailure, reportApiLoadRecovery } from '@/platform/http/api-feedback';
 import type {
   IdentityProviderConfig,
   IdpConnection,
@@ -84,8 +85,10 @@ const resolveResponse = async <T>(
   const { data, error } = await request;
   if (error || data == null) {
     clientLogger.warn(`api.${label}`, 'Request failed', { error });
+    reportApiLoadFailure(label, error ?? 'The API returned an empty response.');
     return fallback;
   }
+  reportApiLoadRecovery(label);
   return data;
 };
 

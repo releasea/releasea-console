@@ -3,6 +3,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
 import { TopBar } from './TopBar';
 import { PlatformReadinessBanner } from './PlatformReadinessBanner';
+import { ApiLoadErrorBanner } from './ApiLoadErrorBanner';
 import { fetchEnvironments } from '@/lib/data';
 
 interface AppLayoutProps {
@@ -22,6 +23,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <AppSidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <PlatformReadinessBanner />
+            <ApiLoadErrorBanner />
             <main className="flex-1 overflow-auto p-6">
               {children}
             </main>

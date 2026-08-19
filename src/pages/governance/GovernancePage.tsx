@@ -20,10 +20,12 @@ import {
   Plus,
   Trash2,
   Download,
+  ChevronDown,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -250,6 +252,15 @@ const GovernancePage = () => {
   const [temporaryExceptions, setTemporaryExceptions] = useState<GovernanceTemporaryException[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [pendingPolicyAction, setPendingPolicyAction] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    destructive?: boolean;
+    run: () => void;
+  } | null>(null);
+  const [expandedRuleIndex, setExpandedRuleIndex] = useState<number | null>(0);
   const [isExceptionSaving, setIsExceptionSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<GovernanceTab>('approvals');
 
@@ -272,17 +283,20 @@ const GovernancePage = () => {
 
   const persistGovernanceSettings = async (nextSettings: GovernanceSettings) => {
     setIsSaving(true);
+    setSaveStatus('saving');
     try {
       const updatedSettings = await updateGovernanceSettings(nextSettings);
       setSettings((current) => current === nextSettings ? updatedSettings : current);
       setAuditLogs(await fetchAuditLogs());
-      toast({ title: 'Setting updated', description: 'The policy change was saved automatically.' });
+      setSaveStatus('saved');
+      window.setTimeout(() => setSaveStatus((current) => current === 'saved' ? 'idle' : current), 2500);
     } catch (error) {
       toast({
         title: 'Failed to save governance settings',
         description: error instanceof Error ? error.message : 'Try again in a few moments.',
         variant: 'destructive',
       });
+      setSaveStatus('error');
     } finally {
       setIsSaving(false);
     }
@@ -329,6 +343,7 @@ const GovernancePage = () => {
         },
       };
     setSettings(next);
+    setExpandedRuleIndex(settings.deployPolicy.rules.length);
     void persistGovernanceSettings(next);
   };
 
@@ -348,38 +363,56 @@ const GovernancePage = () => {
 
   const removeDeployPolicyRule = (index: number) => {
     if (!settings) return;
-    const next = {
+    setPendingPolicyAction({
+      title: 'Remove deploy policy rule?',
+      description: `Rule ${index + 1} will stop protecting its configured environment immediately.`,
+      confirmLabel: 'Remove rule',
+      destructive: true,
+      run: () => {
+        const next = {
         ...settings,
         deployPolicy: {
           ...settings.deployPolicy,
           rules: settings.deployPolicy.rules.filter((_, ruleIndex) => ruleIndex !== index),
         },
-      };
-    setSettings(next);
-    void persistGovernanceSettings(next);
+        };
+        setSettings(next);
+        void persistGovernanceSettings(next);
+      },
+    });
   };
 
   const applyDeployPolicyPreset = (rules: DeployPolicyRule[]) => {
     if (!settings) return;
-    const next = {
-        ...settings,
-        deployPolicy: {
-          ...settings.deployPolicy,
-          enabled: true,
-          rules,
-        },
-      };
-    setSettings(next);
-    void persistGovernanceSettings(next);
+    setPendingPolicyAction({
+      title: 'Apply deploy policy preset?',
+      description: `This will replace the current ${settings.deployPolicy.rules.length} deploy policy rule(s) with ${rules.length} preset rule(s).`,
+      confirmLabel: 'Apply preset',
+      run: () => {
+        const next = {
+          ...settings,
+          deployPolicy: { ...settings.deployPolicy, enabled: true, rules },
+        };
+        setSettings(next);
+        void persistGovernanceSettings(next);
+      },
+    });
   };
 
   const applyPolicyPack = (packId: string) => {
     if (!settings) return;
     const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === packId);
     if (!pack) return;
-    const next = applyGovernancePolicyPack(settings, pack);
-    setSettings(next);
-    void persistGovernanceSettings(next);
+    setPendingPolicyAction({
+      title: `Apply ${pack.label}?`,
+      description: 'This pack replaces deployment, publishing, approval, and retention settings with its baseline.',
+      confirmLabel: 'Apply policy pack',
+      run: () => {
+        const next = applyGovernancePolicyPack(settings, pack);
+        setSettings(next);
+        void persistGovernanceSettings(next);
+      },
+    });
   };
 
   const runPolicySimulation = async () => {
@@ -884,7 +917,8 @@ const GovernancePage = () => {
       <div className="space-y-6 w-full">
         <ListPageHeader
           title="Governance"
-          description="Manage approvals, policies and audit logs"
+          description="Control approvals, deployment policies, and audit history."
+          docsSlug="settings-identity-governance"
         />
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="space-y-6">
@@ -1020,14 +1054,27 @@ const GovernancePage = () => {
 
           {/* Policies Tab */}
           <TabsContent value="policies" className="space-y-6">
-            {isSaving && (
-              <div className="text-right text-xs text-muted-foreground" role="status">Saving policy change...</div>
-            )}
             {settings && (
               <>
+                <nav aria-label="Policy sections" className="sticky top-3 z-20 -mx-1 flex gap-2 overflow-x-auto rounded-lg border border-border/70 bg-background/95 p-2 shadow-sm backdrop-blur">
+                  {[
+                    ['policy-packs', 'Packs'],
+                    ['policy-simulation', 'Simulation'],
+                    ['policy-exceptions', 'Exceptions'],
+                    ['policy-deploy', 'Deploy approval'],
+                    ['policy-rules', 'Deploy rules'],
+                    ['policy-publish', 'Publishing'],
+                    ['policy-audit', 'Audit'],
+                  ].map(([id, label]) => (
+                    <Button key={id} type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{label}</Button>
+                  ))}
+                </nav>
                 <SettingsSection
+                  id="policy-packs"
                   title="Policy packs by environment tier"
                   description="Apply a complete governance baseline for common environment tiers, then tune individual rules."
+                  status={saveStatus}
+                  actions={<DocumentationLink slug="settings-identity-governance" label="Policy guide" variant="button" />}
                 >
                   <div className="grid gap-3 md:grid-cols-3">
                     {GOVERNANCE_POLICY_PACKS.map((pack) => (
@@ -1070,6 +1117,7 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-simulation"
                   title="Policy simulation"
                   description="Evaluate the current policy against existing services before tightening enforcement."
                 >
@@ -1167,6 +1215,7 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-exceptions"
                   title="Temporary exceptions"
                   description="Create time-bound deploy-policy exceptions for specific services while migration or remediation work is in flight."
                 >
@@ -1250,8 +1299,10 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-deploy"
                   title="Deployment approval"
                   description="Require approval before deploying to specific environments"
+                  status={saveStatus}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between py-3 border-b border-border/50">
@@ -1303,8 +1354,11 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-rules"
                   title="Deploy policy rules"
                   description="Code-like environment rules evaluated before deploy, promote, or external publication is queued"
+                  status={saveStatus}
+                  actions={<DocumentationLink slug="rules-and-traffic" label="Rules guide" variant="button" />}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between py-3 border-b border-border/50">
@@ -1400,10 +1454,13 @@ const GovernancePage = () => {
                                 className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-4"
                               >
                                 <div className="flex items-start justify-between gap-4">
+                                  <button type="button" className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left" onClick={() => setExpandedRuleIndex((current) => current === index ? null : index)} aria-expanded={expandedRuleIndex === index}>
                                   <div>
                                     <p className="text-sm font-medium text-foreground">Rule {index + 1}</p>
-                                <p className="text-xs text-muted-foreground">Environment-specific deploy and exposure guardrails.</p>
+                                    <p className="text-xs text-muted-foreground">{rule.environment || 'No environment'} · {rule.allowedSourceTypes.length ? rule.allowedSourceTypes.join(', ') : 'all sources'}</p>
                                   </div>
+                                  <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expandedRuleIndex === index ? 'rotate-180' : ''}`} />
+                                  </button>
                                   <Button
                                     type="button"
                                     variant="ghost"
@@ -1416,6 +1473,7 @@ const GovernancePage = () => {
                                   </Button>
                                 </div>
 
+                                {expandedRuleIndex === index && <>
                                 <SettingsGrid columns={2}>
                                   <div className="space-y-2">
                                     <Label>Environment</Label>
@@ -1582,6 +1640,7 @@ const GovernancePage = () => {
                                     />
                                   </div>
                                 </div>
+                                </>}
                               </div>
                             ))}
                           </div>
@@ -1592,8 +1651,10 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-publish"
                   title="Rule publish approval"
                   description="Require approval before publishing rules to external gateways"
+                  status={saveStatus}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between py-3 border-b border-border/50">
@@ -1644,8 +1705,10 @@ const GovernancePage = () => {
                 </SettingsSection>
 
                 <SettingsSection
+                  id="policy-audit"
                   title="Audit settings"
                   description="Configure audit log retention"
+                  status={saveStatus}
                 >
                   <div className="space-y-2 max-w-xs">
                     <Label>Retention period (days)</Label>
@@ -1977,6 +2040,28 @@ const GovernancePage = () => {
             </Button>
             <Button onClick={handleCreateException} disabled={isExceptionSaving}>
               {isExceptionSaving ? 'Creating...' : 'Create exception'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(pendingPolicyAction)} onOpenChange={(open) => !open && setPendingPolicyAction(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{pendingPolicyAction?.title}</DialogTitle>
+            <DialogDescription>{pendingPolicyAction?.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingPolicyAction(null)}>Cancel</Button>
+            <Button
+              variant={pendingPolicyAction?.destructive ? 'destructive' : 'default'}
+              onClick={() => {
+                const action = pendingPolicyAction;
+                setPendingPolicyAction(null);
+                action?.run();
+              }}
+            >
+              {pendingPolicyAction?.confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -98,7 +98,7 @@ export const EventsTab = ({
       )}
     </div>
     <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <table className="w-full">
+      <table className="w-full" aria-label="Service events">
         <thead>
           <tr className="border-b border-border bg-muted/30">
             <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
