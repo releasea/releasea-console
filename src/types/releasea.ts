@@ -62,6 +62,15 @@ export interface AIProvider {
   updatedAt: string;
 }
 
+export interface AIProviderOption {
+  id: string;
+  name: string;
+  type: AIProviderType;
+  model: string;
+  default: boolean;
+  health?: { state: string; message: string; checkedAt: string; capabilities?: string[] };
+}
+
 export interface AIAnalysisEvidence {
   id: string;
   type: string;
@@ -88,6 +97,7 @@ export interface AIAnalysis {
     limitations: string[];
   };
   evidence?: AIAnalysisEvidence[];
+  evidenceTruncated?: boolean;
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
   durationMs?: number;
   error?: string;

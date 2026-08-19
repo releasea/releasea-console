@@ -44,7 +44,7 @@ export function AIProvidersSettings() {
   const [form, setForm] = useState<AIProviderInput>(emptyProvider);
   const [busy, setBusy] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
-	const [usage, setUsage] = useState<AIUsageSummary>({ from: '', providers: [] });
+  const [usage, setUsage] = useState<AIUsageSummary>({ from: '', providers: [] });
 
   const refresh = useCallback(async () => {
     const [providerData, usageData] = await Promise.all([fetchAIProviders(), fetchAIUsage()]);
@@ -180,7 +180,7 @@ export function AIProvidersSettings() {
           <div className="space-y-2"><Label htmlFor="ai-key">API key {editingId && '(leave blank to keep current)'}</Label><Input id="ai-key" type="password" value={form.apiKey ?? ''} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} autoComplete="new-password" /></div>
           <div className="space-y-2"><Label htmlFor="ai-output">Maximum output tokens</Label><Input id="ai-output" type="number" min={1} max={12000} value={form.maxOutputTokens} onChange={(event) => setForm({ ...form, maxOutputTokens: Number(event.target.value) })} /></div>
           <div className="space-y-2"><Label htmlFor="ai-limit">Daily token limit (0 = unlimited)</Label><Input id="ai-limit" type="number" min={0} value={form.dailyTokenLimit} onChange={(event) => setForm({ ...form, dailyTokenLimit: Number(event.target.value) })} /></div>
-          <div className="space-y-2"><Label htmlFor="ai-context">Maximum context characters</Label><Input id="ai-context" type="number" min={1000} max={250000} value={form.maxInputChars} onChange={(event) => setForm({ ...form, maxInputChars: Number(event.target.value) })} /></div>
+          <div className="space-y-2"><Label htmlFor="ai-context">Maximum context characters</Label><Input id="ai-context" type="number" min={4000} max={250000} value={form.maxInputChars} onChange={(event) => setForm({ ...form, maxInputChars: Number(event.target.value) })} /></div>
           <div className="space-y-2"><Label htmlFor="ai-timeout">Request timeout (seconds)</Label><Input id="ai-timeout" type="number" min={1} max={180} value={form.timeoutSeconds} onChange={(event) => setForm({ ...form, timeoutSeconds: Number(event.target.value) })} /></div>
           <div className="space-y-2"><Label htmlFor="ai-retention">Analysis retention (days)</Label><Input id="ai-retention" type="number" min={1} max={365} value={form.retentionDays} onChange={(event) => setForm({ ...form, retentionDays: Number(event.target.value) })} /></div>
           <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Enabled</p><p className="text-xs text-muted-foreground">Allow read-only inference requests</p></div><Switch checked={form.enabled} onCheckedChange={(value) => setForm({ ...form, enabled: value })} /></div>
