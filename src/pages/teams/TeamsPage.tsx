@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, MoreVertical, Settings, Shield, Crown, Code, Eye, Users as UsersIcon, Pencil, Trash2, KeyRound, UserPlus } from 'lucide-react';
+import { Plus, MoreVertical, Shield, Crown, Code, Eye, Users as UsersIcon, Trash2, KeyRound, UserPlus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { TableFiltersBar } from '@/components/layout/TableFiltersBar';
@@ -304,6 +304,8 @@ const Teams = () => {
                 icon={<UsersIcon className="h-5 w-5 text-muted-foreground" />}
                 title={emptyTitle}
                 description={emptyDescription}
+                actionLabel={!searchQuery && idpFilter === 'all' ? 'Create team' : undefined}
+                onAction={!searchQuery && idpFilter === 'all' ? () => setCreateModalOpen(true) : undefined}
                 tone="muted"
               />
             </div>
@@ -387,22 +389,6 @@ const Teams = () => {
                               >
                                 <UserPlus className="w-4 h-4 mr-2" />
                                 Invite member
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  toast({ title: 'Edit team', description: `Opening editor for "${team.name}"...` });
-                                }}
-                              >
-                                <Pencil className="w-4 h-4 mr-2" />
-                                Edit team
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  toast({ title: 'Team settings', description: `Opening settings for "${team.name}"...` });
-                                }}
-                              >
-                                <Settings className="w-4 h-4 mr-2" />
-                                Team settings
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem

@@ -15,6 +15,7 @@ import {
   Link2,
   FileText,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -39,6 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { fetchTeams } from '@/lib/data';
@@ -55,6 +57,10 @@ import {
   revokeIdpSession,
   fetchIdpAuditLogs,
   testIdpConnection,
+  fetchIdpConnections,
+  createIdpConnection,
+  updateIdpConnection,
+  deleteIdpConnection,
 } from '@/lib/idp-data';
 import type { Team } from '@/types/releasea';
 import type {
@@ -63,6 +69,8 @@ import type {
   IdpSession,
   IdpAuditLog,
   IdpRole,
+  IdpConnection,
+  IdpProtocol,
 } from '@/types/identity-provider';
 
 const roleColors: Record<string, string> = {
@@ -102,6 +110,11 @@ const IdentityProvider = () => {
   const [groupMappings, setGroupMappings] = useState<GroupMapping[]>([]);
   const [sessions, setSessions] = useState<IdpSession[]>([]);
   const [auditLogs, setAuditLogs] = useState<IdpAuditLog[]>([]);
+  const [connections, setConnections] = useState<IdpConnection[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
+  const [deletingConnection, setDeletingConnection] = useState<IdpConnection | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -148,9 +161,10 @@ const IdentityProvider = () => {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [teamsData, configData, mappingsData, sessionsData, logsData] = await Promise.all([
+      const [teamsData, configData, connectionsData, mappingsData, sessionsData, logsData] = await Promise.all([
         fetchTeams(),
         fetchIdpConfig(),
+        fetchIdpConnections(),
         fetchGroupMappings(),
         fetchIdpSessions(),
         fetchIdpAuditLogs(),
@@ -159,6 +173,8 @@ const IdentityProvider = () => {
 
       setTeams(teamsData);
       setConfig(configData);
+      setConnections(connectionsData);
+      setConnectionsLoading(false);
       setGroupMappings(mappingsData);
       setSessions(sessionsData);
       setAuditLogs(logsData);
@@ -202,11 +218,9 @@ const IdentityProvider = () => {
     };
   }, []);
 
-  const handleSave = async () => {
-    if (!config) return;
-    setIsSaving(true);
-
-    const nextConfig: IdentityProviderConfig = {
+  const buildConfig = (): IdentityProviderConfig | null => {
+    if (!config) return null;
+    return {
       saml: {
         ...config.saml,
         enabled: samlEnabled,
@@ -246,11 +260,130 @@ const IdentityProvider = () => {
         allowedDomains: allowedDomains.split(/[\s,]+/).filter(Boolean),
       },
     };
+  };
+
+  const handleSave = async () => {
+    const nextConfig = buildConfig();
+    if (!nextConfig) return;
+    setIsSaving(true);
 
     await updateIdpConfig(nextConfig);
     setConfig(nextConfig);
     setIsSaving(false);
     toast({ title: 'Settings saved', description: 'Identity provider configuration updated.' });
+  };
+
+  const persistAtomicConfig = async (
+    section: 'provisioning' | 'session' | 'security',
+    patch: Partial<IdentityProviderConfig[typeof section]>,
+  ) => {
+    const nextConfig = buildConfig();
+    if (!nextConfig) return;
+    nextConfig[section] = { ...nextConfig[section], ...patch } as never;
+    setConfig(nextConfig);
+    setIsSaving(true);
+    await updateIdpConfig(nextConfig);
+    setIsSaving(false);
+    toast({ title: 'Setting updated', description: 'The change was saved automatically.' });
+  };
+
+  const handleAddConnection = async (protocol: IdpProtocol) => {
+    const existing = connections.find((connection) => connection.protocol === protocol);
+    if (existing) {
+      setEditingConnectionId(existing.id);
+      setAddProviderOpen(false);
+      return;
+    }
+
+    const connection = await createIdpConnection({
+      name: protocol === 'saml' ? 'SAML 2.0' : 'OpenID Connect',
+      protocol,
+      status: 'inactive',
+      usersCount: 0,
+      groupsCount: 0,
+    });
+    if (!connection) {
+      toast({ title: 'Unable to add provider', description: 'The connection could not be saved.', variant: 'destructive' });
+      return;
+    }
+    setConnections((current) => [...current, connection]);
+    setEditingConnectionId(connection.id);
+    setAddProviderOpen(false);
+    toast({ title: 'Identity provider added', description: 'Complete the connection details and enable it when ready.' });
+  };
+
+  const handleConnectionToggle = async (connection: IdpConnection, enabled: boolean) => {
+    if (connection.protocol === 'saml') setSamlEnabled(enabled);
+    else setOidcEnabled(enabled);
+
+    if (enabled) {
+      setEditingConnectionId(connection.id);
+      return;
+    }
+
+    if (!config) return;
+    const nextConfig: IdentityProviderConfig = {
+      ...config,
+      [connection.protocol]: { ...config[connection.protocol], enabled: false },
+    };
+    setIsSaving(true);
+    await Promise.all([
+      updateIdpConfig(nextConfig),
+      updateIdpConnection(connection.id, { status: 'inactive' }),
+    ]);
+    setConfig(nextConfig);
+    setConnections((current) => current.map((item) => (
+      item.id === connection.id ? { ...item, status: 'inactive' } : item
+    )));
+    setEditingConnectionId(null);
+    setIsSaving(false);
+    toast({ title: 'Identity provider disabled' });
+  };
+
+  const handleSaveConnection = async (connection: IdpConnection) => {
+    const nextConfig = buildConfig();
+    if (!nextConfig) return;
+    setIsSaving(true);
+    const summary = connection.protocol === 'saml'
+      ? { entityId: samlEntityId, ssoUrl: samlSsoUrl }
+      : { issuer: oidcIssuer, clientId: oidcClientId };
+    const saved = await updateIdpConnection(connection.id, { status: 'active', ...summary });
+    await updateIdpConfig(nextConfig);
+    setConfig(nextConfig);
+    if (saved) {
+      setConnections((current) => current.map((item) => (
+        item.id === connection.id ? { ...item, status: 'active', ...summary } : item
+      )));
+      setEditingConnectionId(null);
+      toast({ title: 'Identity provider saved', description: `${connection.name} is enabled and ready to use.` });
+    } else {
+      toast({ title: 'Unable to save provider', description: 'Review the connection and try again.', variant: 'destructive' });
+    }
+    setIsSaving(false);
+  };
+
+  const handleDeleteConnection = async () => {
+    if (!deletingConnection) return;
+    const connection = deletingConnection;
+    const removed = await deleteIdpConnection(connection.id);
+    if (!removed) {
+      toast({ title: 'Unable to remove provider', variant: 'destructive' });
+      return;
+    }
+    if (config) {
+      const nextConfig: IdentityProviderConfig = {
+        ...config,
+        [connection.protocol]: { ...config[connection.protocol], enabled: false },
+      };
+      await updateIdpConfig(nextConfig);
+      setConfig(nextConfig);
+    }
+    if (connection.protocol === 'saml') setSamlEnabled(false);
+    else setOidcEnabled(false);
+    setConnections((current) => current.filter((item) => item.id !== connection.id));
+    setDeletingConnection(null);
+    setEditingConnectionId(null);
+    toast({ title: 'Identity provider removed' });
   };
 
   const handleTestConnection = async (protocol: 'saml' | 'oidc') => {
@@ -320,6 +453,9 @@ const IdentityProvider = () => {
     }
   };
 
+  const samlConnection = connections.find((connection) => connection.protocol === 'saml');
+  const oidcConnection = connections.find((connection) => connection.protocol === 'oidc');
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -354,18 +490,76 @@ const IdentityProvider = () => {
 
           {/* Connection Tab */}
           <TabsContent value="connection" className="space-y-6">
-            {/* SAML Section */}
             <SettingsSection
-              title="SAML 2.0"
+              title="Identity providers"
+              description="Add and manage the sign-in connections available to your organization"
+              actions={(
+                <Button size="sm" onClick={() => setAddProviderOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add identity provider
+                </Button>
+              )}
+            >
+              {connectionsLoading ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">Loading identity providers...</div>
+              ) : connections.length === 0 ? (
+                <EmptyState
+                  icon={<Shield className="text-muted-foreground/50" />}
+                  title="No identity providers yet"
+                  description="Add a SAML or OpenID Connect provider to enable single sign-on."
+                  actionLabel="Add identity provider"
+                  onAction={() => setAddProviderOpen(true)}
+                  tone="muted"
+                  className="py-10"
+                />
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {connections.map((connection) => (
+                    <button
+                      key={connection.id}
+                      type="button"
+                      onClick={() => setEditingConnectionId(connection.id)}
+                      className={`rounded-lg border p-4 text-left transition-colors hover:border-primary/50 ${editingConnectionId === connection.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-md bg-muted p-2">
+                          {connection.protocol === 'saml' ? <Shield className="w-5 h-5" /> : <Key className="w-5 h-5" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-foreground">{connection.name}</p>
+                            <Badge variant={connection.status === 'active' ? 'default' : 'secondary'}>
+                              {connection.status === 'active' ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {connection.protocol === 'saml' ? 'SAML 2.0 enterprise SSO' : 'OAuth 2.0 / OpenID Connect'}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </SettingsSection>
+
+            {/* SAML Section */}
+            {samlConnection && (
+            <SettingsSection
+              title={samlConnection.name}
               description="Connect via Security Assertion Markup Language"
               actions={
                 <div className="flex items-center gap-2">
                   {samlEnabled && <Badge variant="secondary" className="text-xs">ENABLED</Badge>}
-                  <Switch checked={samlEnabled} onCheckedChange={setSamlEnabled} />
+                  <Switch checked={samlEnabled} onCheckedChange={(enabled) => handleConnectionToggle(samlConnection, enabled)} aria-label="Enable SAML 2.0" />
+                  <Button variant="outline" size="sm" onClick={() => setEditingConnectionId(samlConnection.id)}>
+                    <Pencil className="w-4 h-4 mr-2" /> Edit
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setDeletingConnection(samlConnection)} aria-label="Remove SAML 2.0"><Trash2 className="w-4 h-4" /></Button>
                 </div>
               }
             >
-              {samlEnabled ? (
+              {samlEnabled && editingConnectionId === samlConnection.id ? (
                 <div className="space-y-4">
                   <div className="p-3 bg-info/10 border border-info/30 rounded-lg">
                     <p className="text-xs text-info font-medium mb-1">Service Provider Details</p>
@@ -481,30 +675,41 @@ const IdentityProvider = () => {
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </Button>
                   </div>
+                  <div className="flex justify-end border-t border-border/60 pt-4">
+                    <Button onClick={() => handleSaveConnection(samlConnection)} disabled={isSaving || !config}>
+                      {isSaving ? 'Saving...' : 'Save SAML provider'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <EmptyState
                   icon={<Shield className="text-muted-foreground/50" />}
-                  title="Enable SAML to allow enterprise SSO"
-                  description="Users can sign in with their corporate identity"
+                  title={samlEnabled ? 'SAML provider ready to edit' : 'SAML provider is disabled'}
+                  description={samlEnabled ? 'Select Edit to review or change this connection.' : 'Enable this provider to configure and save the connection.'}
                   tone="muted"
                   className="py-8"
                 />
               )}
             </SettingsSection>
+            )}
 
             {/* OIDC Section */}
+            {oidcConnection && (
             <SettingsSection
-              title="OpenID Connect"
+              title={oidcConnection.name}
               description="Connect via OAuth 2.0 / OIDC protocol"
               actions={
                 <div className="flex items-center gap-2">
                   {oidcEnabled && <Badge variant="secondary" className="text-xs">ENABLED</Badge>}
-                  <Switch checked={oidcEnabled} onCheckedChange={setOidcEnabled} />
+                  <Switch checked={oidcEnabled} onCheckedChange={(enabled) => handleConnectionToggle(oidcConnection, enabled)} aria-label="Enable OpenID Connect" />
+                  <Button variant="outline" size="sm" onClick={() => setEditingConnectionId(oidcConnection.id)}>
+                    <Pencil className="w-4 h-4 mr-2" /> Edit
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setDeletingConnection(oidcConnection)} aria-label="Remove OpenID Connect"><Trash2 className="w-4 h-4" /></Button>
                 </div>
               }
             >
-              {oidcEnabled ? (
+              {oidcEnabled && editingConnectionId === oidcConnection.id ? (
                 <div className="space-y-4">
                   <div className="p-3 bg-info/10 border border-info/30 rounded-lg">
                     <p className="text-xs text-info font-medium mb-1">Redirect URI</p>
@@ -591,23 +796,24 @@ const IdentityProvider = () => {
                       {isTesting ? 'Testing...' : 'Test Connection'}
                     </Button>
                   </div>
+                  <div className="flex justify-end border-t border-border/60 pt-4">
+                    <Button onClick={() => handleSaveConnection(oidcConnection)} disabled={isSaving || !config}>
+                      {isSaving ? 'Saving...' : 'Save OIDC provider'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <EmptyState
                   icon={<Key className="text-muted-foreground/50" />}
-                  title="Enable OpenID Connect for OAuth-based SSO"
-                  description="Works with Okta, Auth0, Keycloak, and more"
+                  title={oidcEnabled ? 'OpenID Connect provider ready to edit' : 'OpenID Connect provider is disabled'}
+                  description={oidcEnabled ? 'Select Edit to review or change this connection.' : 'Enable this provider to configure and save the connection.'}
                   tone="muted"
                   className="py-8"
                 />
               )}
             </SettingsSection>
+            )}
 
-            <div className="flex justify-end pt-4 border-t border-border">
-              <Button onClick={handleSave} disabled={isSaving || !config}>
-                {isSaving ? 'Saving...' : 'Save Connection Settings'}
-              </Button>
-            </div>
           </TabsContent>
 
           {/* Provisioning Tab */}
@@ -622,7 +828,10 @@ const IdentityProvider = () => {
                     <p className="text-sm font-medium text-foreground">Auto-provision users</p>
                     <p className="text-xs text-muted-foreground">Automatically create users on first login</p>
                   </div>
-                  <Switch checked={autoProvision} onCheckedChange={setAutoProvision} />
+                  <Switch checked={autoProvision} onCheckedChange={(checked) => {
+                    setAutoProvision(checked);
+                    void persistAtomicConfig('provisioning', { autoProvision: checked });
+                  }} />
                 </div>
 
                 <div className="flex items-center justify-between py-2 border-t border-border/50">
@@ -630,14 +839,21 @@ const IdentityProvider = () => {
                     <p className="text-sm font-medium text-foreground">Auto-deprovision users</p>
                     <p className="text-xs text-muted-foreground">Remove users when they are removed from IdP</p>
                   </div>
-                  <Switch checked={autoDeprovision} onCheckedChange={setAutoDeprovision} />
+                  <Switch checked={autoDeprovision} onCheckedChange={(checked) => {
+                    setAutoDeprovision(checked);
+                    void persistAtomicConfig('provisioning', { autoDeprovision: checked });
+                  }} />
                 </div>
 
                 <div className="pt-2 border-t border-border/50">
                   <SettingsGrid columns={2}>
                     <div className="space-y-2">
                       <Label>Default Role</Label>
-                      <Select value={defaultRole} onValueChange={(v) => setDefaultRole(v as IdpRole)}>
+                      <Select value={defaultRole} onValueChange={(v) => {
+                        const role = v as IdpRole;
+                        setDefaultRole(role);
+                        void persistAtomicConfig('provisioning', { defaultRole: role });
+                      }}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -655,6 +871,7 @@ const IdentityProvider = () => {
                         type="number"
                         value={syncInterval}
                         onChange={(e) => setSyncInterval(Number(e.target.value))}
+                        onBlur={() => void persistAtomicConfig('provisioning', { syncInterval })}
                         min={5}
                         max={1440}
                       />
@@ -677,6 +894,7 @@ const IdentityProvider = () => {
                       type="number"
                       value={Math.round(sessionMaxAge / 3600)}
                       onChange={(e) => setSessionMaxAge(Number(e.target.value) * 3600)}
+                      onBlur={() => void persistAtomicConfig('session', { maxAge: sessionMaxAge })}
                       min={1}
                       max={720}
                     />
@@ -688,6 +906,7 @@ const IdentityProvider = () => {
                       type="number"
                       value={Math.round(sessionIdleTimeout / 60)}
                       onChange={(e) => setSessionIdleTimeout(Number(e.target.value) * 60)}
+                      onBlur={() => void persistAtomicConfig('session', { idleTimeout: sessionIdleTimeout })}
                       min={5}
                       max={480}
                     />
@@ -700,16 +919,14 @@ const IdentityProvider = () => {
                     <p className="text-sm font-medium text-foreground">Single Logout (SLO)</p>
                     <p className="text-xs text-muted-foreground">Sign out from IdP when logging out of platform</p>
                   </div>
-                  <Switch checked={singleLogout} onCheckedChange={setSingleLogout} />
+                  <Switch checked={singleLogout} onCheckedChange={(checked) => {
+                    setSingleLogout(checked);
+                    void persistAtomicConfig('session', { singleLogout: checked });
+                  }} />
                 </div>
               </div>
             </SettingsSection>
 
-            <div className="flex justify-end pt-4 border-t border-border">
-              <Button onClick={handleSave} disabled={isSaving || !config}>
-                {isSaving ? 'Saving...' : 'Save Provisioning Settings'}
-              </Button>
-            </div>
           </TabsContent>
 
           {/* Mappings Tab */}
@@ -888,7 +1105,10 @@ const IdentityProvider = () => {
                     <p className="text-sm font-medium text-foreground">Require MFA</p>
                     <p className="text-xs text-muted-foreground">Users must have MFA enabled at the IdP level</p>
                   </div>
-                  <Switch checked={requireMfa} onCheckedChange={setRequireMfa} />
+                  <Switch checked={requireMfa} onCheckedChange={(checked) => {
+                    setRequireMfa(checked);
+                    void persistAtomicConfig('security', { requireMfa: checked });
+                  }} />
                 </div>
 
                 <div className="pt-2 border-t border-border/50 space-y-2">
@@ -897,6 +1117,9 @@ const IdentityProvider = () => {
                     id="allowed-domains"
                     value={allowedDomains}
                     onChange={(e) => setAllowedDomains(e.target.value)}
+                    onBlur={() => void persistAtomicConfig('security', {
+                      allowedDomains: allowedDomains.split(/[\s,]+/).filter(Boolean),
+                    })}
                     placeholder="company.com, subsidiary.com"
                     className="font-mono text-sm"
                   />
@@ -923,14 +1146,77 @@ const IdentityProvider = () => {
               </div>
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-border">
-              <Button onClick={handleSave} disabled={isSaving || !config}>
-                {isSaving ? 'Saving...' : 'Save Security Settings'}
-              </Button>
-            </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={addProviderOpen} onOpenChange={setAddProviderOpen}>
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle>Add identity provider</DialogTitle>
+            <DialogDescription>
+              Choose the protocol supported by your identity platform. You can configure the connection after selecting it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-3 sm:grid-cols-2">
+            {([
+              {
+                protocol: 'saml' as const,
+                title: 'SAML 2.0',
+                description: 'Enterprise SSO for Microsoft Entra ID, Okta, Google Workspace, and similar providers.',
+                icon: Shield,
+              },
+              {
+                protocol: 'oidc' as const,
+                title: 'OpenID Connect',
+                description: 'Modern OAuth-based SSO for Keycloak, Auth0, Okta, and custom identity services.',
+                icon: Key,
+              },
+            ]).map((option) => {
+              const alreadyAdded = connections.some((connection) => connection.protocol === option.protocol);
+              const OptionIcon = option.icon;
+              return (
+                <button
+                  key={option.protocol}
+                  type="button"
+                  onClick={() => handleAddConnection(option.protocol)}
+                  className="group rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="rounded-lg bg-primary/10 p-2.5 text-primary">
+                      <OptionIcon className="h-6 w-6" />
+                    </div>
+                    {alreadyAdded && <Badge variant="secondary">Already added</Badge>}
+                  </div>
+                  <p className="mt-4 font-semibold text-foreground">{option.title}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{option.description}</p>
+                  <p className="mt-4 text-sm font-medium text-primary">
+                    {alreadyAdded ? 'Open configuration' : 'Select provider'}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddProviderOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deletingConnection)} onOpenChange={(open) => !open && setDeletingConnection(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Remove identity provider?</DialogTitle>
+            <DialogDescription>
+              {deletingConnection?.name} will no longer be available for sign-in. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingConnection(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteConnection}>Remove provider</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Mapping Modal */}
       <Dialog open={mappingModalOpen} onOpenChange={setMappingModalOpen}>
