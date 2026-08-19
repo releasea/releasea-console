@@ -1578,9 +1578,10 @@ const ServiceDetails = () => {
     setMaxReplicas(String(Math.max(serviceMinReplicas, serviceMaxReplicas)));
     setIsServiceActive(service.isActive ?? true);
     // Only set viewEnv and reset metrics/logs state on first load - preserve user's manual selection
+    let initialViewEnv: Environment | undefined;
     if (!viewEnvInitialized.current) {
-      const defaultEnv = (deploysData.find((deploy) => deploy.serviceId === service.id && deploy.environment)?.environment ?? 'prod') as Environment;
-      setViewEnv(defaultEnv);
+      initialViewEnv = (deploysData.find((deploy) => deploy.serviceId === service.id && deploy.environment)?.environment ?? 'prod') as Environment;
+      setViewEnv(initialViewEnv);
       setSelectedReplica('');
       setSelectedContainer('');
       const now = new Date();
@@ -1619,7 +1620,7 @@ const ServiceDetails = () => {
     setHealthCheckPath(service.healthCheckPath ?? '/healthz');
     setManagementMode(service.managementMode ?? 'managed');
     setAutoDeploy(service.autoDeploy ?? true);
-    setAutoDeployEnvironment((service.autoDeployEnvironment as Environment) ?? viewEnv);
+    setAutoDeployEnvironment((current) => (service.autoDeployEnvironment as Environment) ?? initialViewEnv ?? current);
     setPauseOnIdle(service.type === 'microservice' ? (service.pauseOnIdle ?? false) : false);
     setPauseIdleTimeoutMinutes(
       String(
