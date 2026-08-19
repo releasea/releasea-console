@@ -1040,6 +1040,8 @@ export interface PlatformSettings {
     serviceDown: boolean;
     workerOffline: boolean;
     highCpu: boolean;
+    approvalRequired?: boolean;
+    approvalCompleted?: boolean;
   };
   security: {
     require2fa: boolean;
@@ -1048,6 +1050,17 @@ export interface PlatformSettings {
   };
   integrations: PlatformIntegration[];
   secrets?: SecretsSettings;
+  resourceLimits?: PlatformResourceLimits;
+}
+
+export interface PlatformResourceLimits {
+  maxServicesPerProject: number;
+  maxReplicasPerService: number;
+  maxCpuPerReplica: number;
+  maxMemoryPerReplica: number;
+  defaultReplicas: number;
+  defaultCpu: number;
+  defaultMemory: number;
 }
 
 export interface SecretsSettings {

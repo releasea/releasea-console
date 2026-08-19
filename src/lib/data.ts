@@ -499,21 +499,15 @@ export const updateServiceTemplate = async (
 export const deleteServiceTemplate = async (id: string): Promise<boolean> =>
   deleteResource(`/templates/${id}`, 'deleteServiceTemplate');
 
-export const createScmCredential = async (payload: Partial<ScmCredential> & { token?: string; privateKey?: string }): Promise<ScmCredential> =>
-  postResource({
-    fallback: payload as ScmCredential,
-    endpoint: '/credentials/scm',
-    payload,
-    label: 'createScmCredential',
-  });
+export const createScmCredential = async (
+  payload: Partial<ScmCredential> & { token?: string; privateKey?: string },
+): Promise<ScmCredential | null> =>
+  resolveResponse(apiClient.post<ScmCredential>('/credentials/scm', payload), null, 'createScmCredential');
 
-export const createRegistryCredential = async (payload: Partial<RegistryCredential> & { password?: string }): Promise<RegistryCredential> =>
-  postResource({
-    fallback: payload as RegistryCredential,
-    endpoint: '/credentials/registry',
-    payload,
-    label: 'createRegistryCredential',
-  });
+export const createRegistryCredential = async (
+  payload: Partial<RegistryCredential> & { password?: string },
+): Promise<RegistryCredential | null> =>
+  resolveResponse(apiClient.post<RegistryCredential>('/credentials/registry', payload), null, 'createRegistryCredential');
 
 export const deleteScmCredential = async (id: string): Promise<boolean> =>
   deleteResource(`/credentials/scm/${encodeURIComponent(id)}`, 'deleteScmCredential');
@@ -1374,13 +1368,14 @@ export const revokeSession = async (sessionId: string): Promise<boolean> =>
 export const deleteAccount = async (): Promise<boolean> =>
   resolveAction(apiClient.delete('/profile'), 'deleteAccount');
 
-export const updatePlatformSettings = async (payload: PlatformSettings): Promise<PlatformSettings> =>
-  putResource({
-    fallback: payload,
-    endpoint: '/settings/platform',
-    payload,
-    label: 'updatePlatformSettings',
-  });
+export const updatePlatformSettings = async (
+  payload: Partial<PlatformSettings>,
+): Promise<PlatformSettings | null> =>
+  resolveResponse(
+    apiClient.put<PlatformSettings>('/settings/platform', payload),
+    null,
+    'updatePlatformSettings',
+  );
 
 export const authLogin = async (
   email: string,
