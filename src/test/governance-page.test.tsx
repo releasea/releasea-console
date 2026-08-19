@@ -115,7 +115,7 @@ describe('GovernancePage', () => {
     expect(screen.getByText('Policy rules')).toBeInTheDocument();
   });
 
-  it('refreshes audit logs after saving governance settings', async () => {
+  it('refreshes audit logs after an atomic governance change', async () => {
     fetchAuditLogs
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -138,8 +138,9 @@ describe('GovernancePage', () => {
     fireEvent.click(policiesTab);
     await screen.findByText('Enable deploy policy');
 
-    const saveButton = await screen.findByRole('button', { name: /save policies/i });
-    fireEvent.click(saveButton);
+    const policyToggleRow = screen.getByText('Enable deploy policy').closest('div');
+    if (!policyToggleRow) throw new Error('Enable deploy policy row not found');
+    fireEvent.click(within(policyToggleRow.parentElement as HTMLElement).getByRole('switch'));
 
     await waitFor(() => {
       expect(updateGovernanceSettings).toHaveBeenCalledTimes(1);

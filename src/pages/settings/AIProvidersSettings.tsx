@@ -7,6 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import {
   createAIProvider,
@@ -45,11 +53,16 @@ export function AIProvidersSettings() {
   const [busy, setBusy] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [usage, setUsage] = useState<AIUsageSummary>({ from: '', providers: [] });
+  const [formOpen, setFormOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AIProvider | null>(null);
 
   const refresh = useCallback(async () => {
     const [providerData, usageData] = await Promise.all([fetchAIProviders(), fetchAIUsage()]);
-    setProviders(providerData);
-    setUsage(usageData);
+    setProviders(Array.isArray(providerData) ? providerData : []);
+    setUsage({
+      from: usageData?.from ?? '',
+      providers: Array.isArray(usageData?.providers) ? usageData.providers : [],
+    });
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -72,6 +85,7 @@ export function AIProvidersSettings() {
       capabilities: provider.capabilities ?? [],
       apiKey: '',
     });
+    setFormOpen(true);
   };
 
   const changeType = (type: AIProviderType) => setForm((current) => ({
@@ -95,6 +109,7 @@ export function AIProvidersSettings() {
     toast({ title: 'AI provider saved', description: 'Run the connection check before using it for service analysis.' });
     setEditingId(null);
     setForm(emptyProvider());
+    setFormOpen(false);
     await refresh();
   };
 
@@ -111,8 +126,16 @@ export function AIProvidersSettings() {
   };
 
   const remove = async (provider: AIProvider) => {
-    if (!window.confirm(`Delete ${provider.name}? Providers with analysis history must be disabled instead.`)) return;
-    if (await deleteAIProvider(provider.id)) await refresh();
+    if (await deleteAIProvider(provider.id)) {
+      setDeleteTarget(null);
+      await refresh();
+    }
+  };
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyProvider());
+    setFormOpen(true);
   };
 
   return (
@@ -120,11 +143,16 @@ export function AIProvidersSettings() {
       <SettingsSection
         title="Operational AI providers"
         description="Connect OpenAI or an OpenAI-compatible local runtime. Releasea sends sanitized, read-only operational evidence and never shares deployment credentials."
+        actions={(
+          <Button size="sm" onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" /> Add AI provider
+          </Button>
+        )}
       >
         <div className="space-y-3">
           {providers.length === 0 && (
             <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              No AI provider configured. Add one below to enable service diagnostics.
+              No AI provider configured. Add one to enable service diagnostics.
             </div>
           )}
           {providers.map((provider) => (
@@ -152,7 +180,7 @@ export function AIProvidersSettings() {
                   {testingId === provider.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wifi className="mr-2 h-4 w-4" />}Test
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => edit(provider)}>Edit</Button>
-                <Button variant="ghost" size="icon" aria-label={`Delete ${provider.name}`} onClick={() => void remove(provider)}><Trash2 className="h-4 w-4" /></Button>
+                <Button variant="ghost" size="icon" aria-label={`Delete ${provider.name}`} onClick={() => setDeleteTarget(provider)}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           ))}
@@ -168,10 +196,18 @@ export function AIProvidersSettings() {
         </div>
       </SettingsSection>
 
-      <SettingsSection
-        title={editingId ? 'Edit AI provider' : 'Add AI provider'}
-        description="For Ollama, llama.cpp, vLLM, or another compatible runtime, use its OpenAI-compatible /v1 endpoint."
-      >
+      <Dialog open={formOpen} onOpenChange={(open) => {
+        setFormOpen(open);
+        if (!open) {
+          setEditingId(null);
+          setForm(emptyProvider());
+        }
+      }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit AI provider' : 'Add AI provider'}</DialogTitle>
+            <DialogDescription>For Ollama, llama.cpp, vLLM, or another compatible runtime, use its OpenAI-compatible /v1 endpoint.</DialogDescription>
+          </DialogHeader>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="ai-name">Name</Label><Input id="ai-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production assistant" /></div>
           <div className="space-y-2"><Label>Provider type</Label><Select value={form.type} onValueChange={(value) => changeType(value as AIProviderType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="openai">OpenAI API</SelectItem><SelectItem value="openai-compatible">OpenAI-compatible</SelectItem></SelectContent></Select></div>
@@ -188,13 +224,29 @@ export function AIProvidersSettings() {
           <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Private network</p><p className="text-xs text-muted-foreground">Required for local runtimes</p></div><Switch checked={form.allowPrivateNetwork} disabled={form.type === 'openai'} onCheckedChange={(value) => setForm({ ...form, allowPrivateNetwork: value })} /></div>
           <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Inference egress</p><p className="text-xs text-muted-foreground">Master switch for provider calls</p></div><Switch checked={form.externalEgress} onCheckedChange={(value) => setForm({ ...form, externalEgress: value })} /></div>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
-          {editingId && <Button variant="outline" onClick={() => { setEditingId(null); setForm(emptyProvider()); }}>Cancel</Button>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
           <Button onClick={() => void save()} disabled={busy || !form.name.trim() || !form.model.trim()}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? 'Save provider' : 'Add provider'}
           </Button>
-        </div>
-      </SettingsSection>
+        </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete AI provider?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.name} will be removed. Providers with analysis history may need to be disabled instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteTarget && void remove(deleteTarget)}>Delete provider</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

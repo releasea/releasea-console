@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,7 @@ const fetchServices = vi.fn();
 const fetchScmCredentials = vi.fn();
 const fetchRegistryCredentials = vi.fn();
 const fetchServiceTemplates = vi.fn();
+const updatePlatformSettings = vi.fn();
 
 vi.mock('@/lib/data', () => ({
   createRegistryCredential: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('@/lib/data', () => ({
   createServiceTemplate: vi.fn(),
   updateServiceTemplate: vi.fn(),
   deleteServiceTemplate: vi.fn(),
-  updatePlatformSettings: vi.fn(),
+  updatePlatformSettings: (...args: unknown[]) => updatePlatformSettings(...args),
 }));
 
 vi.mock('@/components/layout/AppLayout', () => ({
@@ -104,6 +105,7 @@ describe('SettingsPage provider health', () => {
     fetchScmCredentials.mockResolvedValue([]);
     fetchRegistryCredentials.mockResolvedValue([]);
     fetchServiceTemplates.mockResolvedValue([]);
+    updatePlatformSettings.mockImplementation(async (payload) => payload);
   });
 
   it('runs provider health checks and renders live results', async () => {
@@ -122,5 +124,103 @@ describe('SettingsPage provider health', () => {
     expect(await screen.findByText('Platform GitHub')).toBeInTheDocument();
     expect(await screen.findByText('Credential validated successfully')).toBeInTheDocument();
     expect(screen.getByText('Healthy')).toBeInTheDocument();
+  });
+
+  it('keeps credential forms in focused dialogs', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=credentials']}>
+        <PlatformPreferencesProvider>
+          <SettingsPage />
+        </PlatformPreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('SCM credentials')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('e.g. Platform GitHub Token')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('e.g. Releasea Registry')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add SCM credential' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Add SCM credential' })).toBeInTheDocument();
+    const nameInput = screen.getByPlaceholderText('e.g. Platform GitHub Token');
+    fireEvent.change(nameInput, { target: { value: 'Temporary value' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Add SCM credential' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add SCM credential' }));
+    expect(screen.getByPlaceholderText('e.g. Platform GitHub Token')).toHaveValue('');
+  });
+
+  it('opens the requested credential dialog from setup links', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=credentials&focus=registry']}>
+        <PlatformPreferencesProvider>
+          <SettingsPage />
+        </PlatformPreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('dialog', { name: 'Add registry credential' })).toBeInTheDocument();
+  });
+
+  it('requires typed confirmation before saving organization settings', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=general']}>
+        <PlatformPreferencesProvider>
+          <SettingsPage />
+        </PlatformPreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Save organization' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save all changes' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Organization Name'), { target: { value: 'Releasea Team' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save organization' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm organization changes' });
+    expect(updatePlatformSettings).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText('Organization name'), { target: { value: 'Releasea' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm changes' }));
+
+    await waitFor(() => expect(updatePlatformSettings).toHaveBeenCalledWith({
+      organization: {
+        name: 'Releasea Team',
+        slug: 'releasea',
+        apiUrl: 'https://api.releasea.io',
+      },
+    }));
+  });
+
+  it('persists notification toggles atomically without section save buttons', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=notifications']}>
+        <PlatformPreferencesProvider><SettingsPage /></PlatformPreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    const deploySuccess = await screen.findByText('Deploy completed successfully');
+    const row = deploySuccess.closest('div')?.parentElement;
+    if (!row) throw new Error('Notification row not found');
+    fireEvent.click(within(row).getByRole('switch'));
+
+    await waitFor(() => expect(updatePlatformSettings).toHaveBeenCalledWith({
+      notifications: expect.objectContaining({ deploySuccess: false }),
+    }));
+    expect(screen.queryByRole('button', { name: /save notifications|save alerts|save approvals/i })).not.toBeInTheDocument();
+  });
+
+  it('opens template import in a modal with verify and import actions', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=templates']}>
+        <PlatformPreferencesProvider><SettingsPage /></PlatformPreferencesProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Import templates' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Import service templates' });
+    expect(within(dialog).getByPlaceholderText(/id: microservice-node/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Verify templates' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Import templates' })).toBeInTheDocument();
   });
 });
