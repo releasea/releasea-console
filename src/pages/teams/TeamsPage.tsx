@@ -14,6 +14,8 @@ import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -58,6 +60,7 @@ const Teams = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
 
   const loadData = async () => {
     const [teamsData, projectsData] = await Promise.all([fetchTeams(), fetchProjects()]);
@@ -150,6 +153,8 @@ const Teams = () => {
 
   const teamsPagination = useTablePagination(filteredTeams.length);
   const membersPagination = useTablePagination(filteredMembers.length);
+  const { page: teamsPage, pageSize: teamsPageSize, totalPages: teamsTotalPages, setPage: setTeamsPage } = teamsPagination;
+  const { page: membersPage, pageSize: membersPageSize, totalPages: membersTotalPages, setPage: setMembersPage } = membersPagination;
 
   const visibleTeams = teamsPagination.slice(filteredTeams);
   const visibleMembers = membersPagination.slice(filteredMembers);
@@ -163,23 +168,23 @@ const Teams = () => {
     if (!expandedTeamId) return;
     const index = filteredTeams.findIndex((team) => team.id === expandedTeamId);
     if (index === -1) return;
-    const page = Math.floor(index / teamsPagination.pageSize) + 1;
-    if (page !== teamsPagination.page) {
-      teamsPagination.setPage(page);
+    const page = Math.floor(index / teamsPageSize) + 1;
+    if (page !== teamsPage) {
+      setTeamsPage(page);
     }
-  }, [expandedTeamId, filteredTeams, teamsPagination.page, teamsPagination.pageSize, teamsPagination.setPage]);
+  }, [expandedTeamId, filteredTeams, teamsPage, teamsPageSize, setTeamsPage]);
 
   useEffect(() => {
-    membersPagination.setPage(1);
-  }, [expandedTeamId, memberQuery, membersPagination.setPage]);
+    setMembersPage(1);
+  }, [expandedTeamId, memberQuery, setMembersPage]);
 
   useEffect(() => {
     setMemberQuery('');
   }, [expandedTeamId]);
 
   useEffect(() => {
-    teamsPagination.setPage(1);
-  }, [searchQuery, idpFilter, teamsPagination.setPage]);
+    setTeamsPage(1);
+  }, [searchQuery, idpFilter, setTeamsPage]);
 
   const getIdpLabel = (provider?: string) => {
     switch (provider) {
@@ -258,7 +263,8 @@ const Teams = () => {
       <div className="space-y-6">
         <ListPageHeader
           title="Teams"
-          description="Manage teams and members across the platform"
+          description="Organize members, roles, and project access."
+          docsSlug="projects-and-teams"
           actions={
             <Button onClick={() => setCreateModalOpen(true)}>
               <Plus className="w-4 h-4" />
@@ -376,7 +382,7 @@ const Teams = () => {
                         <div className="flex justify-end">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${team.name}`}>
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -502,11 +508,11 @@ const Teams = () => {
                           {/* Members Pagination */}
                           {filteredMembers.length > 0 && (
                             <TablePagination
-                              page={membersPagination.page}
-                              pageSize={membersPagination.pageSize}
+                              page={membersPage}
+                              pageSize={membersPageSize}
                               totalItems={filteredMembers.length}
-                              totalPages={membersPagination.totalPages}
-                              onPageChange={membersPagination.setPage}
+                              totalPages={membersTotalPages}
+                              onPageChange={setMembersPage}
                             />
                           )}
                         </div>
@@ -518,11 +524,11 @@ const Teams = () => {
 
               {/* Teams Pagination */}
               <TablePagination
-                page={teamsPagination.page}
-                pageSize={teamsPagination.pageSize}
+                page={teamsPage}
+                pageSize={teamsPageSize}
                 totalItems={filteredTeams.length}
-                totalPages={teamsPagination.totalPages}
-                onPageChange={teamsPagination.setPage}
+                totalPages={teamsTotalPages}
+                onPageChange={setTeamsPage}
               />
             </>
           )}
@@ -547,10 +553,20 @@ const Teams = () => {
       />
 
       {/* Invite Modal */}
-      <Dialog open={inviteModalOpen} onOpenChange={setInviteModalOpen}>
+      <Dialog open={inviteModalOpen} onOpenChange={(open) => {
+        if (isInviting && !open) return;
+        setInviteModalOpen(open);
+        if (!open) {
+          setInviteEmail('');
+          setInviteRole('developer');
+        }
+      }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle className="text-base">Invite to {selectedTeam?.name}</DialogTitle>
+            <DialogTitle>Invite member</DialogTitle>
+            <DialogDescription>
+              Add a member to {selectedTeam?.name ?? 'this team'} and choose the access they need.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
@@ -565,8 +581,9 @@ const Teams = () => {
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
+              <p className="text-xs text-muted-foreground">Admins manage the team, developers deliver services, and viewers have read-only access.</p>
               <Select value={inviteRole} onValueChange={(v: 'admin' | 'developer' | 'viewer') => setInviteRole(v)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="Invitation role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -576,19 +593,30 @@ const Teams = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex justify-end gap-2 pt-4 border-t border-border">
-              <Button variant="outline" onClick={() => setInviteModalOpen(false)}>
+            <DialogFooter className="border-t border-border pt-4">
+              <Button variant="outline" onClick={() => setInviteModalOpen(false)} disabled={isInviting}>
                 Cancel
               </Button>
               <Button
+                disabled={isInviting || !inviteEmail.trim() || !selectedTeam}
                 onClick={async () => {
                   if (!inviteEmail || !selectedTeam) return;
-                  await performAction({
+                  setIsInviting(true);
+                  const invited = await performAction({
                     endpoint: `/teams/${selectedTeam.id}/invite`,
                     method: 'POST',
                     payload: { email: inviteEmail, role: inviteRole },
                     label: 'inviteTeamMember',
                   });
+                  setIsInviting(false);
+                  if (!invited) {
+                    toast({
+                      title: 'Unable to send invitation',
+                      description: 'Check the email address and your team permissions, then try again.',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
                   toast({
                     title: 'Invitation sent',
                     description: `Invited ${inviteEmail} as ${inviteRole}.`,
@@ -598,9 +626,9 @@ const Teams = () => {
                   setInviteRole('developer');
                 }}
               >
-                Send Invite
+                {isInviting ? 'Sending...' : 'Send invitation'}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

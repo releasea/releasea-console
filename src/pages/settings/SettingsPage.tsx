@@ -15,6 +15,7 @@ import {
   Trash2,
   Bot,
   Plus,
+  Search,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
@@ -27,6 +28,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SettingsGrid, SettingsSection } from '@/components/layout/SettingsSection';
 import { Badge } from '@/components/ui/badge';
 import { TableEmptyRow } from '@/components/layout/EmptyState';
+import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import {
   Select,
   SelectContent,
@@ -90,7 +93,7 @@ import {
 } from './template-utils';
 import { AIProvidersSettings } from './AIProvidersSettings';
 
-const SETTINGS_TABS = ['display', 'general', 'notifications', 'credentials', 'ai', 'templates', 'resources'] as const;
+const SETTINGS_TABS = ['display', 'general', 'providers', 'notifications', 'credentials', 'ai', 'templates', 'resources'] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const normalizeSettingsTab = (value: string | null | undefined): SettingsTab =>
@@ -151,6 +154,7 @@ const SettingsPage = () => {
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeSettingsTab(query.get('tab')));
   const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [saveStatuses, setSaveStatuses] = useState<Record<string, 'idle' | 'saving' | 'saved' | 'error'>>({});
   const { preferences, updatePreference, updatePreferences, resetPreferences } = usePlatformPreferences();
 
   // Organization settings
@@ -199,6 +203,14 @@ const SettingsPage = () => {
   const [isVerifyingTemplates, setIsVerifyingTemplates] = useState(false);
   const [isImportingTemplates, setIsImportingTemplates] = useState(false);
   const [templateImportOpen, setTemplateImportOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templateTypeFilter, setTemplateTypeFilter] = useState('all');
+  const [templatePage, setTemplatePage] = useState(1);
+  const [templateDeleteTarget, setTemplateDeleteTarget] = useState<ServiceTemplate | null>(null);
+  const [secretProviderDeleteTarget, setSecretProviderDeleteTarget] = useState<SecretProvider | null>(null);
+  const [credentialDeleteTarget, setCredentialDeleteTarget] = useState<
+    { kind: 'scm'; credential: ScmCredential } | { kind: 'registry'; credential: RegistryCredential } | null
+  >(null);
   const [scmName, setScmName] = useState('');
   const [scmProvider, setScmProvider] = useState('github');
   const [scmAuthType, setScmAuthType] = useState<'token' | 'ssh'>('token');
@@ -638,8 +650,27 @@ const SettingsPage = () => {
       return false;
     }
     await refreshTemplates();
+    setTemplateDeleteTarget(null);
     toast({ title: 'Template deleted', description: 'Template removed from the catalog.' });
   };
+
+  const filteredTemplates = useMemo(() => {
+    const search = templateSearch.trim().toLowerCase();
+    return serviceTemplates.filter((template) => {
+      const type = formatTemplateType(template);
+      const matchesType = templateTypeFilter === 'all' || type === templateTypeFilter;
+      const matchesSearch = !search || [template.label, template.id, formatTemplateSource(template), type]
+        .some((value) => value.toLowerCase().includes(search));
+      return matchesType && matchesSearch;
+    });
+  }, [serviceTemplates, templateSearch, templateTypeFilter]);
+  const templateTypes = useMemo(
+    () => Array.from(new Set(serviceTemplates.map((template) => formatTemplateType(template)))).sort(),
+    [serviceTemplates],
+  );
+  const templatePageSize = 10;
+  const templatePageCount = Math.max(1, Math.ceil(filteredTemplates.length / templatePageSize));
+  const paginatedTemplates = filteredTemplates.slice((templatePage - 1) * templatePageSize, templatePage * templatePageSize);
 
   const buildSecretProviderConfig = () => {
     if (secretProviderType === 'vault') {
@@ -714,13 +745,15 @@ const SettingsPage = () => {
 
   const savePlatformSection = async (
     section: string,
-    description: string,
+    _description: string,
     payload: Partial<PlatformSettings>,
   ) => {
     setSavingSection(section);
+    setSaveStatuses((current) => ({ ...current, [section]: 'saving' }));
     const updated = await updatePlatformSettings(payload);
     setSavingSection(null);
     if (!updated) {
+      setSaveStatuses((current) => ({ ...current, [section]: 'error' }));
       toast({
         title: 'Failed to save settings',
         description: 'The section was not persisted. Check the API and try again.',
@@ -729,7 +762,10 @@ const SettingsPage = () => {
       return false;
     }
     await refreshProviderStatus();
-    toast({ title: 'Settings saved', description });
+    setSaveStatuses((current) => ({ ...current, [section]: 'saved' }));
+    window.setTimeout(() => {
+      setSaveStatuses((current) => current[section] === 'saved' ? { ...current, [section]: 'idle' } : current);
+    }, 2500);
     return true;
   };
 
@@ -752,11 +788,36 @@ const SettingsPage = () => {
     void savePlatformSection('notifications', 'Notification preference updated.', { notifications: next });
   };
 
-  const handleSaveResourceLimits = () => savePlatformSection(
-    'resources',
-    'Resource limits and defaults have been updated.',
-    { resourceLimits },
-  );
+  const handleNotificationGroupChange = (keys: Array<keyof typeof notifications>, checked: boolean) => {
+    const next = { ...notifications };
+    keys.forEach((key) => { next[key] = checked; });
+    setNotifications(next);
+    void savePlatformSection('notifications', 'Notification preferences updated.', { notifications: next });
+  };
+
+  const resourceValidationErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (resourceLimits.maxServicesPerProject < 1) errors.push('Max services per project must be at least 1.');
+    if (resourceLimits.maxReplicasPerService < 1) errors.push('Max replicas per service must be at least 1.');
+    if (resourceLimits.maxCpuPerReplica <= 0) errors.push('Max CPU per replica must be greater than 0.');
+    if (resourceLimits.maxMemoryPerReplica < 128) errors.push('Max memory per replica must be at least 128 MB.');
+    if (resourceLimits.defaultReplicas < 1 || resourceLimits.defaultReplicas > resourceLimits.maxReplicasPerService) errors.push('Default replicas must be within the configured replica limit.');
+    if (resourceLimits.defaultCpu <= 0 || resourceLimits.defaultCpu > resourceLimits.maxCpuPerReplica) errors.push('Default CPU must be within the configured CPU limit.');
+    if (resourceLimits.defaultMemory < 64 || resourceLimits.defaultMemory > resourceLimits.maxMemoryPerReplica) errors.push('Default memory must be between 64 MB and the configured memory limit.');
+    return errors;
+  }, [resourceLimits]);
+
+  const handleSaveResourceLimits = () => {
+    if (resourceValidationErrors.length > 0) {
+      setSaveStatuses((current) => ({ ...current, resources: 'error' }));
+      return Promise.resolve(false);
+    }
+    return savePlatformSection(
+      'resources',
+      'Resource limits and defaults have been updated.',
+      { resourceLimits },
+    );
+  };
 
   const handleResetPreferences = () => {
     resetPreferences();
@@ -944,11 +1005,12 @@ const SettingsPage = () => {
       <div className="space-y-6 w-full">
         <ListPageHeader
           title="Platform Settings"
-          description="Configure your Releasea instance"
+          description="Configure organization-wide behavior and integrations."
+          docsSlug="settings-identity-governance"
         />
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(normalizeSettingsTab(value))} className="space-y-6">
-          <TabsList className="bg-muted/50 flex-wrap h-auto gap-1 p-1">
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto bg-muted/50 p-1">
             <TabsTrigger value="display" className="gap-2">
               <Monitor className="w-4 h-4" />
               Display
@@ -956,6 +1018,10 @@ const SettingsPage = () => {
             <TabsTrigger value="general" className="gap-2">
               <Globe className="w-4 h-4" />
               General
+            </TabsTrigger>
+            <TabsTrigger value="providers" className="gap-2">
+              <Package className="w-4 h-4" />
+              Providers
             </TabsTrigger>
             <TabsTrigger value="notifications" className="gap-2">
               <Bell className="w-4 h-4" />
@@ -1215,14 +1281,17 @@ const SettingsPage = () => {
               title="SCM credentials"
               description="Store Git provider tokens or SSH keys for build access. Service overrides project, project overrides platform."
               actions={(
-                <Button size="sm" onClick={() => setIsScmDialogOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add SCM credential
-                </Button>
+                <>
+                  <DocumentationLink slug="credentials" label="Credential guide" variant="button" />
+                  <Button size="sm" onClick={() => setIsScmDialogOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add SCM credential
+                  </Button>
+                </>
               )}
             >
                 <div className="overflow-x-auto rounded-lg border border-border bg-card">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm" aria-label="Source control credentials">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
                         <th className="px-4 py-3 text-left font-medium">Name</th>
@@ -1259,7 +1328,7 @@ const SettingsPage = () => {
                               variant="ghost"
                               size="icon"
                               className="text-muted-foreground hover:text-destructive"
-                              onClick={() => void handleDeleteScmCredential(cred)}
+                              onClick={() => setCredentialDeleteTarget({ kind: 'scm', credential: cred })}
                               aria-label={`Delete ${cred.name}`}
                               disabled={!credentialIdFromDocument(cred)}
                             >
@@ -1274,6 +1343,8 @@ const SettingsPage = () => {
                           icon={<GitBranch className="h-5 w-5 text-muted-foreground" />}
                           title="No SCM credentials"
                           description="Add a Git token or SSH key to allow workers to clone repositories."
+                          actionLabel="Configure SCM access"
+                          onAction={() => setIsScmDialogOpen(true)}
                         />
                       )}
                     </tbody>
@@ -1404,7 +1475,7 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
                   <Button variant="outline" onClick={() => handleScmDialogOpenChange(false)} disabled={isSavingScm}>
                     Cancel
                   </Button>
@@ -1420,14 +1491,17 @@ const SettingsPage = () => {
               title="Registry credentials"
               description="Store container registry credentials for push and deploy operations."
               actions={(
-                <Button size="sm" onClick={() => setIsRegistryDialogOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add registry credential
-                </Button>
+                <>
+                  <DocumentationLink slug="credentials" label="Credential guide" variant="button" />
+                  <Button size="sm" onClick={() => setIsRegistryDialogOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add registry credential
+                  </Button>
+                </>
               )}
             >
                 <div className="overflow-x-auto rounded-lg border border-border bg-card">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm" aria-label="Registry credentials">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
                         <th className="px-4 py-3 text-left font-medium">Name</th>
@@ -1466,7 +1540,7 @@ const SettingsPage = () => {
                               variant="ghost"
                               size="icon"
                               className="text-muted-foreground hover:text-destructive"
-                              onClick={() => void handleDeleteRegistryCredential(cred)}
+                              onClick={() => setCredentialDeleteTarget({ kind: 'registry', credential: cred })}
                               aria-label={`Delete ${cred.name}`}
                               disabled={!credentialIdFromDocument(cred)}
                             >
@@ -1481,6 +1555,8 @@ const SettingsPage = () => {
                           icon={<Package className="h-5 w-5 text-muted-foreground" />}
                           title="No registry credentials"
                           description="Add registry credentials to allow workers to push images."
+                          actionLabel="Configure registry access"
+                          onAction={() => setIsRegistryDialogOpen(true)}
                         />
                       )}
                     </tbody>
@@ -1611,7 +1687,7 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
                   <Button variant="outline" onClick={() => handleRegistryDialogOpenChange(false)} disabled={isSavingRegistry}>
                     Cancel
                   </Button>
@@ -1626,16 +1702,20 @@ const SettingsPage = () => {
             <SettingsSection
               title="Secret providers"
               description="Connect a secrets manager and choose the default provider for services."
+              status={saveStatuses.secrets ?? 'idle'}
               actions={(
-                <Button size="sm" onClick={() => setIsSecretProviderDialogOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add provider
-                </Button>
+                <>
+                  <DocumentationLink slug="secrets" label="Secrets guide" variant="button" />
+                  <Button size="sm" onClick={() => setIsSecretProviderDialogOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add provider
+                  </Button>
+                </>
               )}
             >
               <div className="space-y-4">
                 <div className="overflow-x-auto rounded-lg border border-border bg-card">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm" aria-label="Secret providers">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
                         <th className="px-4 py-3 text-left font-medium">Name</th>
@@ -1666,7 +1746,7 @@ const SettingsPage = () => {
                               variant="ghost"
                               size="sm"
                               className="text-muted-foreground hover:text-foreground"
-                              onClick={() => handleRemoveSecretProvider(provider.id)}
+                              onClick={() => setSecretProviderDeleteTarget(provider)}
                             >
                               Remove
                             </Button>
@@ -1679,6 +1759,8 @@ const SettingsPage = () => {
                           icon={<ShieldCheck className="h-5 w-5 text-muted-foreground" />}
                           title="No secret providers"
                           description="Connect Vault, AWS, or GCP to resolve secret references during deploys."
+                          actionLabel="Connect secret provider"
+                          onAction={() => setIsSecretProviderDialogOpen(true)}
                         />
                       )}
                     </tbody>
@@ -1839,7 +1921,7 @@ const SettingsPage = () => {
                     />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
                   <Button variant="outline" onClick={() => handleSecretProviderDialogOpenChange(false)}>
                     Cancel
                   </Button>
@@ -1861,6 +1943,7 @@ const SettingsPage = () => {
             <SettingsSection
               title="Organization"
               description="Basic organization settings"
+              status={saveStatuses.organization ?? 'idle'}
               actions={(
                 <Button
                   size="sm"
@@ -1935,6 +2018,11 @@ const SettingsPage = () => {
               </DialogContent>
             </Dialog>
 
+          </TabsContent>
+
+          {/* Providers Tab */}
+          <TabsContent value="providers" className="space-y-6">
+
             {providerCatalogSections.length > 0 && (
               <SettingsSection
                 title="Provider catalog"
@@ -1979,6 +2067,7 @@ const SettingsPage = () => {
             <SettingsSection
               title="Provider health checks"
               description="Run live validation against configured providers. This does not run automatically to avoid slowing down the settings page."
+              actions={<DocumentationLink slug="provider-cookbook" label="Provider guide" variant="button" />}
             >
               <div className="space-y-4">
                 <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4 md:flex-row md:items-center md:justify-between">
@@ -2079,6 +2168,8 @@ const SettingsPage = () => {
             <SettingsSection
               title="Deployment notifications"
               description="Receive alerts about deployment events"
+              status={saveStatuses.notifications ?? 'idle'}
+              actions={<Button variant="ghost" size="sm" onClick={() => handleNotificationGroupChange(['deploySuccess', 'deployFailed'], !(notifications.deploySuccess && notifications.deployFailed))}>{notifications.deploySuccess && notifications.deployFailed ? 'Disable all' : 'Enable all'}</Button>}
             >
               <div className="space-y-4">
                 {[
@@ -2103,6 +2194,8 @@ const SettingsPage = () => {
             <SettingsSection
               title="Infrastructure alerts"
               description="Receive alerts about infrastructure health"
+              status={saveStatuses.notifications ?? 'idle'}
+              actions={<Button variant="ghost" size="sm" onClick={() => handleNotificationGroupChange(['serviceDown', 'workerOffline', 'highCpu'], !(notifications.serviceDown && notifications.workerOffline && notifications.highCpu))}>{notifications.serviceDown && notifications.workerOffline && notifications.highCpu ? 'Disable all' : 'Enable all'}</Button>}
             >
               <div className="space-y-4">
                 {[
@@ -2128,6 +2221,8 @@ const SettingsPage = () => {
             <SettingsSection
               title="Approval notifications"
               description="Receive notifications about approval workflows"
+              status={saveStatuses.notifications ?? 'idle'}
+              actions={<Button variant="ghost" size="sm" onClick={() => handleNotificationGroupChange(['approvalRequired', 'approvalCompleted'], !(notifications.approvalRequired && notifications.approvalCompleted))}>{notifications.approvalRequired && notifications.approvalCompleted ? 'Disable all' : 'Enable all'}</Button>}
             >
               <div className="space-y-4">
                 {[
@@ -2156,15 +2251,37 @@ const SettingsPage = () => {
               title="Service templates"
               description="Manage the catalog of templates available in the New Service flow."
               actions={(
-                <Button size="sm" onClick={() => setTemplateImportOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Import templates
-                </Button>
+                <>
+                  <DocumentationLink slug="templates" label="Template guide" variant="button" />
+                  <Button size="sm" onClick={() => setTemplateImportOpen(true)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Import templates
+                  </Button>
+                </>
               )}
             >
               <div className="space-y-4">
-                <div className="rounded-lg border border-border bg-card">
-                  <table className="w-full text-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="relative w-full sm:max-w-sm">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={templateSearch}
+                      onChange={(event) => { setTemplateSearch(event.target.value); setTemplatePage(1); }}
+                      placeholder="Search templates…"
+                      className="pl-9"
+                      aria-label="Search templates"
+                    />
+                  </div>
+                  <Select value={templateTypeFilter} onValueChange={(value) => { setTemplateTypeFilter(value); setTemplatePage(1); }}>
+                    <SelectTrigger className="w-full sm:w-52" aria-label="Filter templates by type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All template types</SelectItem>
+                      {templateTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-border bg-card">
+                  <table className="w-full text-sm" aria-label="Service templates">
                     <thead className="text-xs uppercase text-muted-foreground border-b border-border">
                       <tr>
                         <th className="px-4 py-3 text-left font-medium">Template</th>
@@ -2177,7 +2294,7 @@ const SettingsPage = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
-                      {serviceTemplates.map((template) => (
+                      {paginatedTemplates.map((template) => (
                         <tr key={template.id} className="hover:bg-muted/30">
                           <td className="px-4 py-3">
                             <div className="space-y-1">
@@ -2231,29 +2348,39 @@ const SettingsPage = () => {
                               type="button"
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDeleteTemplate(template.id)}
+                              onClick={() => setTemplateDeleteTarget(template)}
+                              aria-label={`Delete ${template.label}`}
                             >
                               <Trash2 className="h-4 w-4 text-muted-foreground" />
                             </Button>
                           </td>
                         </tr>
                       ))}
-                      {serviceTemplates.length === 0 && (
+                      {filteredTemplates.length === 0 && (
                         <TableEmptyRow
                           colSpan={7}
                           icon={<LayoutTemplate className="h-5 w-5 text-muted-foreground" />}
-                          title="No templates yet"
-                          description="Import a template definition to populate the service catalog."
-                          actionLabel="Load starter template"
-                          onAction={() => {
+                          title={serviceTemplates.length === 0 ? 'No templates yet' : 'No templates match your filters'}
+                          description={serviceTemplates.length === 0 ? 'Import a template definition to populate the service catalog.' : 'Adjust the search or template type filter.'}
+                          actionLabel={serviceTemplates.length === 0 ? 'Load starter template' : undefined}
+                          onAction={serviceTemplates.length === 0 ? () => {
                             setTemplateImportPayload(STARTER_TEMPLATE_IMPORT);
                             setTemplateImportOpen(true);
-                          }}
+                          } : undefined}
                         />
                       )}
                     </tbody>
                   </table>
                 </div>
+                {filteredTemplates.length > templatePageSize && (
+                  <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                    <span>{filteredTemplates.length} templates · Page {templatePage} of {templatePageCount}</span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={templatePage === 1} onClick={() => setTemplatePage((page) => Math.max(1, page - 1))}>Previous</Button>
+                      <Button variant="outline" size="sm" disabled={templatePage === templatePageCount} onClick={() => setTemplatePage((page) => Math.min(templatePageCount, page + 1))}>Next</Button>
+                    </div>
+                  </div>
+                )}
 
                 <Dialog open={templateImportOpen} onOpenChange={setTemplateImportOpen}>
                   <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
@@ -2329,7 +2456,7 @@ const SettingsPage = () => {
                     </div>
                   )}
                 </div>
-                    <DialogFooter>
+                    <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
                       <Button variant="outline" onClick={() => setTemplateImportOpen(false)}>Cancel</Button>
                       <Button
                         type="button"
@@ -2339,12 +2466,25 @@ const SettingsPage = () => {
                       >
                         {isVerifyingTemplates ? 'Verifying...' : 'Verify templates'}
                       </Button>
-                      <Button type="button" onClick={handleImportTemplates} disabled={isImportingTemplates}>
+                      <Button
+                        type="button"
+                        onClick={handleImportTemplates}
+                        disabled={isImportingTemplates || templateVerificationPreview.length === 0 || templateVerificationPreview.some((template) => template.verification?.status === 'invalid')}
+                      >
                         {isImportingTemplates ? 'Importing...' : 'Import templates'}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                <ConfirmDeleteModal
+                  open={Boolean(templateDeleteTarget)}
+                  onOpenChange={(open) => !open && setTemplateDeleteTarget(null)}
+                  title="Delete service template?"
+                  description={`The ${templateDeleteTarget?.label ?? 'selected'} template will no longer be available when creating services.`}
+                  confirmPhrase={templateDeleteTarget?.id ?? 'delete'}
+                  confirmLabel="Delete template"
+                  onConfirm={() => templateDeleteTarget ? handleDeleteTemplate(templateDeleteTarget.id) : undefined}
+                />
               </div>
             </SettingsSection>
           </TabsContent>
@@ -2354,15 +2494,23 @@ const SettingsPage = () => {
             <SettingsSection
               title="Service limits"
               description="Configure resource limits for services"
+              status={saveStatuses.resources ?? 'idle'}
             >
+              {resourceValidationErrors.length > 0 && (
+                <div role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <p className="font-medium">Review resource values</p>
+                  <ul className="mt-1 list-disc pl-5 text-xs">{resourceValidationErrors.map((error) => <li key={error}>{error}</li>)}</ul>
+                </div>
+              )}
               <SettingsGrid columns={3}>
                 <div className="space-y-2">
                   <Label>Max services per project</Label>
                   <Input
                     type="number"
+                    min={1}
                     value={resourceLimits.maxServicesPerProject}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, maxServicesPerProject: parseInt(e.target.value) || 50 }))
+                      setResourceLimits(prev => ({ ...prev, maxServicesPerProject: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2372,9 +2520,10 @@ const SettingsPage = () => {
                   <Label>Max replicas per service</Label>
                   <Input
                     type="number"
+                    min={1}
                     value={resourceLimits.maxReplicasPerService}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, maxReplicasPerService: parseInt(e.target.value) || 10 }))
+                      setResourceLimits(prev => ({ ...prev, maxReplicasPerService: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2385,9 +2534,10 @@ const SettingsPage = () => {
                   <Input
                     type="number"
                     step="0.1"
+                    min={0.1}
                     value={resourceLimits.maxCpuPerReplica}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, maxCpuPerReplica: parseFloat(e.target.value) || 4 }))
+                      setResourceLimits(prev => ({ ...prev, maxCpuPerReplica: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2398,9 +2548,10 @@ const SettingsPage = () => {
                 <Label>Max memory per replica (MB)</Label>
                 <Input
                   type="number"
+                  min={128}
                   value={resourceLimits.maxMemoryPerReplica}
                   onChange={(e) =>
-                    setResourceLimits(prev => ({ ...prev, maxMemoryPerReplica: parseInt(e.target.value) || 8192 }))
+                    setResourceLimits(prev => ({ ...prev, maxMemoryPerReplica: Number(e.target.value) }))
                   }
                   onBlur={() => void handleSaveResourceLimits()}
                   className="bg-muted/40 max-w-xs"
@@ -2411,15 +2562,18 @@ const SettingsPage = () => {
             <SettingsSection
               title="Default values"
               description="Default resource allocation for new services"
+              status={saveStatuses.resources ?? 'idle'}
             >
               <SettingsGrid columns={3}>
                 <div className="space-y-2">
                   <Label>Default replicas</Label>
                   <Input
                     type="number"
+                    min={1}
+                    max={resourceLimits.maxReplicasPerService}
                     value={resourceLimits.defaultReplicas}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, defaultReplicas: parseInt(e.target.value) || 2 }))
+                      setResourceLimits(prev => ({ ...prev, defaultReplicas: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2430,9 +2584,11 @@ const SettingsPage = () => {
                   <Input
                     type="number"
                     step="0.1"
+                    min={0.1}
+                    max={resourceLimits.maxCpuPerReplica}
                     value={resourceLimits.defaultCpu}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, defaultCpu: parseFloat(e.target.value) || 0.5 }))
+                      setResourceLimits(prev => ({ ...prev, defaultCpu: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2442,9 +2598,11 @@ const SettingsPage = () => {
                   <Label>Default memory (MB)</Label>
                   <Input
                     type="number"
+                    min={64}
+                    max={resourceLimits.maxMemoryPerReplica}
                     value={resourceLimits.defaultMemory}
                     onChange={(e) =>
-                      setResourceLimits(prev => ({ ...prev, defaultMemory: parseInt(e.target.value) || 512 }))
+                      setResourceLimits(prev => ({ ...prev, defaultMemory: Number(e.target.value) }))
                     }
                     onBlur={() => void handleSaveResourceLimits()}
                     className="bg-muted/40"
@@ -2455,6 +2613,34 @@ const SettingsPage = () => {
           </TabsContent>
 
         </Tabs>
+
+        <ConfirmDeleteModal
+          open={Boolean(secretProviderDeleteTarget)}
+          onOpenChange={(open) => !open && setSecretProviderDeleteTarget(null)}
+          title="Remove secret provider?"
+          description={`Services using ${secretProviderDeleteTarget?.name ?? 'this provider'} may no longer be able to resolve secret references.`}
+          confirmPhrase={secretProviderDeleteTarget?.name ?? 'remove'}
+          confirmLabel="Remove provider"
+          onConfirm={() => {
+            if (secretProviderDeleteTarget) handleRemoveSecretProvider(secretProviderDeleteTarget.id);
+            setSecretProviderDeleteTarget(null);
+          }}
+        />
+        <ConfirmDeleteModal
+          open={Boolean(credentialDeleteTarget)}
+          onOpenChange={(open) => !open && setCredentialDeleteTarget(null)}
+          title="Delete credential?"
+          description="Workers and deployments using this credential may lose access immediately."
+          confirmPhrase={credentialDeleteTarget?.credential.name ?? 'delete'}
+          confirmLabel="Delete credential"
+          onConfirm={async () => {
+            const target = credentialDeleteTarget;
+            if (!target) return;
+            if (target.kind === 'scm') await handleDeleteScmCredential(target.credential);
+            else await handleDeleteRegistryCredential(target.credential);
+            setCredentialDeleteTarget(null);
+          }}
+        />
 
       </div>
     </AppLayout>

@@ -58,7 +58,10 @@ export function TableFiltersBar({ search, selects = [], pills = [], className }:
         <div className="flex items-center gap-3 ml-auto flex-nowrap">
           {selects.map((select) => (
             <Select key={select.id} value={select.value} onValueChange={select.onValueChange}>
-              <SelectTrigger className={cn('min-w-[190px] bg-muted/40', select.triggerClassName)}>
+              <SelectTrigger
+                className={cn('min-w-[190px] bg-muted/40', select.triggerClassName)}
+                aria-label={select.placeholder ?? `Filter by ${select.id}`}
+              >
                 <div className="flex items-center gap-2">
                   {select.icon}
                   <SelectValue placeholder={select.placeholder} />
@@ -83,6 +86,7 @@ export function TableFiltersBar({ search, selects = [], pills = [], className }:
               key={pill.id}
               type="button"
               onClick={pill.onClick}
+              aria-pressed={pill.active}
               className={cn(
                 'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
                 pill.active

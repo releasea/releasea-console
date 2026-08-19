@@ -9,6 +9,7 @@ export interface Column<T> {
   key: string;
   header: string;
   className?: string;
+  ariaLabel?: string;
   headerClassName?: string;
   render: (item: T, index: number) => ReactNode;
 }
@@ -33,6 +34,7 @@ export function DataTable<T>({
   emptyDescription = 'You can add new items or adjust your search.',
   emptyIcon,
   className,
+  ariaLabel = 'Results',
 }: DataTableProps<T>) {
   const pagination = useTablePagination(data.length);
   const visibleRows = pagination.slice(data);
@@ -42,7 +44,7 @@ export function DataTable<T>({
     return (
       <div className={cn('bg-card border border-border rounded-lg overflow-hidden', className)}>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full" aria-label={ariaLabel}>
             <thead>
                <tr className="border-b border-border bg-muted/20">
                 {columns.map((col) => (
@@ -75,7 +77,7 @@ export function DataTable<T>({
   return (
     <div className={cn('bg-card border border-border rounded-lg overflow-hidden', className)}>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" aria-label={ariaLabel}>
           <thead>
             <tr className="border-b border-border bg-muted/20">
               {columns.map((col) => (

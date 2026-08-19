@@ -110,7 +110,7 @@ describe('SettingsPage provider health', () => {
 
   it('runs provider health checks and renders live results', async () => {
     render(
-      <MemoryRouter initialEntries={['/settings?tab=general']}>
+      <MemoryRouter initialEntries={['/settings?tab=providers']}>
         <PlatformPreferencesProvider>
           <SettingsPage />
         </PlatformPreferencesProvider>

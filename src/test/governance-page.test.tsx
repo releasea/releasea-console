@@ -115,6 +115,22 @@ describe('GovernancePage', () => {
     expect(screen.getByText('Policy rules')).toBeInTheDocument();
   });
 
+  it('requires confirmation before replacing governance settings with a policy pack', async () => {
+    renderPage();
+
+    const policiesTab = await screen.findByRole('tab', { name: /policies/i });
+    fireEvent.mouseDown(policiesTab);
+    fireEvent.click(policiesTab);
+
+    const applyButtons = await screen.findAllByRole('button', { name: 'Apply pack' });
+    fireEvent.click(applyButtons[0]);
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/replaces deployment, publishing, approval, and retention/i);
+    expect(updateGovernanceSettings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply policy pack' }));
+    await waitFor(() => expect(updateGovernanceSettings).toHaveBeenCalledTimes(1));
+  });
+
   it('refreshes audit logs after an atomic governance change', async () => {
     fetchAuditLogs
       .mockResolvedValueOnce([])

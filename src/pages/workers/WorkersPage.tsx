@@ -853,7 +853,8 @@ const Workers = () => {
       <div className="space-y-6 w-full">
         <ListPageHeader
           title="Workers"
-          description="Manage Kubernetes runners and agent capacity across environments"
+          description="Connect Kubernetes capacity for builds and deployments."
+          docsSlug="environments-and-workers"
           actions={
             <Button onClick={() => setRegisterOpen(true)} className="gap-2">
               <Plus className="w-4 h-4" />
@@ -1113,7 +1114,7 @@ const Workers = () => {
 
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full" aria-label="Workers and registrations">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
@@ -1228,7 +1229,7 @@ const Workers = () => {
                         <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" aria-label={`Actions for ${worker.name}`}>
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -1325,7 +1326,7 @@ const Workers = () => {
       <Dialog open={configureOpen} onOpenChange={setConfigureOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Configure Worker</DialogTitle>
+            <DialogTitle>Configure worker</DialogTitle>
             <DialogDescription>
               Update the worker name and tags. The environment is locked after creation.
             </DialogDescription>
@@ -1449,9 +1450,9 @@ const Workers = () => {
       <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Register New Worker</DialogTitle>
+            <DialogTitle>Register worker</DialogTitle>
             <DialogDescription>
-              Generate a token to install a worker in your Kubernetes cluster
+              Define its execution scope and generate the one-time registration token used during installation.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1525,7 +1526,7 @@ const Workers = () => {
             <Button variant="outline" onClick={() => setRegisterOpen(false)}>Cancel</Button>
             <Button onClick={handleCreateRegistration} className="gap-2">
               <KeyRound className="w-4 h-4" />
-              Create Token
+              Create registration
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1535,7 +1536,7 @@ const Workers = () => {
       <Dialog open={installOpen} onOpenChange={setInstallOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Install Worker</DialogTitle>
+            <DialogTitle>Install worker</DialogTitle>
             <DialogDescription>
               Install your worker with the Helm command below.
             </DialogDescription>

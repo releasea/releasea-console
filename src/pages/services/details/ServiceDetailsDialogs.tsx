@@ -162,6 +162,9 @@ export const ServiceDetailsDialogs = ({
         <DialogContent className="sm:max-w-[520px] bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-lg font-semibold">Deploy specific version</DialogTitle>
+            <DialogDescription>
+              Choose a known version and review the target environment before starting the deployment.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/30 p-3">
@@ -227,6 +230,9 @@ export const ServiceDetailsDialogs = ({
         <DialogContent className="sm:max-w-[760px] bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-lg font-semibold">Deploy logs</DialogTitle>
+            <DialogDescription>
+              Review the deployment timeline and output captured for this operation.
+            </DialogDescription>
           </DialogHeader>
           {deployLog.selected ? (
             <div className="space-y-4">

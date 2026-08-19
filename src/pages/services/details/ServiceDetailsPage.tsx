@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { Activity, Bot, ChevronDown, Copy, Download, ExternalLink, FileText, GitPullRequest, Loader2, Rocket, Settings, ShieldCheck, Terminal, TrendingUp } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -3407,10 +3408,12 @@ const ServiceDetails = () => {
                       <span className="text-sm text-muted-foreground">{servicePublicURL.display}</span>
                     ) : null}
                   </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">Deploy, observe, troubleshoot, and configure this service.</p>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              <DocumentationLink slug="service-details" label="Service guide" variant="button" />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="outline" size="sm" className="gap-2">

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FolderKanban, Rocket, Plus, Settings, Server, Save } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { QuickStatsGrid } from '@/components/layout/QuickStatsGrid';
 import { TabsWrapper, TabItem } from '@/components/layout/TabsWrapper';
 import { SettingsSection, SettingsField, SettingsGrid } from '@/components/layout/SettingsSection';
@@ -397,9 +398,11 @@ const ProjectDetails = () => {
                       {projectServices.length} services
                     </Badge>
                   </div>
+                  <p className="text-xs text-muted-foreground">Manage services, credentials, and delivery defaults for this project.</p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <DocumentationLink slug="projects-and-teams" label="Project guide" variant="button" />
                 <Button size="sm" onClick={() => navigate(`/services/new?project=${project.id}`)}>
                   <Plus className="w-4 h-4" />
                   New Service
