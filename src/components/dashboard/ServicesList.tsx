@@ -185,7 +185,7 @@ export function ServicesList({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" aria-label="Services overview">
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
@@ -303,7 +303,7 @@ export function ServicesList({
                   <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${service.name}`}>
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>

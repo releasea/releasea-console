@@ -143,7 +143,8 @@ const Dashboard = () => {
       <div className="space-y-6">
         <ListPageHeader
           title="Dashboard"
-          description="Real-time overview of services and operations"
+          description="Monitor service health, deploys, and platform readiness."
+          docsSlug="overview"
         />
 
         {/* Banner */}

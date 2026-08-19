@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageBackLink } from '@/components/layout/PageBackLink';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1332,6 +1333,7 @@ export default function CreateService() {
                 <p className="text-sm text-muted-foreground max-w-2xl">
                   Select a service template and configure runtime, scaling, and deployment settings.
                 </p>
+                <DocumentationLink slug="services" label="Service creation guide" />
                 {!isCreationPrerequisiteReady && (
                   <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
                     {creationBlockedMessage}

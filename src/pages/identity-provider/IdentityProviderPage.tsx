@@ -15,11 +15,11 @@ import {
   Link2,
   FileText,
   AlertTriangle,
-  Pencil,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { SettingsGrid, SettingsSection } from '@/components/layout/SettingsSection';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -118,6 +118,7 @@ const IdentityProvider = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [atomicSaveStatus, setAtomicSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // SAML State
   const [samlEnabled, setSamlEnabled] = useState(false);
@@ -174,6 +175,7 @@ const IdentityProvider = () => {
       setTeams(teamsData);
       setConfig(configData);
       setConnections(connectionsData);
+      setEditingConnectionId((current) => current ?? connectionsData[0]?.id ?? null);
       setConnectionsLoading(false);
       setGroupMappings(mappingsData);
       setSessions(sessionsData);
@@ -282,9 +284,17 @@ const IdentityProvider = () => {
     nextConfig[section] = { ...nextConfig[section], ...patch } as never;
     setConfig(nextConfig);
     setIsSaving(true);
-    await updateIdpConfig(nextConfig);
-    setIsSaving(false);
-    toast({ title: 'Setting updated', description: 'The change was saved automatically.' });
+    setAtomicSaveStatus('saving');
+    try {
+      await updateIdpConfig(nextConfig);
+      setAtomicSaveStatus('saved');
+      window.setTimeout(() => setAtomicSaveStatus((current) => current === 'saved' ? 'idle' : current), 2500);
+    } catch {
+      setAtomicSaveStatus('error');
+      toast({ title: 'Unable to save identity settings', description: 'Your latest change was not persisted.', variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddConnection = async (protocol: IdpProtocol) => {
@@ -335,7 +345,6 @@ const IdentityProvider = () => {
     setConnections((current) => current.map((item) => (
       item.id === connection.id ? { ...item, status: 'inactive' } : item
     )));
-    setEditingConnectionId(null);
     setIsSaving(false);
     toast({ title: 'Identity provider disabled' });
   };
@@ -354,7 +363,6 @@ const IdentityProvider = () => {
       setConnections((current) => current.map((item) => (
         item.id === connection.id ? { ...item, status: 'active', ...summary } : item
       )));
-      setEditingConnectionId(null);
       toast({ title: 'Identity provider saved', description: `${connection.name} is enabled and ready to use.` });
     } else {
       toast({ title: 'Unable to save provider', description: 'Review the connection and try again.', variant: 'destructive' });
@@ -461,11 +469,12 @@ const IdentityProvider = () => {
       <div className="space-y-6">
         <ListPageHeader
           title="Identity Provider"
-          description="Configure SSO, user provisioning, and access management"
+          description="Connect SSO and automate user access."
+          docsSlug="settings-identity-governance"
         />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto p-1">
             <TabsTrigger value="connection" className="gap-2">
               <Link2 className="w-4 h-4" />
               Connection
@@ -494,10 +503,13 @@ const IdentityProvider = () => {
               title="Identity providers"
               description="Add and manage the sign-in connections available to your organization"
               actions={(
-                <Button size="sm" onClick={() => setAddProviderOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add identity provider
-                </Button>
+                <>
+                  <DocumentationLink slug="settings-identity-governance" label="SSO guide" variant="button" />
+                  <Button size="sm" onClick={() => setAddProviderOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add identity provider
+                  </Button>
+                </>
               )}
             >
               {connectionsLoading ? (
@@ -544,7 +556,7 @@ const IdentityProvider = () => {
             </SettingsSection>
 
             {/* SAML Section */}
-            {samlConnection && (
+            {samlConnection && editingConnectionId === samlConnection.id && (
             <SettingsSection
               title={samlConnection.name}
               description="Connect via Security Assertion Markup Language"
@@ -552,9 +564,6 @@ const IdentityProvider = () => {
                 <div className="flex items-center gap-2">
                   {samlEnabled && <Badge variant="secondary" className="text-xs">ENABLED</Badge>}
                   <Switch checked={samlEnabled} onCheckedChange={(enabled) => handleConnectionToggle(samlConnection, enabled)} aria-label="Enable SAML 2.0" />
-                  <Button variant="outline" size="sm" onClick={() => setEditingConnectionId(samlConnection.id)}>
-                    <Pencil className="w-4 h-4 mr-2" /> Edit
-                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingConnection(samlConnection)} aria-label="Remove SAML 2.0"><Trash2 className="w-4 h-4" /></Button>
                 </div>
               }
@@ -694,7 +703,7 @@ const IdentityProvider = () => {
             )}
 
             {/* OIDC Section */}
-            {oidcConnection && (
+            {oidcConnection && editingConnectionId === oidcConnection.id && (
             <SettingsSection
               title={oidcConnection.name}
               description="Connect via OAuth 2.0 / OIDC protocol"
@@ -702,9 +711,6 @@ const IdentityProvider = () => {
                 <div className="flex items-center gap-2">
                   {oidcEnabled && <Badge variant="secondary" className="text-xs">ENABLED</Badge>}
                   <Switch checked={oidcEnabled} onCheckedChange={(enabled) => handleConnectionToggle(oidcConnection, enabled)} aria-label="Enable OpenID Connect" />
-                  <Button variant="outline" size="sm" onClick={() => setEditingConnectionId(oidcConnection.id)}>
-                    <Pencil className="w-4 h-4 mr-2" /> Edit
-                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingConnection(oidcConnection)} aria-label="Remove OpenID Connect"><Trash2 className="w-4 h-4" /></Button>
                 </div>
               }
@@ -821,6 +827,7 @@ const IdentityProvider = () => {
             <SettingsSection
               title="User Provisioning"
               description="Control how users are created and removed"
+              status={atomicSaveStatus}
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-2">
@@ -885,6 +892,7 @@ const IdentityProvider = () => {
             <SettingsSection
               title="Session Settings"
               description="Configure session duration and behavior"
+              status={atomicSaveStatus}
             >
               <div className="space-y-4">
                 <SettingsGrid columns={2}>
@@ -1098,6 +1106,7 @@ const IdentityProvider = () => {
             <SettingsSection
               title="Authentication Security"
               description="Additional security requirements for IdP users"
+              status={atomicSaveStatus}
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-2">

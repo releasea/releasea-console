@@ -1,6 +1,7 @@
 import { AppConfig, getApiUrl } from '@/lib/config';
 import { apiClient } from '@/lib/api-client';
 import { clientLogger } from '@/platform/logging/client-logger';
+import { reportApiLoadFailure, reportApiLoadRecovery } from '@/platform/http/api-feedback';
 import {
   authExchangeSSORequestSchema,
   authSessionRequestSchema,
@@ -300,8 +301,10 @@ const resolveResponse = async <T>(request: Promise<ApiResult<T>>, fallback: T, l
   const { data, error } = await request;
   if (error || data == null) {
     clientLogger.warn(`api.${label}`, 'Request failed', { error });
+    reportApiLoadFailure(label, error ?? 'The API returned an empty response.');
     return fallback;
   }
+  reportApiLoadRecovery(label);
   return data;
 };
 

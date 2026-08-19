@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -60,7 +61,10 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{profile ? 'Edit Runtime Profile' : 'New Runtime Profile'}</DialogTitle>
+          <DialogTitle>{profile ? 'Edit runtime profile' : 'Create runtime profile'}</DialogTitle>
+          <DialogDescription>
+            Set reusable Kubernetes requests and limits. Use values such as 250m for CPU and 256Mi for memory.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -74,10 +78,10 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="rp-desc">Description</Label>
+            <Label htmlFor="rp-desc">Description <span className="font-normal text-muted-foreground">(optional)</span></Label>
             <Textarea
               id="rp-desc"
-              placeholder="Optional description"
+              placeholder="When teams should use this profile"
               value={form.description ?? ''}
               onChange={(e) => update('description', e.target.value)}
               rows={2}
@@ -86,7 +90,7 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="rp-cpu">CPU Request</Label>
+              <Label htmlFor="rp-cpu">CPU request</Label>
               <Input
                 id="rp-cpu"
                 placeholder="250m"
@@ -96,7 +100,7 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rp-cpu-limit">CPU Limit</Label>
+              <Label htmlFor="rp-cpu-limit">CPU limit</Label>
               <Input
                 id="rp-cpu-limit"
                 placeholder="500m"
@@ -109,7 +113,7 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="rp-mem">Memory Request</Label>
+              <Label htmlFor="rp-mem">Memory request</Label>
               <Input
                 id="rp-mem"
                 placeholder="256Mi"
@@ -119,7 +123,7 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rp-mem-limit">Memory Limit</Label>
+              <Label htmlFor="rp-mem-limit">Memory limit</Label>
               <Input
                 id="rp-mem-limit"
                 placeholder="512Mi"
@@ -135,7 +139,7 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !form.name.trim()}>
-              {loading ? 'Saving...' : profile ? 'Update' : 'Create'}
+              {loading ? 'Saving...' : profile ? 'Save changes' : 'Create profile'}
             </Button>
           </DialogFooter>
         </form>

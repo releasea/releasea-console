@@ -41,7 +41,7 @@ export const TablePagination = ({
   const pages = getPages();
 
   return (
-    <div className="flex flex-col gap-3 border-t border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <nav aria-label="Table pagination" className="flex flex-col gap-3 border-t border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-xs text-muted-foreground">
         Showing {start} to {end} of {totalItems} results
       </p>
@@ -73,6 +73,8 @@ export const TablePagination = ({
                 size="icon"
                 className="h-8 w-8"
                 onClick={() => onPageChange(pageNumber)}
+                aria-label={`Page ${pageNumber}`}
+                aria-current={pageNumber === page ? 'page' : undefined}
               >
                 {pageNumber}
               </Button>
@@ -90,6 +92,6 @@ export const TablePagination = ({
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </nav>
   );
 };

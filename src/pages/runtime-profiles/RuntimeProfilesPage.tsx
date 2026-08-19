@@ -111,7 +111,7 @@ export default function RuntimeProfilesPage() {
         <div className="flex items-center justify-end" onClick={(event) => event.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${item.name}`}>
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -140,16 +140,18 @@ export default function RuntimeProfilesPage() {
       <div className="space-y-6 max-w-7xl mx-auto">
         <ListPageHeader
           title="Runtime Profiles"
-          description="Reusable resource profiles (CPU, memory) that can be applied to services at deploy time."
+          description="Reuse CPU and memory presets across service deployments."
+          docsSlug="configuration-reference"
           actions={
             <Button size="sm" onClick={() => setFormOpen(true)}>
               <Plus className="w-4 h-4 mr-1.5" />
-              New Profile
+              New profile
             </Button>
           }
         />
 
         <DataTable
+          ariaLabel="Runtime profiles"
           columns={columns}
           data={profiles}
           keyExtractor={(p) => p.id}
@@ -182,7 +184,7 @@ export default function RuntimeProfilesPage() {
         open={!!deletingProfile}
         onOpenChange={(open) => !open && setDeletingProfile(null)}
         onConfirm={() => deletingProfile && deleteMutation.mutate(deletingProfile.id)}
-        title="Delete Runtime Profile"
+        title="Delete runtime profile?"
         description={`Are you sure you want to delete "${deletingProfile?.name}"? Services referencing this profile will need to be updated.`}
       />
     </AppLayout>

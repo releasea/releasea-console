@@ -217,7 +217,8 @@ const Environments = () => {
       <div className="space-y-6 w-full">
         <ListPageHeader
           title="Environments"
-          description="Manage deployment environments for your services and workers"
+          description="Define deployment targets and map them to worker capacity."
+          docsSlug="deploy-and-environments"
           actions={
             <div className="flex items-center gap-2">
               <Button onClick={handleCreate} className="gap-2">
@@ -380,9 +381,9 @@ const Environments = () => {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Environment</DialogTitle>
+            <DialogTitle>Edit environment</DialogTitle>
             <DialogDescription>
-              Update the environment configuration
+              Update its display, default behavior, and service-level objectives.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -421,10 +422,13 @@ const Environments = () => {
               <div className="flex gap-2">
                 {colorPresets.map((color) => (
                   <button
+                    type="button"
                     key={color}
                     className={`w-8 h-8 rounded-lg transition-all ${formColor === color ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}`}
                     style={{ backgroundColor: color }}
                     onClick={() => setFormColor(color)}
+                    aria-label={`Use ${color} as the environment color`}
+                    aria-pressed={formColor === color}
                   />
                 ))}
               </div>
@@ -488,9 +492,9 @@ const Environments = () => {
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Environment</DialogTitle>
+            <DialogTitle>Create environment</DialogTitle>
             <DialogDescription>
-              Add a new deployment environment
+              Define a deployment target and the defaults new services will inherit.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -525,10 +529,13 @@ const Environments = () => {
               <div className="flex gap-2">
                 {colorPresets.map((color) => (
                   <button
+                    type="button"
                     key={color}
                     className={`w-8 h-8 rounded-lg transition-all ${formColor === color ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}`}
                     style={{ backgroundColor: color }}
                     onClick={() => setFormColor(color)}
+                    aria-label={`Use ${color} as the environment color`}
+                    aria-pressed={formColor === color}
                   />
                 ))}
               </div>
@@ -582,7 +589,7 @@ const Environments = () => {
       <ConfirmActionModal
         open={!!deleteEnv}
         onOpenChange={() => setDeleteEnv(null)}
-        title="Delete Environment"
+        title="Delete environment?"
         description={`This will permanently delete the "${deleteEnv?.name}" environment. All associated workers and services must be reassigned first.`}
         confirmText={deleteEnv?.id || ''}
         variant="destructive"
