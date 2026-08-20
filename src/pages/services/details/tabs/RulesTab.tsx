@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import { Copy, Globe, MoreVertical, Pencil, Plus, Route as RouteIcon, ShieldCheck, Trash2 } from 'lucide-react';
 import { getGatewayTargets } from '../constants';
 import type { RuleRow } from '../types';
+import { ServiceTabHeader } from '../ServiceTabHeader';
 
 type PaginationState = {
   page: number;
@@ -32,6 +33,7 @@ type RulesTabProps = {
   onOpenCopyRule: (rule: ManagedRule) => void;
   onOpenPublishRule: (rule: ManagedRule) => void;
   onDeleteRule: (rule: RuleRow) => void;
+  viewEnvLabel: string;
 };
 
 export const RulesTab = ({
@@ -46,12 +48,24 @@ export const RulesTab = ({
   onOpenCopyRule,
   onOpenPublishRule,
   onDeleteRule,
+  viewEnvLabel,
 }: RulesTabProps) => (
   <TabsContent value="rules" className="space-y-4">
+    <ServiceTabHeader
+      title="Traffic rules"
+      description="Define paths, methods, access policy, and gateway publication for this service."
+      environment={viewEnvLabel}
+      actions={
+        <Button size="sm" className="gap-2" onClick={onCreateRule} disabled={isObservedManagementMode}>
+          <Plus className="w-4 h-4" />
+          New rule
+        </Button>
+      }
+    />
     <div className="bg-card border border-border rounded-lg overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Rules</h3>
+          <h3 className="text-sm font-semibold text-foreground">Configured rules</h3>
           <p className="text-xs text-muted-foreground">
             {environmentRules.length} total in {getEnvironmentLabel(viewEnv)}
           </p>
@@ -61,10 +75,6 @@ export const RulesTab = ({
             </p>
           )}
         </div>
-        <Button size="sm" className="gap-2" onClick={onCreateRule} disabled={isObservedManagementMode}>
-          <Plus className="w-4 h-4" />
-          New Rule
-        </Button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full" aria-label="Traffic rules">
@@ -239,7 +249,14 @@ export const RulesTab = ({
               );
             })}
             {environmentRules.length === 0 && (
-              <TableEmptyRow colSpan={6} icon={<RouteIcon className="h-5 w-5 text-muted-foreground" />} />
+              <TableEmptyRow
+                colSpan={6}
+                icon={<RouteIcon className="h-5 w-5 text-muted-foreground" />}
+                title={`No traffic rules in ${viewEnvLabel}`}
+                description={isObservedManagementMode ? 'Rules are read-only while this service is observed.' : 'Create a rule to expose a path internally or through an external gateway.'}
+                actionLabel={isObservedManagementMode ? undefined : 'Create first rule'}
+                onAction={isObservedManagementMode ? undefined : onCreateRule}
+              />
             )}
           </tbody>
         </table>

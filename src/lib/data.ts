@@ -1132,6 +1132,28 @@ export const fetchServiceLogs = async (
   serviceId: string,
   options?: { from?: Date; to?: Date; limit?: number; environment?: string; pod?: string; container?: string }
 ): Promise<LogEntry[]> => {
+  const result = await fetchServiceLogsResult(serviceId, options);
+  return result.logs;
+};
+
+export type ServiceLogsDiagnostics = {
+  lokiUrl?: string;
+  namespace?: string;
+  serviceName?: string;
+  query?: string;
+  error?: string;
+};
+
+export type ServiceLogsResult = {
+  logs: LogEntry[];
+  diagnostics?: ServiceLogsDiagnostics;
+  error?: string;
+};
+
+export const fetchServiceLogsResult = async (
+  serviceId: string,
+  options?: { from?: Date; to?: Date; limit?: number; environment?: string; pod?: string; container?: string }
+): Promise<ServiceLogsResult> => {
   const params = new URLSearchParams();
   if (options?.from) params.set('from', options.from.toISOString());
   if (options?.to) params.set('to', options.to.toISOString());
@@ -1139,28 +1161,51 @@ export const fetchServiceLogs = async (
   // Environment is required
   if (!options?.environment) {
     clientLogger.warn('api.fetchServiceLogs', 'Called without required environment');
-    return EMPTY_LOGS;
+    return { logs: EMPTY_LOGS, error: 'Select an environment before loading logs.' };
   }
   params.set('environment', options.environment);
   if (options?.pod) params.set('pod', options.pod);
   if (options?.container) params.set('container', options.container);
   const endpoint = `/services/${serviceId}/logs?${params.toString()}`;
-  return fetchResource({ fallback: EMPTY_LOGS, endpoint, label: 'fetchServiceLogs' });
+  const response = await apiClient.get<LogEntry[] | { logs?: LogEntry[]; diagnostics?: ServiceLogsDiagnostics }>(endpoint);
+  if (response.error || response.data == null) {
+    return { logs: EMPTY_LOGS, error: response.error ?? 'Unable to load runtime logs.' };
+  }
+  if (Array.isArray(response.data)) {
+    return { logs: response.data };
+  }
+  return {
+    logs: Array.isArray(response.data.logs) ? response.data.logs : EMPTY_LOGS,
+    diagnostics: response.data.diagnostics,
+    error: response.data.diagnostics?.error,
+  };
 };
 
-export const fetchServicePods = async (serviceId: string, environment: string): Promise<string[]> => {
+export type ServicePodsResult = {
+  pods: string[];
+  namespace?: string;
+  serviceName?: string;
+  error?: string;
+};
+
+export const fetchServicePodsResult = async (serviceId: string, environment: string): Promise<ServicePodsResult> => {
   if (!environment) {
     clientLogger.warn('api.fetchServicePods', 'Called without required environment');
-    return [];
+    return { pods: [], error: 'Select an environment before loading instances.' };
   }
   const params = new URLSearchParams();
   params.set('environment', environment);
   const endpoint = `/services/${serviceId}/pods?${params.toString()}`;
-  const response = await apiClient.get<{ pods: string[]; namespace: string; error?: string }>(endpoint);
+  const response = await apiClient.get<ServicePodsResult>(endpoint);
   if (response.error || !response.data) {
-    return [];
+    return { pods: [], error: response.error ?? 'Unable to discover service instances.' };
   }
-  return response.data.pods ?? [];
+  return { ...response.data, pods: response.data.pods ?? [] };
+};
+
+export const fetchServicePods = async (serviceId: string, environment: string): Promise<string[]> => {
+  const result = await fetchServicePodsResult(serviceId, environment);
+  return result.pods;
 };
 
 export const fetchObservabilityHealth = async (): Promise<{

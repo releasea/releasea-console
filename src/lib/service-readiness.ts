@@ -170,7 +170,11 @@ export const buildServiceReadinessScorecard = ({
             ? 'blocked'
             : releaseIntelligence.slo.overallState === 'at-risk'
               ? 'review'
-              : 'ready',
+              : releaseIntelligence.slo.overallState === 'unknown' ||
+                  releaseIntelligence.slo.availabilityPct == null ||
+                  releaseIntelligence.slo.latencyP95AvgMs == null
+                ? 'review'
+                : 'ready',
       message:
         !releaseIntelligence
           ? 'Telemetry is not rich enough yet to score this service.'
@@ -184,7 +188,8 @@ export const buildServiceReadinessScorecard = ({
           ? 'review'
           : releaseIntelligence.rollback.recommendation === 'rollback'
             ? 'blocked'
-            : releaseIntelligence.rollback.recommendation === 'watch'
+            : releaseIntelligence.rollback.recommendation === 'watch' ||
+                releaseIntelligence.rollback.recommendation === 'insufficient-data'
               ? 'review'
               : 'ready',
       message:
