@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SettingsGrid, SettingsSection } from '@/components/layout/SettingsSection';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TableEmptyRow } from '@/components/layout/EmptyState';
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { DocumentationLink } from '@/components/layout/DocumentationLink';
@@ -408,6 +409,15 @@ const SettingsPage = () => {
         providerHealth.notifications,
       ]
     : [];
+  const providerHealthTotals = providerHealthSections.reduce(
+    (totals, category) => ({
+      healthy: totals.healthy + category.healthy,
+      unhealthy: totals.unhealthy + category.unhealthy,
+      unsupported: totals.unsupported + (category.unsupported ?? 0),
+      disabled: totals.disabled + (category.disabled ?? 0),
+    }),
+    { healthy: 0, unhealthy: 0, unsupported: 0, disabled: 0 },
+  );
 
   const resolveProviderStatus = (kind: 'scm' | 'registry' | 'secrets' | 'identity' | 'notifications', providerId?: string) =>
     providerStatus?.[kind].providers.find((provider) => provider.id === providerId) ?? null;
@@ -417,8 +427,21 @@ const SettingsPage = () => {
   const formatProviderState = (state: ProviderStatus['state']) =>
     state
       .split('-')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .map((part, index) => (index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part))
       .join(' ');
+
+  const providerCategoryIcon = (kind: ProviderCatalog['scm']['kind']) => {
+    const Icon = kind === 'scm'
+      ? GitBranch
+      : kind === 'registry'
+        ? Package
+        : kind === 'secrets'
+          ? ShieldCheck
+          : kind === 'identity'
+            ? KeyRound
+            : Bell;
+    return <Icon className="h-4 w-4" />;
+  };
 
   const providerStateBadgeClass = (state: ProviderStatus['state']) => {
     if (state === 'configured') return 'border-success/30 bg-success/10 text-success';
@@ -432,13 +455,6 @@ const SettingsPage = () => {
       .split('-')
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(' ');
-
-  const providerHealthBadgeClass = (state: ProviderHealthCheck['state']) => {
-    if (state === 'healthy') return 'border-success/30 bg-success/10 text-success';
-    if (state === 'unhealthy') return 'border-destructive/30 bg-destructive/10 text-destructive';
-    if (state === 'unsupported') return 'border-warning/30 bg-warning/10 text-warning';
-    return 'border-border/60 bg-muted/30 text-muted-foreground';
-  };
 
   const selectedScmProviderMeta =
     providerCatalog?.scm.providers.find((provider) => provider.id === scmProvider) ?? null;
@@ -545,7 +561,9 @@ const SettingsPage = () => {
     const unhealthy = categories.reduce((sum, category) => sum + category.unhealthy, 0);
     toast({
       title: 'Provider health checks completed',
-      description: `${healthy} healthy, ${unhealthy} unhealthy.`,
+      description: unhealthy > 0
+        ? `${healthy} healthy · ${unhealthy} failed.`
+        : `All ${healthy} configured provider checks passed.`,
     });
   };
 
@@ -2026,40 +2044,59 @@ const SettingsPage = () => {
             {providerCatalogSections.length > 0 && (
               <SettingsSection
                 title="Provider catalog"
-                description="Built-in provider families currently available in this Releasea installation."
+                description="Review supported integrations and see which providers are ready to use."
               >
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {providerCatalogSections.map((category) => (
-                    <div key={category.kind} className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-foreground">{category.label}</p>
-                        <p className="text-xs text-muted-foreground">{category.description}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {category.providers.map((provider) => {
-                          const status = resolveCatalogProviderStatus(category.kind, provider.id);
-                          return (
-                            <div
-                              key={`${category.kind}-${provider.id}`}
-                              className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5 text-[10px] space-y-1"
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-foreground">{provider.label}</span>
-                                {status ? (
-                                  <Badge variant="outline" className={providerStateBadgeClass(status.state)}>
-                                    {formatProviderState(status.state)}
-                                  </Badge>
-                                ) : null}
+                <div className="space-y-4">
+                  {providerCatalogSections.map((category) => {
+                    const statuses = category.providers.map((provider) =>
+                      resolveCatalogProviderStatus(category.kind, provider.id),
+                    );
+                    const configuredCount = statuses.filter((status) => status?.state === 'configured').length;
+
+                    return (
+                      <section
+                        key={category.kind}
+                        className="grid overflow-hidden rounded-lg border border-border/60 bg-card lg:grid-cols-[260px_minmax(0,1fr)]"
+                      >
+                        <div className="border-b border-border/60 bg-muted/20 p-4 lg:border-b-0 lg:border-r">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+                              {providerCategoryIcon(category.kind)}
+                            </span>
+                            <h4 className="min-w-0 flex-1 text-sm font-semibold text-foreground">{category.label}</h4>
+                            <Badge variant="outline" className="shrink-0 text-[10px]">
+                              {configuredCount}/{category.providers.length} configured
+                            </Badge>
+                          </div>
+                          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{category.description}</p>
+                        </div>
+
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3 p-4">
+                          {category.providers.map((provider, providerIndex) => {
+                            const status = statuses[providerIndex];
+                            return (
+                              <div
+                                key={`${category.kind}-${provider.id}`}
+                                className="flex min-h-16 flex-col items-stretch justify-center gap-1.5 rounded-md border border-border/60 bg-muted/10 px-3 py-2.5"
+                              >
+                                <div className="flex min-w-0 items-start justify-between gap-2">
+                                  <p className="min-w-0 text-sm font-medium text-foreground">{provider.label}</p>
+                                  {status ? (
+                                    <Badge variant="outline" className={`shrink-0 text-[10px] ${providerStateBadgeClass(status.state)}`}>
+                                      {formatProviderState(status.state)}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="line-clamp-2 text-xs text-muted-foreground">
+                                  {status?.message ?? 'Status not available'}
+                                </p>
                               </div>
-                              {status?.message ? (
-                                <p className="text-[10px] text-muted-foreground">{status.message}</p>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                            );
+                          })}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
               </SettingsSection>
             )}
@@ -2067,94 +2104,142 @@ const SettingsPage = () => {
             <SettingsSection
               title="Provider health checks"
               description="Run live validation against configured providers. This does not run automatically to avoid slowing down the settings page."
-              actions={<DocumentationLink slug="provider-cookbook" label="Provider guide" variant="button" />}
-            >
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">Live provider validation</p>
-                    <p className="text-xs text-muted-foreground">
-                      Checks reachability and credential validity for configured SCM, registry, secrets and identity providers.
-                    </p>
-                  </div>
-                  <Button onClick={() => void handleRunProviderHealthChecks()} disabled={isRunningProviderHealth} className="gap-2">
+              actions={(
+                <>
+                  <DocumentationLink slug="provider-cookbook" label="Provider guide" variant="button" />
+                  <Button size="sm" onClick={() => void handleRunProviderHealthChecks()} disabled={isRunningProviderHealth} className="gap-2">
                     <ShieldCheck className="h-4 w-4" />
                     {isRunningProviderHealth ? 'Running checks...' : 'Run health checks'}
                   </Button>
-                </div>
-
+                </>
+              )}
+            >
+              <div>
                 {providerHealthSections.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                    Run the checks to inspect the current provider connectivity and configuration health.
+                  <div className="flex min-h-28 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+                      <ShieldCheck className="h-4 w-4" />
+                    </span>
+                    <p className="mt-3 text-sm font-medium text-foreground">No health check results</p>
+                    <p className="mt-1 max-w-lg text-xs text-muted-foreground">
+                      Run the checks to validate connectivity and credentials for configured providers.
+                    </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="overflow-hidden rounded-lg border border-border/60 bg-card">
+                    <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Latest validation</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">Connectivity and credential results for configured providers.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {providerHealthTotals.unhealthy > 0 ? (
+                          <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                            {providerHealthTotals.unhealthy} failed
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-success/30 bg-success/10 text-success">
+                            {providerHealthTotals.healthy} healthy
+                          </Badge>
+                        )}
+                        {providerHealthTotals.unsupported > 0 ? (
+                          <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">
+                            {providerHealthTotals.unsupported} unsupported
+                          </Badge>
+                        ) : null}
+                        {providerHealthTotals.disabled > 0 ? (
+                          <Badge variant="outline" className="border-border/60 bg-background text-muted-foreground">
+                            {providerHealthTotals.disabled} disabled
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </div>
+
                     {providerHealthSections.map((category) => {
                       const catalogCategory = providerCatalogSections.find((section) => section.kind === category.kind);
                       return (
-                        <div key={`health-${category.kind}`} className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="space-y-1">
+                        <section key={`health-${category.kind}`} className="border-b border-border/60 last:border-b-0">
+                          <div className="flex items-center justify-between gap-3 bg-muted/10 px-4 py-2.5">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span className="text-muted-foreground">{providerCategoryIcon(category.kind)}</span>
                               <p className="text-sm font-medium text-foreground">{catalogCategory?.label ?? category.kind}</p>
-                              <p className="text-xs text-muted-foreground">{catalogCategory?.description}</p>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className="border-success/30 bg-success/10 text-success">
-                                {category.healthy} healthy
-                              </Badge>
-                              <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
-                                {category.unhealthy} unhealthy
-                              </Badge>
-                              {typeof category.unsupported === 'number' && category.unsupported > 0 ? (
-                                <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">
-                                  {category.unsupported} unsupported
-                                </Badge>
-                              ) : null}
-                              {typeof category.disabled === 'number' && category.disabled > 0 ? (
-                                <Badge variant="outline" className="border-border/60 bg-muted/30 text-muted-foreground">
-                                  {category.disabled} disabled
-                                </Badge>
-                              ) : null}
-                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {category.checks.length} {category.checks.length === 1 ? 'result' : 'results'}
+                            </span>
                           </div>
 
                           {category.checks.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                              No configured resources to validate in this category.
-                            </div>
+                            <p className="border-t border-border/40 px-4 py-3 text-xs text-muted-foreground">
+                              No configured providers to validate.
+                            </p>
                           ) : (
-                            <div className="space-y-2">
-                              {category.checks.map((check) => (
-                                <div key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`} className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-medium text-foreground">
-                                      {check.resourceLabel || check.providerLabel}
-                                    </span>
-                                    <Badge variant="outline" className={`text-[10px] ${providerHealthBadgeClass(check.state)}`}>
-                                      {formatProviderHealthState(check.state)}
-                                    </Badge>
-                                    <Badge variant="outline" className="text-[10px]">
-                                      {check.providerLabel}
-                                    </Badge>
-                                    {check.scope ? (
-                                      <Badge variant="outline" className="text-[10px]">
-                                        {scopeLabel(check.scope as CredentialScope)}
-                                      </Badge>
-                                    ) : null}
-                                    {check.default ? (
-                                      <Badge variant="outline" className="text-[10px]">
-                                        Default
-                                      </Badge>
-                                    ) : null}
-                                  </div>
-                                  {check.message ? (
-                                    <p className="text-xs text-muted-foreground">{check.message}</p>
-                                  ) : null}
-                                </div>
-                              ))}
-                            </div>
+                            <TooltipProvider delayDuration={250}>
+                              <ul className="divide-y divide-border/50 border-t border-border/40">
+                                {category.checks.map((check) => (
+                                  <Tooltip key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`}>
+                                    <li
+                                      className={`flex flex-col gap-3 px-4 py-3 transition-colors sm:flex-row sm:items-center sm:justify-between ${
+                                        check.state === 'unhealthy' ? 'hover:bg-destructive/5' : 'hover:bg-muted/30'
+                                      }`}
+                                    >
+                                      <div className="flex min-w-0 items-center gap-3">
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            aria-label={`${formatProviderHealthState(check.state)} status. Show validation details.`}
+                                            className="shrink-0 cursor-help rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                          >
+                                          <span
+                                            className={`block h-2.5 w-2.5 rounded-full ring-4 ${
+                                              check.state === 'healthy'
+                                                ? 'bg-success ring-success/10'
+                                                : check.state === 'unhealthy'
+                                                  ? 'bg-destructive ring-destructive/10'
+                                                  : check.state === 'unsupported'
+                                                    ? 'bg-warning ring-warning/10'
+                                                    : 'bg-muted-foreground/50 ring-muted/60'
+                                            }`}
+                                            aria-hidden="true"
+                                          />
+                                          </button>
+                                        </TooltipTrigger>
+                                          <p className="truncate text-sm font-medium text-foreground">
+                                            {check.resourceLabel || check.providerLabel}
+                                          </p>
+                                          <span className="sr-only">{formatProviderHealthState(check.state)}</span>
+                                          <span className="sr-only">
+                                            {check.message || 'No details returned by the provider.'}
+                                          </span>
+                                        </div>
+                                        <div className="flex shrink-0 flex-wrap items-center gap-2 pl-5 sm:justify-end sm:pl-0">
+                                          <Badge variant="outline" className="text-[10px]">
+                                            {check.providerLabel}
+                                          </Badge>
+                                          {check.scope ? (
+                                            <Badge variant="outline" className="text-[10px]">
+                                              {scopeLabel(check.scope as CredentialScope)}
+                                            </Badge>
+                                          ) : null}
+                                          {check.default ? (
+                                            <Badge variant="outline" className="text-[10px]">
+                                              Default
+                                            </Badge>
+                                          ) : null}
+                                        </div>
+                                    </li>
+                                    <TooltipContent side="top" className="max-w-sm">
+                                      <p className="text-xs font-medium">{formatProviderHealthState(check.state)}</p>
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        {check.message || 'No details returned by the provider.'}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ))}
+                              </ul>
+                            </TooltipProvider>
                           )}
-                        </div>
+                        </section>
                       );
                     })}
                   </div>

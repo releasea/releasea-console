@@ -5,7 +5,11 @@ const DEPLOY_ACTION_BLOCKED_STATUSES = new Set<string>([
   'scheduled',
   'preparing',
   'deploying',
+  'validating',
+  'progressing',
+  'promoting',
   'retrying',
+  'rolling-back',
 ]);
 const LIVE_DEPLOY_STATUSES = new Set<string>([
   'requested',
@@ -16,10 +20,10 @@ const LIVE_DEPLOY_STATUSES = new Set<string>([
   'progressing',
   'promoting',
   'retrying',
-  'rollback',
+  'rolling-back',
 ]);
 const SUCCESSFUL_DEPLOY_STATUSES = new Set<string>(['completed']);
-const FAILED_DEPLOY_STATUSES = new Set<string>(['failed', 'rollback']);
+const FAILED_DEPLOY_STATUSES = new Set<string>(['failed', 'rolled-back']);
 const RUNTIME_ERROR_STATUSES = new Set<string>(['error', 'crashloop']);
 const RUNTIME_TRANSITION_STATUSES = new Set<string>(['pending', 'unknown']);
 const NON_RUNTIME_SERVICE_STATUSES = new Set<ServiceStatus>(['creating', 'created', 'deleting', 'stopped', 'idle']);
@@ -28,6 +32,7 @@ const normalizeDeployStatusMap: Record<string, string> = {
   queued: 'scheduled',
   'in-progress': 'deploying',
   success: 'completed',
+  rollback: 'rolled-back',
 };
 
 export const normalizeDeployStatusValue = (

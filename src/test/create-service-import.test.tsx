@@ -231,7 +231,7 @@ describe('CreateServicePage cluster import', () => {
     const templateButton = await screen.findByRole('button', { name: /adoptable microservice/i });
     fireEvent.click(templateButton);
 
-    const importSectionHeading = await screen.findByText('Import From Cluster');
+    const importSectionHeading = await screen.findByText('Import from cluster');
     const importSection = importSectionHeading.closest('section');
     expect(importSection).not.toBeNull();
 

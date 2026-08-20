@@ -2,10 +2,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Switch } from '@/components/ui/switch';
 import { TabsContent } from '@/components/ui/tabs';
 import type { DeployStatusValue, Service, ServiceStatus } from '@/types/releasea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertTriangle, ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, Timer, TrendingUp } from 'lucide-react';
+import { ChevronDown, Cpu, ExternalLink, HardDrive, ListOrdered, Loader2, Rocket, Timer, TrendingUp } from 'lucide-react';
 import { sanitizeExternalURL } from '@/platform/security/data-security';
 
 type AppUrl = {
@@ -20,8 +21,11 @@ type SummaryTabProps = {
   service: Service;
   serviceTypeLabel: string;
   runtimeLabel: string;
-  isServiceActive: boolean;
+  liveUpdatesEnabled: boolean;
   instanceLabel: string;
+  runningInstancesLabel: string;
+  deployedEnvironmentsLabel: string;
+  latestVersionLabel: string;
   viewEnvLabel: string;
   /** General status shown to users (runtime + active deploy phase). */
   displayStatus: ServiceStatus | DeployStatusValue;
@@ -34,6 +38,8 @@ type SummaryTabProps = {
   dockerContextLabel: string;
   envCountLabel: string;
   healthPath: string;
+  healthStatusLabel: string;
+  healthUpdatedLabel: string;
   appUrls: AppUrl[];
   deployBusy: boolean;
   deployDisabled: boolean;
@@ -54,17 +60,18 @@ type SummaryTabProps = {
   latencyPeakLabel: string;
   requestsAvgLabel: string;
   requestsPeakLabel: string;
-  isLive?: boolean;
-  isLivePaused?: boolean;
-  liveSyncError?: string | null;
+  onToggleLiveUpdates: (enabled: boolean) => void;
 };
 
 export const SummaryTab = ({
   service,
   serviceTypeLabel,
   runtimeLabel,
-  isServiceActive,
+  liveUpdatesEnabled,
   instanceLabel,
+  runningInstancesLabel,
+  deployedEnvironmentsLabel,
+  latestVersionLabel,
   viewEnvLabel,
   displayStatus,
   latestDeployStrategySummary,
@@ -75,6 +82,8 @@ export const SummaryTab = ({
   dockerContextLabel,
   envCountLabel,
   healthPath,
+  healthStatusLabel,
+  healthUpdatedLabel,
   appUrls,
   deployBusy,
   deployDisabled,
@@ -94,9 +103,7 @@ export const SummaryTab = ({
   latencyPeakLabel,
   requestsAvgLabel,
   requestsPeakLabel,
-  isLive,
-  isLivePaused,
-  liveSyncError,
+  onToggleLiveUpdates,
 }: SummaryTabProps) => {
   const safeRepositoryURL = repositoryUrl ? sanitizeExternalURL(repositoryUrl) : null;
 
@@ -120,22 +127,20 @@ export const SummaryTab = ({
                 {latestDeployStrategySummary}
               </span>
             )}
-            <Badge
-              variant={isServiceActive ? 'secondary' : 'outline'}
-              className="text-xs normal-case"
-            >
-              {isServiceActive ? 'Active' : 'Inactive'}
-            </Badge>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="text-xs text-muted-foreground">Instance</p>
+            <p className="text-xs text-muted-foreground">Runtime profile</p>
             <p className="font-medium text-foreground">{instanceLabel}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Repository</p>
+            <p className="text-xs text-muted-foreground">Instances · {viewEnvLabel}</p>
+            <p className="font-medium text-foreground">{runningInstancesLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Application repository</p>
             {safeRepositoryURL?.href ? (
               <div className="flex flex-wrap items-center gap-2">
                 <a
@@ -156,24 +161,24 @@ export const SummaryTab = ({
             ) : dockerImageLabel ? (
               <p className="text-sm font-mono text-foreground">{dockerImageLabel}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">Managed by Releasea</p>
+              <p className="text-sm text-muted-foreground">Application repository not configured</p>
             )}
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Dockerfile</p>
-            <p className="font-mono text-sm text-foreground">{dockerfileLabel}</p>
+            <p className="text-xs text-muted-foreground">Deployed environments</p>
+            <p className="text-sm text-foreground">{deployedEnvironmentsLabel}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Context</p>
-            <p className="font-mono text-sm text-foreground">{dockerContextLabel}</p>
+            <p className="text-xs text-muted-foreground">Latest version · {viewEnvLabel}</p>
+            <p className="font-mono text-sm text-foreground">{latestVersionLabel}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Environment Variables</p>
+            <p className="text-xs text-muted-foreground">Build source</p>
+            <p className="font-mono text-sm text-foreground">{dockerfileLabel} · {dockerContextLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Environment variables</p>
             <p className="text-sm text-foreground">{envCountLabel}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Health Path</p>
-            <p className="font-mono text-sm text-foreground">{healthPath}</p>
           </div>
         </div>
 
@@ -248,31 +253,18 @@ export const SummaryTab = ({
                 </Button>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-xs">
-              {liveSyncError ? (
-                <span className="inline-flex items-center gap-1.5 text-warning">
-                  <AlertTriangle className="w-3 h-3" />
-                  Live sync delayed
-                </span>
-              ) : isLivePaused ? (
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-warning" />
-                  Paused
-                </span>
-              ) : isLive ? (
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-                  </span>
-                  Live
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
-                  Idle
-                </span>
-              )}
+            <div className="flex items-center gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <div className="text-right">
+                <p className="text-xs font-medium text-foreground">Live updates</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {liveUpdatesEnabled ? `Auto-refreshing ${viewEnvLabel}` : 'Automatic refresh paused'}
+                </p>
+              </div>
+              <Switch
+                checked={liveUpdatesEnabled}
+                onCheckedChange={onToggleLiveUpdates}
+                aria-label={`${liveUpdatesEnabled ? 'Pause' : 'Resume'} live updates`}
+              />
             </div>
           </div>
         </div>
@@ -370,14 +362,14 @@ export const SummaryTab = ({
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Health Checks</h3>
-          <Badge variant="outline" className="text-xs font-mono">
-            {healthPath}
+          <Badge variant={healthStatusLabel === 'Healthy' ? 'secondary' : 'outline'} className="text-xs normal-case">
+            {healthStatusLabel}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           Path: <span className="font-mono text-foreground">{healthPath}</span>
         </p>
-        <p className="text-xs text-muted-foreground">Last probe info unavailable.</p>
+        <p className="text-xs text-muted-foreground">{healthUpdatedLabel}</p>
       </div>
     </div>
     </TabsContent>

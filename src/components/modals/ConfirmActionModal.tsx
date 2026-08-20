@@ -25,6 +25,7 @@ interface ConfirmActionModalProps {
   confirmText?: string; // Alias for confirmPhrase for backwards compatibility
   confirmLabel?: string;
   cancelLabel?: string;
+  confirmDisabled?: boolean;
   onConfirm: () => Promise<void> | void;
   isLoading?: boolean;
 }
@@ -71,6 +72,7 @@ export function ConfirmActionModal({
   confirmText,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  confirmDisabled = false,
   onConfirm,
   isLoading: externalLoading,
 }: ConfirmActionModalProps) {
@@ -85,7 +87,7 @@ export function ConfirmActionModal({
 
   const requiresPhrase = !!phraseToMatch;
   const isMatch = !requiresPhrase || value.trim().toLowerCase() === phraseToMatch?.toLowerCase();
-  const canConfirm = isMatch && !isLoading;
+  const canConfirm = isMatch && !isLoading && !confirmDisabled;
 
   const handleConfirm = async () => {
     if (!canConfirm) return;

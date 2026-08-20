@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -26,6 +26,7 @@ import {
   checkGithubTemplateRepoAvailability,
   createGithubTemplateRepo,
   createService,
+  createServiceStrict,
   fetchDiscoveredWorkloads,
   fetchEnvironments,
   performAction,
@@ -81,6 +82,25 @@ import { RuntimeProfile } from '@/types/runtime-profile';
 
 const TEMPLATE_OWNER = import.meta.env.RELEASEA_TEMPLATE_OWNER || 'releasea';
 const TEMPLATE_REPO = import.meta.env.RELEASEA_TEMPLATE_REPO || 'templates';
+
+type CreateServiceSectionProps = {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+};
+
+function CreateServiceSection({ title, description, children, className }: CreateServiceSectionProps) {
+  return (
+    <section className={cn('overflow-hidden rounded-lg border border-border bg-card', className)}>
+      <div className="border-b border-border bg-muted/20 px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
 
 export default function CreateService() {
   const navigate = useNavigate();
@@ -238,6 +258,12 @@ export default function CreateService() {
       setAutoDeploy(false);
     }
   }, [managementMode, autoDeploy]);
+
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'test') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [step]);
 
   const serviceOptions = useMemo<CatalogTemplate[]>(
     () => mapCatalogTemplates(serviceTemplates),
@@ -905,13 +931,11 @@ export default function CreateService() {
   };
 
   const managementModeSection = !isTemplateMode ? (
-    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">Management Mode</h3>
-        <p className="text-xs text-muted-foreground">
-          Choose whether Releasea actively deploys this service or only keeps visibility and settings.
-        </p>
-      </div>
+    <CreateServiceSection
+      title="Management mode"
+      description="Choose whether Releasea actively deploys this service or only keeps visibility and settings."
+    >
+      <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {([
           {
@@ -952,7 +976,8 @@ export default function CreateService() {
           </ul>
         </div>
       )}
-    </section>
+      </div>
+    </CreateServiceSection>
   ) : null;
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -1095,15 +1120,42 @@ export default function CreateService() {
         return;
       }
 
-      const createdService = await createService({
+      toast({
+        title: 'Provisioning application repository',
+        description: `Releasea is creating ${parsedTemplateRepo.owner}/${parsedTemplateRepo.name} from the selected template.`,
+      });
+
+      const { repo, error: repositoryError } = await createGithubTemplateRepo({
+        scmCredentialId: resolvedScmCredentialId || undefined,
+        projectId: resolvedProjectId || undefined,
+        templateOwner: templateSourceOwner,
+        templateRepo: templateSourceRepo,
+        templatePath: selectedTemplatePath || undefined,
+        owner: parsedTemplateRepo.owner,
+        name: parsedTemplateRepo.name,
+        private: newRepoPrivate,
+      });
+      if (repositoryError || !repo) {
+        toast({
+          title: 'Failed to create application repository',
+          description: repositoryError || 'Check your GitHub credentials and try again.',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      const resolvedRepoUrl = repo.clone_url || repo.html_url || effectiveTemplateRepoUrl;
+      const resolvedBranch = repo.default_branch || branch || 'main';
+      const { service: createdService, error: serviceCreateError } = await createServiceStrict({
         name: serviceName,
         type: selectedType,
         projectId: resolvedProjectId,
         port: portValue,
         sourceType: resolvedSourceType,
-        status: 'creating',
-        repoUrl: '',
-        branch: '',
+        status: 'created',
+        repoUrl: resolvedRepoUrl,
+        branch: resolvedBranch,
         rootDir: '.',
         dockerImage: resolvedDockerImage,
         healthCheckPath: resolvedHealthCheckPath,
@@ -1112,6 +1164,11 @@ export default function CreateService() {
         dockerCommand,
         preDeployCommand,
         repoManaged: true,
+        templateSource: {
+          owner: templateSourceOwner,
+          repo: templateSourceRepo,
+          ...(selectedTemplatePath ? { path: selectedTemplatePath } : {}),
+        },
         managementMode: 'managed',
         ...(isScheduledJob
           ? {
@@ -1145,60 +1202,27 @@ export default function CreateService() {
         pauseIdleTimeoutSeconds: selectedType === 'microservice' ? pauseIdleTimeoutSeconds : undefined,
       });
 
+      if (serviceCreateError || !createdService) {
+        toast({
+          title: 'Repository created, but service registration failed',
+          description: `${serviceCreateError || 'The API did not return the created service.'} Repository: ${resolvedRepoUrl}`,
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(false);
 
       toast({
-        title: 'Service is being created',
-        description: `Service "${serviceName}" is provisioning its repository.`,
+        title: 'Service created',
+        description: `Application repository ${parsedTemplateRepo.owner}/${parsedTemplateRepo.name} is ready.`,
       });
 
       navigate(`/services/${createdService.id}`);
 
-      void (async () => {
-        const { repo, error } = await createGithubTemplateRepo({
-          scmCredentialId: resolvedScmCredentialId || undefined,
-          projectId: resolvedProjectId || undefined,
-          templateOwner: templateSourceOwner,
-          templateRepo: templateSourceRepo,
-          templatePath: selectedTemplatePath || undefined,
-          owner: parsedTemplateRepo.owner,
-          name: parsedTemplateRepo.name,
-          private: newRepoPrivate,
-        });
-        if (error || !repo) {
-          await updateService(createdService.id, { status: 'error' });
-          toast({
-            title: 'Failed to create repository',
-            description: error || 'Check your GitHub credentials and try again.',
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        const resolvedRepoUrl = repo.clone_url || repo.html_url || effectiveTemplateRepoUrl;
-        const resolvedBranch = repo.default_branch || branch;
-        const baseSetupPayload = {
-          repoUrl: resolvedRepoUrl,
-          branch: resolvedBranch,
-          rootDir: '.',
-          repoManaged: true,
-        };
-
-        const shouldTriggerFirstAutoDeploy = autoDeploy && selectedType === 'microservice';
-        if (!shouldTriggerFirstAutoDeploy) {
-          await updateService(createdService.id, {
-            ...baseSetupPayload,
-            status: 'created',
-          });
-          return;
-        }
-
-        // The deploy endpoint blocks while service.status is "creating".
-        // Mark service as created before queueing the first auto deploy.
-        await updateService(createdService.id, {
-          ...baseSetupPayload,
-          status: 'created',
-        });
+      const shouldTriggerFirstAutoDeploy = autoDeploy && selectedType === 'microservice';
+      if (shouldTriggerFirstAutoDeploy) {
         const deployQueued = await performAction({
           endpoint: `/services/${createdService.id}/deploys`,
           method: 'POST',
@@ -1222,7 +1246,7 @@ export default function CreateService() {
           title: 'First deploy queued',
           description: `Auto-deploy is enabled. ${serviceName} entered deploy flow automatically.`,
         });
-      })();
+      }
 
       return;
     }
@@ -1299,7 +1323,7 @@ export default function CreateService() {
   return (
     <AppLayout>
       <CreateServiceFormStoreProvider value={createServiceFormStore}>
-        <div className="space-y-6">
+        <div className="mx-auto w-full max-w-screen-xl space-y-6">
           <div className="space-y-3">
             {step === 'config' ? (
               <Button
@@ -1333,13 +1357,13 @@ export default function CreateService() {
                 <p className="text-sm text-muted-foreground max-w-2xl">
                   Select a service template and configure runtime, scaling, and deployment settings.
                 </p>
-                <DocumentationLink slug="services" label="Service creation guide" />
                 {!isCreationPrerequisiteReady && (
                   <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
                     {creationBlockedMessage}
                   </div>
                 )}
               </div>
+              <DocumentationLink slug="services" label="Service creation guide" variant="button" />
             </div>
           </div>
 
@@ -1374,8 +1398,10 @@ export default function CreateService() {
           ) : (
             <div className="grid grid-cols-1 gap-6">
               <form onSubmit={handleSubmit} className="space-y-6">
-                <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                  <h3 className="text-sm font-semibold text-foreground">Service Details</h3>
+                <CreateServiceSection
+                  title="Service details"
+                  description="Choose the service identity and the project that will own it."
+                >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="serviceName">Service Name</Label>
@@ -1404,14 +1430,17 @@ export default function CreateService() {
                       </Select>
                     </div>
                   </div>
-                </section>
+                </CreateServiceSection>
 
                 {selectedType === 'microservice' && (
                   <>
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">
-                        {isTemplateMode ? 'Source' : 'Source Type'}
-                      </h3>
+                    <CreateServiceSection
+                      title={isTemplateMode ? 'Source' : 'Source type'}
+                      description={isTemplateMode
+                        ? 'Review the application repository and image generated from this template.'
+                        : 'Choose where Releasea should obtain the application artifact.'}
+                    >
+                      <div className="space-y-4">
                       {!isTemplateMode && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <button
@@ -1505,18 +1534,16 @@ export default function CreateService() {
                           />
                         </div>
                       )}
-                    </section>
+                      </div>
+                    </CreateServiceSection>
 
                     {managementModeSection}
 
                     {!isTemplateMode && (
-                      <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                        <div>
-                          <h3 className="text-sm font-semibold text-foreground">Import From Cluster</h3>
-                          <p className="text-xs text-muted-foreground">
-                            Pre-fill this service from a workload discovered by an active worker in the application namespace.
-                          </p>
-                        </div>
+                      <CreateServiceSection
+                        title="Import from cluster"
+                        description="Pre-fill this service from a workload discovered by an active worker in the application namespace."
+                      >
                         {importableClusterWorkloads.length > 0 ? (
                           <div className="space-y-3">
                             <div className="space-y-2">
@@ -1788,11 +1815,13 @@ export default function CreateService() {
                             No compatible workloads were discovered yet. Keep the form manual or wait for a worker heartbeat to sync the cluster inventory.
                           </div>
                         )}
-                      </section>
+                      </CreateServiceSection>
                     )}
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Runtime Settings</h3>
+                    <CreateServiceSection
+                      title="Runtime settings"
+                      description="Define the application port and the endpoint used to verify runtime health."
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="port">Port</Label>
@@ -1816,16 +1845,13 @@ export default function CreateService() {
                           />
                         </div>
                       </div>
-                    </section>
+                    </CreateServiceSection>
 
                     {selectedTemplateKind === 'scheduled-job' && (
-                      <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                        <div>
-                          <h3 className="text-sm font-semibold text-foreground">Schedule</h3>
-                          <p className="text-xs text-muted-foreground">
-                            Runs as a Kubernetes CronJob with retries and job history managed automatically.
-                          </p>
-                        </div>
+                      <CreateServiceSection
+                        title="Schedule"
+                        description="Run as a Kubernetes CronJob with retries and job history managed automatically."
+                      >
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="scheduleCron">Cron expression</Label>
@@ -1880,18 +1906,15 @@ export default function CreateService() {
                             />
                           </div>
                         </div>
-                      </section>
+                      </CreateServiceSection>
                     )}
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">Deployment Strategy</h3>
-                        <p className="text-xs text-muted-foreground">
-                          Define how traffic will shift for this microservice (implemented via Istio).
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
+                    <CreateServiceSection
+                      title="Deployment strategy"
+                      description="Define how traffic shifts between application versions through Istio."
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className={cn('space-y-2', deployStrategyType === 'rolling' && 'md:col-span-2')}>
                           <Label>Strategy</Label>
                           <Select
                             value={deployStrategyType}
@@ -1938,10 +1961,13 @@ export default function CreateService() {
                           </div>
                         )}
                       </div>
-                    </section>
+                    </CreateServiceSection>
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Operational Settings</h3>
+                    <CreateServiceSection
+                      title="Operational settings"
+                      description="Set runtime capacity, scaling boundaries, and optional idle behavior."
+                    >
+                      <div className="space-y-4">
                       <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
                         <div>
                           <div className="flex items-center gap-2">
@@ -1954,9 +1980,9 @@ export default function CreateService() {
                         </div>
                         <Switch checked={false} disabled />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                         <div className="space-y-2">
-                          <Label>Profile Type</Label>
+                          <Label>Runtime profile</Label>
                           <Select value={profileId} onValueChange={setProfileId}>
                             <SelectTrigger className="bg-muted/50">
                               <SelectValue>
@@ -1974,70 +2000,68 @@ export default function CreateService() {
                               ))}
                             </SelectContent>
                           </Select>
-                          {recommendedProfile && (
-                            <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="space-y-1">
-                                  <p className="font-medium text-foreground">Recommended profile</p>
-                                  <p>
-                                    <span className="font-mono text-foreground">
-                                      {recommendedProfile.profile.name} ({recommendedProfile.profile.cpu}, {recommendedProfile.profile.memory})
-                                    </span>
-                                  </p>
-                                </div>
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    recommendedProfile.profileId === profileId
-                                      ? 'border-success/30 bg-success/10 text-success'
-                                      : 'border-primary/30 bg-primary/10 text-primary',
-                                  )}
-                                >
-                                  {recommendedProfile.profileId === profileId ? 'Selected' : 'Suggested'}
-                                </Badge>
-                              </div>
-                              <p>{recommendedProfile.reason}</p>
-                              {recommendedProfile.profileId !== profileId && (
-                                <div>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setProfileId(recommendedProfile.profileId)}
-                                  >
-                                    Use recommended profile
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-2">
-                            <Label htmlFor="minReplicas">Minimum Replicas</Label>
-                            <Input
-                              id="minReplicas"
-                              type="number"
-                              min="1"
-                              value={minReplicas}
-                              onChange={(e) => setMinReplicas(e.target.value)}
-                              className="bg-muted/50"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="maxReplicas">Maximum Replicas</Label>
-                            <Input
-                              id="maxReplicas"
-                              type="number"
-                              min="1"
-                              value={maxReplicas}
-                              onChange={(e) => setMaxReplicas(e.target.value)}
-                              className="bg-muted/50"
-                            />
-                          </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="minReplicas">Minimum replicas</Label>
+                          <Input
+                            id="minReplicas"
+                            type="number"
+                            min="1"
+                            value={minReplicas}
+                            onChange={(e) => setMinReplicas(e.target.value)}
+                            className="bg-muted/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="maxReplicas">Maximum replicas</Label>
+                          <Input
+                            id="maxReplicas"
+                            type="number"
+                            min="1"
+                            value={maxReplicas}
+                            onChange={(e) => setMaxReplicas(e.target.value)}
+                            className="bg-muted/50"
+                          />
                         </div>
                       </div>
-                    </section>
+                      {recommendedProfile && (
+                        <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-foreground">Recommended profile</p>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  recommendedProfile.profileId === profileId
+                                    ? 'border-success/30 bg-success/10 text-success'
+                                    : 'border-primary/30 bg-primary/10 text-primary',
+                                )}
+                              >
+                                {recommendedProfile.profileId === profileId ? 'Selected' : 'Suggested'}
+                              </Badge>
+                            </div>
+                            <p>
+                              <span className="font-mono text-foreground">
+                                {recommendedProfile.profile.name} ({recommendedProfile.profile.cpu}, {recommendedProfile.profile.memory})
+                              </span>
+                              {' · '}{recommendedProfile.reason}
+                            </p>
+                          </div>
+                          {recommendedProfile.profileId !== profileId && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => setProfileId(recommendedProfile.profileId)}
+                            >
+                              Use recommended
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      </div>
+                    </CreateServiceSection>
 
                     <EnvironmentVariablesSection
                       title="Environment Variables"
@@ -2054,8 +2078,10 @@ export default function CreateService() {
                       onRemove={removeEnvVar}
                     />
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Advanced Settings</h3>
+                    <CreateServiceSection
+                      title="Advanced settings"
+                      description="Override inherited credentials, build paths, commands, and automatic deploy behavior."
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {sourceType === 'git' && (
                           <div className="space-y-2">
@@ -2191,14 +2217,16 @@ export default function CreateService() {
                           </>
                         )}
                       </div>
-                    </section>
+                    </CreateServiceSection>
                   </>
                 )}
 
                 {selectedType === 'static-site' && (
                   <>
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Source</h3>
+                    <CreateServiceSection
+                      title="Source"
+                      description="Choose the repository and directory used to build this static site."
+                    >
                       <div className="grid grid-cols-1 gap-4">
                         <RepositorySourceSection
                           allowTemplateToggle={!isTemplateMode && (selectedTemplate?.allowTemplateToggle ?? true)}
@@ -2208,12 +2236,14 @@ export default function CreateService() {
                           rootDirInputId="staticRoot"
                         />
                       </div>
-                    </section>
+                    </CreateServiceSection>
 
                     {managementModeSection}
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Build Settings</h3>
+                    <CreateServiceSection
+                      title="Build settings"
+                      description="Configure the framework, install command, build command, and published output."
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Framework</Label>
@@ -2258,10 +2288,12 @@ export default function CreateService() {
                           />
                         </div>
                       </div>
-                    </section>
+                    </CreateServiceSection>
 
-                    <section className="rounded-lg border border-border bg-card p-5 space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">CDN & Cache</h3>
+                    <CreateServiceSection
+                      title="CDN and cache"
+                      description="Control cache lifetime and automatic publishing from repository updates."
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="cacheTtl">Cache TTL (seconds)</Label>
@@ -2310,7 +2342,7 @@ export default function CreateService() {
                           </div>
                         )}
                       </div>
-                    </section>
+                    </CreateServiceSection>
 
                     <EnvironmentVariablesSection
                       title="Environment Variables"
@@ -2328,13 +2360,13 @@ export default function CreateService() {
                   </>
                 )}
 
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="flex flex-col-reverse gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-end">
                   <Button type="button" variant="ghost" onClick={() => navigate('/services')} disabled={isLoading}>
                     Cancel
                   </Button>
                   <Button type="submit" disabled={isSubmitDisabled} className="gap-2">
                     <Plus className="w-4 h-4" />
-                    {isLoading ? 'Creating...' : isTemplateRepoChecking ? 'Checking repository...' : 'Create Service'}
+                    {isLoading ? 'Creating...' : isTemplateRepoChecking ? 'Checking repository...' : 'Create service'}
                   </Button>
                 </div>
               </form>
