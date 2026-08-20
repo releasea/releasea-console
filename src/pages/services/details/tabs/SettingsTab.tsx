@@ -488,23 +488,48 @@ export const SettingsTab = () => {
             )}
           </SettingsSection>
 
-          <SettingsSection title="Operational settings">
+          <SettingsSection
+            title="Operational settings"
+            description="Set runtime capacity, scaling boundaries, and optional idle behavior."
+          >
             <div className="space-y-4">
-              <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
-                <div>
-                  <div className="flex items-center gap-2">
+              <div className="overflow-hidden rounded-lg border border-border">
+                <div className="flex items-start justify-between gap-4 bg-muted/20 p-4">
+                  <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">Pause when idle</p>
-                    <span className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded">Coming soon</span>
+                    <p className="text-xs text-muted-foreground">
+                      Scale this service to zero when no HTTP traffic is detected, then resume it when traffic returns.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Automatically scales to zero after the configured idle timeout without HTTP requests.
-                  </p>
+                  <Switch
+                    checked={operations.pauseOnIdle}
+                    onCheckedChange={operations.setPauseOnIdle}
+                    aria-label="Pause service when idle"
+                  />
                 </div>
-                <Switch checked={false} disabled />
+                {operations.pauseOnIdle && (
+                  <div className="border-t border-border p-4">
+                    <div className="max-w-xs space-y-2">
+                      <Label htmlFor="pauseIdleTimeoutMinutes">Idle timeout (minutes)</Label>
+                      <Input
+                        id="pauseIdleTimeoutMinutes"
+                        type="number"
+                        min="1"
+                        max="43200"
+                        value={operations.pauseIdleTimeoutMinutes}
+                        onChange={(event) => operations.setPauseIdleTimeoutMinutes(event.target.value)}
+                        className="bg-muted/50 font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The worker checks recent request metrics before scaling the deployment to zero.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label>Profile Type</Label>
+                  <Label>Runtime profile</Label>
                   <Select value={operations.profileId} onValueChange={operations.setProfileId}>
                     <SelectTrigger className="bg-muted/50">
                       <SelectValue placeholder="Select profile..." />
@@ -518,29 +543,27 @@ export const SettingsTab = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="minReplicas">Minimum Replicas</Label>
-                    <Input
-                      id="minReplicas"
-                      type="number"
-                      min="1"
-                      value={operations.minReplicas}
-                      onChange={(e) => operations.setMinReplicas(e.target.value)}
-                      className="bg-muted/50"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="maxReplicas">Maximum Replicas</Label>
-                    <Input
-                      id="maxReplicas"
-                      type="number"
-                      min="1"
-                      value={operations.maxReplicas}
-                      onChange={(e) => operations.setMaxReplicas(e.target.value)}
-                      className="bg-muted/50"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="minReplicas">Minimum replicas</Label>
+                  <Input
+                    id="minReplicas"
+                    type="number"
+                    min="1"
+                    value={operations.minReplicas}
+                    onChange={(e) => operations.setMinReplicas(e.target.value)}
+                    className="bg-muted/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxReplicas">Maximum replicas</Label>
+                  <Input
+                    id="maxReplicas"
+                    type="number"
+                    min="1"
+                    value={operations.maxReplicas}
+                    onChange={(e) => operations.setMaxReplicas(e.target.value)}
+                    className="bg-muted/50"
+                  />
                 </div>
               </div>
               <div className="space-y-2">

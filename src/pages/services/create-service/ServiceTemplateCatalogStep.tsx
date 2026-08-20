@@ -48,9 +48,9 @@ export function ServiceTemplateCatalogStep({
     .filter((group) => group.templates.length > 0);
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="mx-auto w-full max-w-7xl space-y-6">
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border bg-muted/20 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Service catalog</p>
             <h2 className="text-xl font-semibold text-foreground">Choose a template</h2>
@@ -58,13 +58,13 @@ export function ServiceTemplateCatalogStep({
               Browse curated blueprints with consistent defaults for security, scaling, and monitoring.
             </p>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="shrink-0 text-xs text-muted-foreground">
             {filteredTemplates.length} of {templates.length} templates · {verifiedCount} verified · {needsReviewCount} need review
           </p>
         </div>
 
-        <div className="mt-4 space-y-4">
-          <div className="relative w-full sm:max-w-sm">
+        <div className="space-y-5 p-5">
+          <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search templates..."
@@ -74,8 +74,8 @@ export function ServiceTemplateCatalogStep({
             />
           </div>
 
-          <div className="space-y-3">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <div className="min-w-0 space-y-2">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Blueprint catalog</p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -104,7 +104,7 @@ export function ServiceTemplateCatalogStep({
             </div>
 
             {frameworkOptions.length > 0 && (
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Starter paths</p>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -130,31 +130,35 @@ export function ServiceTemplateCatalogStep({
               </div>
             )}
           </div>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-foreground">Create your own templates</p>
-            <p className="text-xs text-muted-foreground">
-              Import templates from Settings to define repositories, runtime, and scheduling defaults.
-            </p>
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Create your own templates</p>
+              <p className="text-xs text-muted-foreground">
+                Import templates from Settings to define repositories, runtime, and scheduling defaults.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0 gap-2" onClick={onManageTemplates}>
+              <BookOpen className="h-4 w-4" />
+              Manage templates
+            </Button>
           </div>
-          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={onManageTemplates}>
-            <BookOpen className="h-4 w-4" />
-            Manage templates
-          </Button>
         </div>
       </section>
 
       {groupedTemplates.length > 0 ? (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {groupedTemplates.map(({ blueprint, templates: groupTemplates }) => (
-            <section key={blueprint.id} className="space-y-4">
-              <div className="space-y-1">
-                <h3 className="text-lg font-semibold text-foreground">{blueprint.label}</h3>
-                <p className="text-sm text-muted-foreground">{blueprint.description}</p>
+            <section key={blueprint.id} className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="flex items-start justify-between gap-4 border-b border-border bg-muted/20 px-5 py-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-foreground">{blueprint.label}</h3>
+                  <p className="text-sm text-muted-foreground">{blueprint.description}</p>
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {groupTemplates.length} {groupTemplates.length === 1 ? 'template' : 'templates'}
+                </span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
                 {groupTemplates.map((option) => {
                   const {
                     id,
@@ -178,8 +182,8 @@ export function ServiceTemplateCatalogStep({
                       type="button"
                       onClick={() => onTemplateSelect(option)}
                       className={cn(
-                        'group flex h-full min-h-[320px] flex-col rounded-xl border border-border/70 bg-card p-5 text-left shadow-sm transition',
-                        'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40'
+                        'group flex h-full min-h-[336px] flex-col rounded-lg border border-border bg-background p-5 text-left transition-colors',
+                        'hover:border-primary/40 hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-primary/40'
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -224,22 +228,22 @@ export function ServiceTemplateCatalogStep({
                       <p className="mt-3 text-sm leading-5 text-muted-foreground line-clamp-3 min-h-[3.75rem]">
                         {description}
                       </p>
-                      {option.verification?.summary ? (
-                        <p className="mt-2 text-xs text-muted-foreground min-h-[2rem]">{option.verification.summary}</p>
-                      ) : null}
+                      <p className="mt-2 min-h-[2rem] text-xs text-muted-foreground line-clamp-2">
+                        {option.verification?.summary ?? 'Template metadata and defaults are ready for review before creation.'}
+                      </p>
 
-                      <div className="mt-4 space-y-2 text-xs">
-                        <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                          <span className="text-muted-foreground">Best for</span>
-                          <span className="font-medium text-foreground">{bestFor}</span>
+                      <div className="mt-4 grid grid-cols-3 divide-x divide-border overflow-hidden rounded-md border border-border text-xs">
+                        <div className="min-w-0 space-y-1 p-3">
+                          <span className="block text-muted-foreground">Best for</span>
+                          <span className="block truncate font-medium text-foreground" title={bestFor}>{bestFor}</span>
                         </div>
-                        <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                          <span className="text-muted-foreground">Defaults</span>
-                          <span className="font-medium text-foreground">{defaults}</span>
+                        <div className="min-w-0 space-y-1 p-3">
+                          <span className="block text-muted-foreground">Defaults</span>
+                          <span className="block truncate font-medium text-foreground" title={defaults}>{defaults}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Setup time</span>
-                          <span className="font-medium text-foreground">{setupTime}</span>
+                        <div className="min-w-0 space-y-1 p-3">
+                          <span className="block text-muted-foreground">Setup time</span>
+                          <span className="block truncate font-medium text-foreground" title={setupTime}>{setupTime}</span>
                         </div>
                       </div>
 
