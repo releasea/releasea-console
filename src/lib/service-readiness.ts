@@ -210,9 +210,19 @@ export const buildServiceReadinessScorecard = ({
     score: resolveSectionScore(section.items),
   }));
 
-  const overallScore = Math.round(sections.reduce((sum, section) => sum + section.score, 0) / sections.length);
+  // Overall deploy readiness answers whether Releasea can safely execute a
+  // deploy. Optional GitOps adoption and post-deploy telemetry remain visible
+  // as advisory sections, but missing signals must not make a healthy,
+  // deployable service look blocked or partially configured.
+  const deployDecisionSections = sections.filter(
+    (section) => section.id === 'delivery' || section.id === 'governance',
+  );
+  const overallScore = Math.round(
+    deployDecisionSections.reduce((sum, section) => sum + section.score, 0) /
+      deployDecisionSections.length,
+  );
   const overallState = resolveSectionState(
-    sections.flatMap((section) => section.items),
+    deployDecisionSections.flatMap((section) => section.items),
   );
 
   return {

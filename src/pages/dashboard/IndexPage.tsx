@@ -124,7 +124,7 @@ const Dashboard = () => {
   const actionableWorkers = workers.filter((worker) => worker.status === 'online' || worker.status === 'busy').length;
   const microservicesCount = services.filter((service) => service.type === 'microservice').length;
   const sitesCount = services.filter((service) => service.type === 'static-site').length;
-  const serviceBreakdown = `${microservicesCount} microservices, ${sitesCount} ${sitesCount === 1 ? 'site' : 'sites'}`;
+  const serviceBreakdown = `${microservicesCount} ${microservicesCount === 1 ? 'microservice' : 'microservices'}, ${sitesCount} ${sitesCount === 1 ? 'site' : 'sites'}`;
   const showGettingStartedChecklist = successDeploys === 0;
   const primaryProjectId = projects[0]?.id;
   const primaryServiceId = services[0]?.id;
@@ -220,40 +220,40 @@ const Dashboard = () => {
         ) : null}
 
         {/* Operational summary */}
-        <section className="space-y-3" aria-labelledby="operational-summary-heading">
-          <div className="flex items-center justify-between gap-4">
+        <section className="overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="operational-summary-heading">
+          <div className="flex flex-col gap-2 border-b border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 id="operational-summary-heading" className="text-base font-semibold text-foreground">
+              <h2 id="operational-summary-heading" className="text-sm font-semibold text-foreground">
                 Operational summary
               </h2>
-              <p className="text-sm text-muted-foreground">Current platform capacity and delivery health.</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Current platform capacity and delivery health.</p>
             </div>
-            <span className="shrink-0 text-xs text-muted-foreground">Updated now</span>
+            <span className="shrink-0 text-xs text-muted-foreground">Current snapshot</span>
           </div>
 
-          <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="rounded-lg bg-primary/10 p-2 text-primary ring-1 ring-primary/15">
+          <div className="grid auto-rows-fr gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-primary/10 p-2 text-primary ring-1 ring-primary/15">
                   <FolderKanban className="h-4 w-4" />
                 </div>
-                <span className="text-xs text-muted-foreground">Projects</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Projects</span>
               </div>
-              <div className="mt-auto pt-6">
+              <div className="mt-auto pt-4">
                 <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">{projects.length}</p>
                 <p className="mt-1 text-sm font-medium text-foreground">Active projects</p>
-                <p className="mt-1 text-xs text-muted-foreground">Across {teamsCount} teams</p>
+                <p className="mt-1 text-xs text-muted-foreground">Across {teamsCount} {teamsCount === 1 ? 'team' : 'teams'}</p>
               </div>
             </article>
 
-            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="rounded-lg bg-info/10 p-2 text-info ring-1 ring-info/15">
+            <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-info/10 p-2 text-info ring-1 ring-info/15">
                   <Server className="h-4 w-4" />
                 </div>
-                <span className="text-xs text-muted-foreground">Services</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Services</span>
               </div>
-              <div className="mt-auto pt-6">
+              <div className="mt-auto pt-4">
                 <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
                   {runningServices}/{services.length}
                 </p>
@@ -262,37 +262,37 @@ const Dashboard = () => {
               </div>
             </article>
 
-            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="rounded-lg bg-warning/10 p-2 text-warning ring-1 ring-warning/15">
+            <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-warning/10 p-2 text-warning ring-1 ring-warning/15">
                   <Cpu className="h-4 w-4" />
                 </div>
-                <span className="text-xs text-muted-foreground">Workers</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Workers</span>
               </div>
-              <div className="mt-auto pt-6">
+              <div className="mt-auto pt-4">
                 <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
                   {onlineWorkers}/{workers.length}
                 </p>
                 <p className="mt-1 text-sm font-medium text-foreground">Workers online</p>
-                <p className="mt-1 text-xs text-muted-foreground">Across {environmentsCount} environments</p>
+                <p className="mt-1 text-xs text-muted-foreground">Across {environmentsCount} {environmentsCount === 1 ? 'environment' : 'environments'}</p>
               </div>
             </article>
 
-            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="rounded-lg bg-success/10 p-2 text-success ring-1 ring-success/15">
+            <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-success/10 p-2 text-success ring-1 ring-success/15">
                   <Rocket className="h-4 w-4" />
                 </div>
-                <span className="text-xs text-muted-foreground">Deploys</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Deploys</span>
               </div>
               {totalDeploys === 0 ? (
-                <div className="mt-auto pt-6">
+                <div className="mt-auto pt-4">
                   <p className="text-3xl font-semibold tracking-tight text-muted-foreground tabular-nums">—</p>
                   <p className="mt-1 text-sm font-medium text-foreground">No deploy history yet</p>
                   <p className="mt-1 text-xs text-muted-foreground">Complete the first deploy to measure reliability.</p>
                 </div>
               ) : (
-                <div className="mt-auto pt-6">
+                <div className="mt-auto pt-4">
                   <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
                     {deploySuccessRate}%
                   </p>

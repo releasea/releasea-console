@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react';
 import { format, parseISO } from 'date-fns';
+import { Activity, AlertTriangle, CheckCircle2, GitBranch, History, Rocket, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { DeployPolicyPreflight } from '@/types/governance';
@@ -13,9 +15,8 @@ import type {
   ServiceGitOpsRepositoryPolicyCheck,
   ServiceGitOpsTimelineEvent,
 } from '@/types/releasea';
-import { buildServiceReadinessScorecard } from '@/lib/service-readiness';
+import { buildServiceReadinessScorecard, type ServiceReadinessItemState } from '@/lib/service-readiness';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, ShieldCheck, TrendingUp } from 'lucide-react';
 import { ServiceTabHeader } from '../ServiceTabHeader';
 
 type DeliveryTabProps = {
@@ -38,6 +39,81 @@ type DeliveryTabProps = {
   initialSection?: 'overview' | 'governance' | 'gitops' | 'intelligence';
 };
 
+type StatusState = ServiceReadinessItemState | 'neutral' | 'info';
+
+const toneByState: Record<StatusState, string> = {
+  ready: 'border-success/30 bg-success/10 text-success',
+  review: 'border-warning/30 bg-warning/10 text-warning',
+  blocked: 'border-destructive/30 bg-destructive/10 text-destructive',
+  neutral: 'border-border/70 bg-muted/40 text-muted-foreground',
+  info: 'border-info/30 bg-info/10 text-info',
+};
+
+const statusLabel: Record<ServiceReadinessItemState, string> = {
+  ready: 'Ready',
+  review: 'Review',
+  blocked: 'Blocked',
+};
+
+const panelClass = 'rounded-xl border border-border/70 bg-card shadow-sm';
+
+const safeDate = (value?: string) => {
+  if (!value) return 'Date unavailable';
+  try {
+    return format(parseISO(value), 'PPP p');
+  } catch {
+    return 'Date unavailable';
+  }
+};
+
+const metricValue = (value: number | null, suffix: string) => value == null ? 'No signal' : `${value}${suffix}`;
+
+const StatusBadge = ({ state, label }: { state: StatusState; label: string }) => (
+  <Badge variant="outline" className={cn('shrink-0 text-[11px] font-medium normal-case', toneByState[state])}>
+    {label}
+  </Badge>
+);
+
+const SectionHeading = ({ title, description, aside }: { title: string; description: string; aside?: ReactNode }) => (
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="max-w-2xl space-y-1">
+      <h3 className="text-base font-semibold tracking-tight text-foreground">{title}</h3>
+      <p className="text-sm leading-5 text-muted-foreground">{description}</p>
+    </div>
+    {aside}
+  </div>
+);
+
+const SignalCard = ({ label, value, description, icon, badge }: {
+  label: string;
+  value: string;
+  description: string;
+  icon: ReactNode;
+  badge?: ReactNode;
+}) => (
+  <div className={cn(panelClass, 'flex min-h-36 flex-col justify-between p-4')}>
+    <div className="flex items-start justify-between gap-3">
+      <span className="rounded-lg border border-border/60 bg-muted/50 p-2 text-muted-foreground">{icon}</span>
+      {badge}
+    </div>
+    <div className="mt-5 min-w-0">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground" title={value}>{value}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+    </div>
+  </div>
+);
+
+const EmptyState = ({ title, description }: { title: string; description: string }) => (
+  <div className={cn(panelClass, 'flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center')}>
+    <div className="rounded-full border border-border/60 bg-muted/50 p-3 text-muted-foreground">
+      <Activity className="h-5 w-5" />
+    </div>
+    <h4 className="mt-4 text-sm font-semibold text-foreground">{title}</h4>
+    <p className="mt-1 max-w-md text-sm leading-5 text-muted-foreground">{description}</p>
+  </div>
+);
+
 export const DeliveryTab = ({
   service,
   viewEnvLabel,
@@ -57,18 +133,11 @@ export const DeliveryTab = ({
   releaseIntelligence,
   initialSection = 'overview',
 }: DeliveryTabProps) => {
-  const toneReady = 'border-success/30 bg-success/10 text-success';
-  const toneReview = 'border-warning/30 bg-warning/10 text-warning';
-  const toneDanger = 'border-destructive/30 bg-destructive/10 text-destructive';
-  const toneInfo = 'border-info/30 bg-info/10 text-info';
-  const toneNeutral = 'border-border/60 bg-muted/30 text-muted-foreground';
-  const sectionCardClass = 'rounded-lg border border-border/70 bg-card/95 p-5 shadow-sm';
-  const insetCardClass = 'rounded-md border border-border/70 bg-muted/30 shadow-sm';
-  const deployPolicyViolations = deployPolicyPreflight?.violations ?? [];
-  const deployPolicyExceptionsApplied = deployPolicyPreflight?.exceptionsApplied ?? [];
-  const deployPolicyDryRun = deployPolicyPreflight?.dryRun === true;
+  const policyViolations = Array.isArray(deployPolicyPreflight?.violations) ? deployPolicyPreflight.violations : [];
+  const policyExceptions = Array.isArray(deployPolicyPreflight?.exceptionsApplied) ? deployPolicyPreflight.exceptionsApplied : [];
+  const policyDryRun = deployPolicyPreflight?.dryRun === true;
   const managementMode = service.managementMode ?? 'managed';
-  const readinessScorecard = buildServiceReadinessScorecard({
+  const readiness = buildServiceReadinessScorecard({
     service,
     requirements: managementTransitionRequirements,
     deployPolicyPreflight,
@@ -76,882 +145,343 @@ export const DeliveryTab = ({
     gitOpsDrift,
     releaseIntelligence,
   });
-  const readinessClasses =
-    readinessScorecard.state === 'ready'
-      ? toneReady
-      : readinessScorecard.state === 'review'
-        ? toneReview
-        : toneDanger;
+  const readinessItems = readiness.sections.flatMap((section) => section.items.map((item) => ({ ...item, group: section.label })));
+  const deployDecisionItems = readiness.sections
+    .filter((section) => section.id === 'delivery' || section.id === 'governance')
+    .flatMap((section) => section.items.map((item) => ({ ...item, group: section.label })));
+  const attentionItems = deployDecisionItems.filter((item) => item.state !== 'ready');
+  const nextAttentionItem = attentionItems.find((item) => item.state === 'blocked') ?? attentionItems[0] ?? null;
 
-  const overallSloState = releaseIntelligence?.slo.overallState ?? 'unknown';
-  const rollbackState = releaseIntelligence?.rollback.recommendation ?? 'insufficient-data';
-  const overallSloClasses =
-    overallSloState === 'meeting'
-      ? toneReady
-      : overallSloState === 'at-risk'
-        ? toneReview
-        : overallSloState === 'breached'
-          ? toneDanger
-          : toneNeutral;
-  const rollbackClasses =
-    rollbackState === 'stable'
-      ? toneReady
-      : rollbackState === 'watch'
-        ? toneReview
-        : rollbackState === 'rollback'
-          ? toneDanger
-        : toneNeutral;
-  const rollbackConfidenceClasses =
-    releaseIntelligence?.rollback.confidence === 'high'
-      ? toneReady
-      : releaseIntelligence?.rollback.confidence === 'medium'
-        ? toneReview
-        : toneNeutral;
-  const comparisonState = releaseIntelligence?.comparison.verdict ?? 'insufficient-data';
-  const comparisonClasses =
-    comparisonState === 'improved'
-      ? toneReady
-      : comparisonState === 'steady'
-        ? toneInfo
-        : comparisonState === 'regressed'
-          ? toneDanger
-        : toneNeutral;
-  const deployImpactBadgeClasses = (impact: ReleaseIntelligenceSummary['deployImpactTimeline'][number]['impact']) =>
-    impact === 'improved'
-      ? toneReady
-      : impact === 'steady'
-        ? toneInfo
-        : impact === 'regressed'
-          ? toneDanger
-          : toneNeutral;
-
-  const desiredStateClasses =
-    desiredStateValidationLoading
-      ? toneNeutral
-      : desiredStateValidation?.status === 'verified'
-        ? toneReady
-        : desiredStateValidation?.status === 'needs-review'
-          ? toneReview
-          : desiredStateValidation?.status === 'invalid'
-            ? toneDanger
-            : toneNeutral;
-  const desiredStateLabel =
-    desiredStateValidationLoading
-      ? 'Checking'
-      : desiredStateValidation?.status === 'verified'
-        ? 'Valid'
-        : desiredStateValidation?.status === 'needs-review'
-          ? 'Review'
-          : desiredStateValidation?.status === 'invalid'
-            ? 'Invalid'
-            : 'Unavailable';
-
-  const gitOpsStateLabel =
-    gitOpsDriftLoading
-      ? 'Checking'
-      : gitOpsDrift?.state === 'in-sync'
-        ? 'In sync'
-        : gitOpsDrift?.state === 'missing'
-          ? 'File missing'
-          : gitOpsDrift?.state === 'out-of-sync'
-            ? 'Drift'
-            : 'Unavailable';
-  const gitOpsStateClasses =
-    gitOpsDriftLoading
-      ? toneNeutral
-      : gitOpsDrift?.state === 'in-sync'
-        ? toneReady
-        : gitOpsDrift?.state === 'missing'
-          ? toneReview
-          : gitOpsDrift?.state === 'out-of-sync'
-            ? toneDanger
-          : toneNeutral;
-  const repositoryPolicyClasses =
-    gitOpsRepositoryPolicyCheckLoading
-      ? toneNeutral
-      : gitOpsRepositoryPolicyCheck?.status === 'verified'
-        ? toneReady
-        : gitOpsRepositoryPolicyCheck?.status === 'needs-review'
-          ? toneReview
-          : gitOpsRepositoryPolicyCheck?.status === 'invalid'
-            ? toneDanger
-            : toneNeutral;
-  const repositoryPolicyLabel =
-    gitOpsRepositoryPolicyCheckLoading
-      ? 'Checking'
-      : gitOpsRepositoryPolicyCheck?.status === 'verified'
-        ? 'Verified'
-        : gitOpsRepositoryPolicyCheck?.status === 'needs-review'
-          ? 'Review'
-          : gitOpsRepositoryPolicyCheck?.status === 'invalid'
-          ? 'Invalid'
-            : 'Unavailable';
-  const gitOpsSyncStatus = (() => {
-    if ((service.managementMode ?? 'managed') === 'observed') {
-      return {
-        label: 'Observed',
-        description: 'GitOps delivery stays limited until the service is switched back to managed mode.',
-        className: toneNeutral,
-      };
-    }
-    if (desiredStateValidationLoading || gitOpsRepositoryPolicyCheckLoading || gitOpsDriftLoading) {
-      return {
-        label: 'Checking',
-        description: 'Releasea is refreshing GitOps validation, repository policy, and drift state.',
-        className: toneNeutral,
-      };
-    }
-    if (desiredStateValidation?.status === 'invalid' || gitOpsRepositoryPolicyCheck?.status === 'invalid') {
-      return {
-        label: 'Blocked',
-        description:
-          gitOpsRepositoryPolicyCheck?.status === 'invalid'
-            ? gitOpsRepositoryPolicyCheck.summary
-            : desiredStateValidation?.summary ?? 'GitOps delivery is blocked by the current desired-state contract.',
-        className: toneDanger,
-      };
-    }
-    if (gitOpsDrift?.state === 'out-of-sync' || gitOpsDrift?.state === 'missing') {
-      return {
-        label: gitOpsDrift.state === 'missing' ? 'File missing' : 'Drift',
-        description: gitOpsDrift.message,
-        className:
-          gitOpsDrift.state === 'missing'
-            ? toneReview
-            : toneDanger,
-      };
-    }
-    if (
-      desiredStateValidation?.status === 'verified' &&
-      gitOpsRepositoryPolicyCheck?.status === 'verified' &&
-      gitOpsDrift?.state === 'in-sync'
-    ) {
-      return {
-        label: 'In sync',
-        description: 'Desired state, repository policy, and committed GitOps state are aligned.',
-        className: toneReady,
-      };
-    }
-    return {
-      label: 'Unavailable',
-      description: 'GitOps sync status is not fully available for this service yet.',
-      className: toneNeutral,
-    };
-  })();
-  const gitOpsTimelineItems = gitOpsTimeline.slice(0, 5).map((event) => {
-    const actionLabel =
-      event.action === 'service.gitops_pr.create'
-        ? 'GitOps PR created'
-        : event.action === 'service.gitops_argocd_pr.create'
-          ? 'Argo CD starter PR created'
-          : event.action === 'service.gitops_flux_pr.create'
-            ? 'Flux starter PR created'
-            : event.action === 'service.gitops_drift.state_changed'
-              ? 'Drift state changed'
-              : 'GitOps event';
-    const timeLabel = new Date(event.createdAt).toLocaleString();
-    return {
-      ...event,
-      actionLabel,
-      timeLabel,
-    };
-  });
-  const gitOpsLayoutPresetItems = gitOpsLayoutPresets.map((preset) => {
-    const matchesDesiredStatePath = Boolean(gitOpsDrift?.filePath) && gitOpsDrift?.filePath === preset.primaryFilePath;
-    return {
-      ...preset,
-      matchesDesiredStatePath,
-    };
-  });
-  const deployPolicyStatusClasses =
-    deployPolicyViolations.length > 0
-      ? deployPolicyDryRun
-        ? toneReview
-        : toneDanger
-      : deployPolicyExceptionsApplied.length > 0
-        ? toneReview
-        : toneReady;
-  const deployPolicyStatusLabel = deployPolicyPreflightLoading
+  const policyState: StatusState = deployPolicyPreflightLoading
+    ? 'neutral'
+    : policyViolations.length > 0 ? (policyDryRun ? 'review' : 'blocked') : policyExceptions.length > 0 ? 'review' : 'ready';
+  const policyLabel = deployPolicyPreflightLoading
     ? 'Checking'
-    : deployPolicyViolations.length > 0
-      ? deployPolicyDryRun
-        ? 'Warning'
-        : 'Blocked'
-      : deployPolicyExceptionsApplied.length > 0
-        ? 'Excepted'
-        : 'Clear';
-  const releaseIntelSummaryLabel = releaseIntelligence
-    ? overallSloState === 'meeting'
-      ? 'Healthy'
-      : overallSloState === 'at-risk'
-        ? 'At risk'
-        : overallSloState === 'breached'
-          ? 'Breached'
-          : 'Unavailable'
-    : 'Unavailable';
-  const releaseIntelSummaryClasses = releaseIntelligence ? overallSloClasses : toneNeutral;
+    : policyViolations.length > 0 ? (policyDryRun ? 'Warning' : 'Blocked') : policyExceptions.length > 0 ? 'Exception active' : 'Clear';
+
+  const desiredState: { state: StatusState; label: string; description: string } = desiredStateValidationLoading
+    ? { state: 'neutral', label: 'Checking', description: 'Refreshing the desired-state validation.' }
+    : desiredStateValidation?.status === 'verified'
+      ? { state: 'ready', label: 'Valid', description: desiredStateValidation.summary }
+      : desiredStateValidation?.status === 'invalid'
+        ? { state: 'blocked', label: 'Invalid', description: desiredStateValidation.summary }
+        : desiredStateValidation?.status === 'needs-review'
+          ? { state: 'review', label: 'Review', description: desiredStateValidation.summary }
+          : { state: 'neutral', label: 'Unavailable', description: 'No desired-state validation is available.' };
+
+  const repositoryPolicy: { state: StatusState; label: string; description: string } = gitOpsRepositoryPolicyCheckLoading
+    ? { state: 'neutral', label: 'Checking', description: 'Refreshing repository policy checks.' }
+    : gitOpsRepositoryPolicyCheck?.status === 'verified'
+      ? { state: 'ready', label: 'Verified', description: gitOpsRepositoryPolicyCheck.summary }
+      : gitOpsRepositoryPolicyCheck?.status === 'invalid'
+        ? { state: 'blocked', label: 'Invalid', description: gitOpsRepositoryPolicyCheck.summary }
+        : gitOpsRepositoryPolicyCheck?.status === 'needs-review'
+          ? { state: 'review', label: 'Review', description: gitOpsRepositoryPolicyCheck.summary }
+          : { state: 'neutral', label: 'Unavailable', description: 'No repository policy result is available.' };
+
+  const drift: { state: StatusState; label: string; description: string } = gitOpsDriftLoading
+    ? { state: 'neutral', label: 'Checking', description: 'Comparing the repository with the expected state.' }
+    : gitOpsDrift?.state === 'in-sync'
+      ? { state: 'ready', label: 'In sync', description: gitOpsDrift.message }
+      : gitOpsDrift?.state === 'out-of-sync'
+        ? { state: 'blocked', label: 'Drift', description: gitOpsDrift.message }
+      : gitOpsDrift?.state === 'missing'
+          ? { state: 'neutral', label: 'Not configured', description: 'GitOps is optional and no desired-state file has been added to this repository yet.' }
+          : { state: 'neutral', label: 'Unavailable', description: 'No repository drift result is available.' };
+
+  const gitOpsSync: { state: StatusState; label: string; description: string } = (() => {
+    if (managementMode === 'observed') return { state: 'neutral', label: 'Observed', description: 'Delivery control is intentionally limited while this service is observed-only.' };
+    if (desiredStateValidationLoading || gitOpsRepositoryPolicyCheckLoading || gitOpsDriftLoading) return { state: 'neutral', label: 'Checking', description: 'Refreshing all GitOps delivery checks.' };
+    if (desiredState.state === 'blocked' || repositoryPolicy.state === 'blocked') return {
+      state: 'blocked',
+      label: 'Blocked',
+      description: repositoryPolicy.state === 'blocked' ? repositoryPolicy.description : desiredState.description,
+    };
+    if (gitOpsDrift?.state === 'missing') return {
+      state: 'neutral',
+      label: 'Not configured',
+      description: 'GitOps is optional for this service. Create a GitOps pull request when repository-driven desired state is required.',
+    };
+    if (drift.state === 'blocked' || drift.state === 'review') return drift;
+    if (desiredState.state === 'ready' && repositoryPolicy.state === 'ready' && drift.state === 'ready') return { state: 'ready', label: 'In sync', description: 'Desired state, policy, and repository content agree.' };
+    return { state: 'neutral', label: 'Unavailable', description: 'GitOps status is not fully available yet.' };
+  })();
+
+  const timelineItems = gitOpsTimeline.slice(0, 5).map((event) => ({
+    ...event,
+    label: event.action === 'service.gitops_pr.create'
+      ? 'GitOps PR created'
+      : event.action === 'service.gitops_argocd_pr.create'
+        ? 'Argo CD starter PR created'
+        : event.action === 'service.gitops_flux_pr.create'
+          ? 'Flux starter PR created'
+          : event.action === 'service.gitops_drift.state_changed' ? 'Drift state changed' : 'GitOps event',
+  }));
+
+  const sloState = releaseIntelligence?.slo.overallState ?? 'unknown';
+  const hasCompleteSloSignal = releaseIntelligence?.slo.availabilityPct != null && releaseIntelligence.slo.latencyP95AvgMs != null;
+  const healthPostureLabel = releaseIntelligence
+    ? hasCompleteSloSignal ? sloState.replace('-', ' ') : 'Partial signal'
+    : 'Awaiting data';
+  const availabilityState = releaseIntelligence?.slo.availabilityState ?? 'unknown';
+  const availabilityTone: StatusState = availabilityState === 'meeting' ? 'ready' : availabilityState === 'at-risk' ? 'review' : availabilityState === 'breached' ? 'blocked' : 'neutral';
+  const latencyState = releaseIntelligence?.slo.latencyState ?? 'unknown';
+  const latencyTone: StatusState = latencyState === 'meeting' ? 'ready' : latencyState === 'at-risk' ? 'review' : latencyState === 'breached' ? 'blocked' : 'neutral';
+  const rollbackRecommendation = releaseIntelligence?.rollback.recommendation ?? 'insufficient-data';
+  const rollbackTone: StatusState = rollbackRecommendation === 'stable' ? 'ready' : rollbackRecommendation === 'watch' ? 'review' : rollbackRecommendation === 'rollback' ? 'blocked' : 'neutral';
+  const navItems = [
+    { value: 'overview', label: 'Overview', description: `${readiness.score}% ready` },
+    { value: 'governance', label: 'Governance', description: policyLabel },
+    { value: 'gitops', label: 'GitOps', description: gitOpsSync.label },
+    { value: 'intelligence', label: 'Release health', description: healthPostureLabel },
+  ];
 
   return (
     <TabsContent value="delivery" className="space-y-6">
       <ServiceTabHeader
         title="Delivery"
-        description="Review deploy readiness, governance gates, GitOps state, and release health before promoting changes."
+        description="Decide whether this service is ready to deploy, then inspect only the signal that needs attention."
         environment={viewEnvLabel}
       />
-      <div className="rounded-lg border border-border/70 bg-card/95 p-4 shadow-sm">
-        <Tabs defaultValue={initialSection} className="space-y-5">
-          <div className="overflow-x-auto">
-            <TabsList className="w-full justify-start bg-muted/60 sm:w-auto">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="governance">Governance</TabsTrigger>
-              <TabsTrigger value="gitops">GitOps</TabsTrigger>
-              <TabsTrigger value="intelligence">Release Intel</TabsTrigger>
-            </TabsList>
+      <Tabs defaultValue={initialSection} className="space-y-6">
+        <div className={cn(panelClass, 'overflow-x-auto p-1.5')}>
+          <TabsList className="!grid h-auto min-w-[680px] grid-cols-4 gap-1 bg-transparent p-0">
+            {navItems.map((item) => (
+              <TabsTrigger key={item.value} value={item.value} className="h-auto w-full !justify-start rounded-lg px-4 py-3 !text-left data-[state=active]:bg-muted data-[state=active]:shadow-none">
+                <span>
+                  <span className="block text-sm font-medium text-foreground">{item.label}</span>
+                  <span className="mt-0.5 block text-xs font-normal capitalize text-muted-foreground">{item.description}</span>
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+
+        <TabsContent value="overview" className="mt-0 space-y-6">
+          <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+            <section className={cn(panelClass, 'flex min-h-56 flex-col justify-between p-6')}>
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="max-w-xl">
+                  <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Rocket className="h-4 w-4" />Deploy decision</div>
+                  <h3 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">
+                    {readiness.state === 'ready' ? `Ready for ${viewEnvLabel}` : readiness.state === 'blocked' ? `Blocked for ${viewEnvLabel}` : `Review before ${viewEnvLabel}`}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {nextAttentionItem ? `${nextAttentionItem.label}: ${nextAttentionItem.message}` : 'All available delivery checks are clear for the selected environment.'}
+                  </p>
+                </div>
+                <div className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-full border-8 border-muted bg-background">
+                  <span className="text-2xl font-semibold tracking-tight text-foreground">{readiness.score}%</span>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">ready</span>
+                </div>
+              </div>
+              <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+                <StatusBadge state={readiness.state} label={statusLabel[readiness.state]} />
+                <span className="text-xs text-muted-foreground">{attentionItems.length === 0 ? 'No open checks' : `${attentionItems.length} check${attentionItems.length === 1 ? '' : 's'} need attention`}</span>
+              </div>
+            </section>
+            <section className={cn(panelClass, 'p-6')}>
+              <SectionHeading title="Next action" description="The highest-priority item to resolve before promoting this service." />
+              <div className="mt-6 flex gap-3">
+                <span className={cn('mt-0.5 rounded-full p-2', toneByState[nextAttentionItem?.state ?? 'ready'])}>
+                  {nextAttentionItem ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{nextAttentionItem?.label ?? 'Continue with deployment'}</p>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">{nextAttentionItem?.message ?? 'No delivery blocker is currently visible.'}</p>
+                  {nextAttentionItem ? <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{nextAttentionItem.group}</p> : null}
+                </div>
+              </div>
+            </section>
           </div>
 
-          <TabsContent value="overview" className="space-y-6">
-            <div className="space-y-6">
-              <div className={cn(sectionCardClass, 'space-y-4')}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-semibold text-foreground">Service readiness scorecard</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Delivery, governance, GitOps, and operations signals combined into one pre-deploy view.
-                    </p>
+          <section className={cn(panelClass, 'p-5')}>
+            <SectionHeading title="Pre-deploy checklist" description="One concise view of every check used in the deploy decision." aside={<StatusBadge state={readiness.state} label={`${readiness.score}% ready`} />} />
+            <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
+              {readiness.sections.map((section) => (
+                <div key={section.id} className="grid gap-3 py-4 md:grid-cols-[180px_1fr]">
+                  <div className="flex items-start justify-between gap-3 md:block">
+                    <p className="text-sm font-medium text-foreground">{section.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{section.score}% complete</p>
                   </div>
-                  <Badge variant="outline" className={cn('text-xs', readinessClasses)}>
-                    {readinessScorecard.score}% ready
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {readinessScorecard.sections.map((section) => (
-                    <div key={section.id} className={cn(insetCardClass, 'p-3 space-y-2')}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{section.label}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {section.score}% ready
-                            {section.id === 'gitops' && gitOpsDriftLoading ? ' · checking drift...' : ''}
-                            {section.id === 'gitops' && gitOpsRepositoryPolicyCheckLoading ? ' · checking repo policy...' : ''}
-                            {section.id === 'governance' && deployPolicyPreflightLoading ? ' · checking policy...' : ''}
-                          </p>
+                  <div className="space-y-3">
+                    {section.items.length > 0 ? section.items.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">{item.label}</p>
+                          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{item.message}</p>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            'text-xs',
-                            section.state === 'ready'
-                              ? toneReady
-                              : section.state === 'review'
-                                ? toneReview
-                                : toneDanger,
-                          )}
-                        >
-                          {section.state === 'ready' ? 'Ready' : section.state === 'review' ? 'Review' : 'Blocked'}
-                        </Badge>
+                        <StatusBadge state={item.state} label={statusLabel[item.state]} />
                       </div>
-                      <ul className="space-y-2 text-xs text-muted-foreground">
-                        {section.items.slice(0, 2).map((item) => (
-                                  <li key={item.id} className="rounded border border-border/70 bg-background/90 px-3 py-2 shadow-sm">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="space-y-1">
-                                <p className="font-medium text-foreground">{item.label}</p>
-                                <p>{item.message}</p>
-                              </div>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  'shrink-0 text-[10px]',
-                                  item.state === 'ready'
-                                    ? toneReady
-                                    : item.state === 'review'
-                                      ? toneReview
-                                      : toneDanger,
-                                )}
-                              >
-                                {item.state === 'ready' ? 'Ready' : item.state === 'review' ? 'Review' : 'Blocked'}
-                              </Badge>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className={cn(sectionCardClass, 'space-y-4')}>
-                <div className="space-y-1">
-                  <h4 className="text-sm font-semibold text-foreground">Delivery signals at a glance</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Use the sub-views below for full detail. This lane keeps only the current posture.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                  <div className="rounded-md border border-warning/20 bg-warning/5 p-4 shadow-sm space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">Governance</p>
-                      <Badge variant="outline" className={cn('text-xs', deployPolicyStatusClasses)}>
-                        {deployPolicyStatusLabel}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {deployPolicyViolations.length > 0
-                        ? `${deployPolicyViolations.length} blocker${deployPolicyViolations.length === 1 ? '' : 's'} for ${viewEnvLabel}.`
-                        : deployPolicyExceptionsApplied.length > 0
-                          ? `${deployPolicyExceptionsApplied.length} temporary exception(s) active.`
-                          : `No current governance blockers for ${viewEnvLabel}.`}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-info/20 bg-info/5 p-4 shadow-sm space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">GitOps</p>
-                      <Badge variant="outline" className={cn('text-xs', gitOpsSyncStatus.className)}>
-                        {gitOpsSyncStatus.label}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{gitOpsSyncStatus.description}</p>
-                  </div>
-                  <div className="rounded-md border border-success/20 bg-success/5 p-4 shadow-sm space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">Release health</p>
-                      <Badge variant="outline" className={cn('text-xs', releaseIntelSummaryClasses)}>
-                        {releaseIntelSummaryLabel}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {releaseIntelligence?.comparison.summary ??
-                        'Release intelligence becomes stronger after successful deploys and enough telemetry.'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {managementMode === 'observed' && (
-              <div className="rounded-lg border border-border bg-card p-5 space-y-3">
-                <div className="space-y-1">
-                  <h4 className="text-sm font-semibold text-foreground">Observed mode operating rules</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Releasea keeps visibility and inventory, but delivery control stays locked until the service becomes managed.
-                  </p>
-                </div>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {OBSERVED_MODE_RESTRICTIONS.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="governance" className="space-y-6">
-            <div className="rounded-lg border border-border bg-card p-5 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <h4 className="text-sm font-semibold text-foreground">Deploy policy preflight</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Governance blockers for {viewEnvLabel} before the deploy modal is even opened.
-                  </p>
-                </div>
-                <Badge variant="outline" className={cn('text-xs', deployPolicyStatusClasses)}>
-                  {deployPolicyStatusLabel}
-                </Badge>
-              </div>
-              {deployPolicyPreflightLoading ? (
-                <p className="text-sm text-muted-foreground">Checking deploy policy for {viewEnvLabel}...</p>
-              ) : deployPolicyViolations.length > 0 ? (
-                <div
-                  className={cn(
-                    'rounded-md px-3 py-3 text-sm',
-                    deployPolicyDryRun
-                       ? 'border border-warning/30 bg-warning/5'
-                       : 'border border-warning/40 bg-warning/5',
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                    <div className="space-y-1">
-                      <p className="font-medium text-foreground">
-                        {deployPolicyDryRun ? 'Current warnings (dry-run)' : 'Current blockers'}
-                      </p>
-                      <ul className="space-y-1 text-muted-foreground">
-                        {deployPolicyViolations.map((violation, index) => (
-                          <li key={`${violation.code}-${index}`}>{violation.message}</li>
-                        ))}
-                      </ul>
-                      {deployPolicyExceptionsApplied.length > 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          {deployPolicyExceptionsApplied.length} temporary exception(s) are already applied, but blockers still remain.
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ) : deployPolicyExceptionsApplied.length > 0 ? (
-                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-3 text-sm">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                    <div className="space-y-2">
-                      <p className="font-medium text-foreground">Temporary exceptions are active</p>
-                      <ul className="space-y-1 text-muted-foreground">
-                        {deployPolicyExceptionsApplied.map((exception) => (
-                          <li key={exception.id}>
-                            {exception.reason || 'Temporary exception active'} until {format(parseISO(exception.expiresAt), 'PPP p')}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No governance blockers are active for the selected environment.</p>
-              )}
-            </div>
-
-            {managementMode === 'observed' && (
-              <div className="rounded-lg border border-border bg-card p-5 space-y-3">
-                <div className="space-y-1">
-                  <h4 className="text-sm font-semibold text-foreground">Observed mode operating rules</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Releasea keeps visibility and inventory, but delivery control stays locked until the service becomes managed.
-                  </p>
-                </div>
-                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {OBSERVED_MODE_RESTRICTIONS.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="gitops" className="space-y-6">
-            <div className="rounded-lg border border-border bg-card p-5 space-y-4">
-              <div className="space-y-1">
-                <h4 className="text-sm font-semibold text-foreground">GitOps delivery</h4>
-                <p className="text-sm text-muted-foreground">
-                  Desired-state and repository alignment for the selected service.
-                </p>
-              </div>
-              <div className="space-y-3">
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Sync status</p>
-                      <p className="text-xs text-muted-foreground">{gitOpsSyncStatus.description}</p>
-                    </div>
-                    <Badge variant="outline" className={cn('text-xs', gitOpsSyncStatus.className)}>
-                      {gitOpsSyncStatus.label}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Desired state validation</p>
-                      <p className="text-xs text-muted-foreground">
-                        {desiredStateValidation?.summary ?? 'Validation state is unavailable.'}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className={cn('text-xs', desiredStateClasses)}>
-                      {desiredStateLabel}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Repository policy</p>
-                      <p className="text-xs text-muted-foreground">
-                        {gitOpsRepositoryPolicyCheck?.summary ?? 'Repository policy checks are unavailable for this service.'}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className={cn('text-xs', repositoryPolicyClasses)}>
-                      {repositoryPolicyLabel}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Repository drift</p>
-                      <p className="text-xs text-muted-foreground">
-                        {gitOpsDrift?.message ?? 'Drift status is unavailable for this service.'}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className={cn('text-xs', gitOpsStateClasses)}>
-                      {gitOpsStateLabel}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">GitOps timeline</p>
-                      <p className="text-xs text-muted-foreground">
-                        Pull-request actions and drift state changes for this service.
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      {gitOpsTimelineLoading ? 'Refreshing' : `${gitOpsTimeline.length} event${gitOpsTimeline.length === 1 ? '' : 's'}`}
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    {gitOpsTimelineItems.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No GitOps activity has been recorded for this service yet.</p>
-                    ) : (
-                      gitOpsTimelineItems.map((event) => (
-                        <div key={event.id} className="rounded border border-border/60 bg-background px-3 py-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium text-foreground">{event.actionLabel}</p>
-                              <p className="text-xs text-muted-foreground">{event.message || 'GitOps event recorded.'}</p>
-                            </div>
-                            <div className="text-right">
-                              <Badge variant="outline" className="text-[10px] normal-case">
-                                {event.status || 'recorded'}
-                              </Badge>
-                              <p className="mt-1 text-[11px] text-muted-foreground">{event.timeLabel}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
+                    )) : (
+                      <div className="flex items-center justify-between gap-4"><p className="text-sm text-muted-foreground">No additional requirements are configured.</p><StatusBadge state="ready" label="Ready" /></div>
                     )}
                   </div>
                 </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Repository layout presets</p>
-                      <p className="text-xs text-muted-foreground">
-                        Canonical GitOps file layouts supported by Releasea for direct delivery and reconciler starters.
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      {gitOpsLayoutPresetsLoading ? 'Refreshing' : `${gitOpsLayoutPresetItems.length} preset${gitOpsLayoutPresetItems.length === 1 ? '' : 's'}`}
-                    </Badge>
-                  </div>
-                  <div className="space-y-2">
-                    {gitOpsLayoutPresetItems.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No GitOps layout presets are available for this service yet.</p>
-                    ) : (
-                      gitOpsLayoutPresetItems.map((preset) => (
-                        <div key={preset.id} className="rounded border border-border/60 bg-background px-3 py-3 space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-medium text-foreground">{preset.label}</p>
-                                <Badge variant="outline" className="text-[10px] normal-case">
-                                  {preset.kind === 'starter' ? 'Starter' : 'Direct'}
-                                </Badge>
-                                {preset.matchesDesiredStatePath ? (
-                                  <Badge variant="outline" className="border-success/30 text-[10px] normal-case text-success">
-                                    Current drift path
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="text-xs text-muted-foreground">{preset.description}</p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                'text-[10px] normal-case',
-                                preset.available
-                                  ? 'border-success/30 text-success'
-                                  : 'border-border/60 text-muted-foreground',
-                              )}
-                            >
-                              {preset.available ? 'Available' : 'Unavailable'}
-                            </Badge>
-                          </div>
-                          <div className="space-y-1 text-xs text-muted-foreground">
-                            <p>
-                              <span className="font-medium text-foreground">Primary file:</span> {preset.primaryFilePath}
-                            </p>
-                            {preset.supportingFilePaths && preset.supportingFilePaths.length > 0 ? (
-                              <p>
-                                <span className="font-medium text-foreground">Supporting files:</span>{' '}
-                                {preset.supportingFilePaths.join(', ')}
-                              </p>
-                            ) : null}
-                            {!preset.available && preset.availabilityReason ? <p>{preset.availabilityReason}</p> : null}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
-          </TabsContent>
+          </section>
 
-          <TabsContent value="intelligence" className="space-y-6">
-            <div className="rounded-lg border border-border bg-card p-5 space-y-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-1">
-                  <h4 className="text-sm font-semibold text-foreground">Release Intelligence</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Telemetry and release comparison around the latest successful deploy.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className={`text-xs normal-case ${overallSloClasses}`}>
-                    SLO: {overallSloState === 'unknown' ? 'unknown' : overallSloState}
-                  </Badge>
-                  <Badge variant="outline" className={`text-xs normal-case ${rollbackClasses}`}>
-                    Rollback: {rollbackState.replace('-', ' ')}
-                  </Badge>
-                </div>
-              </div>
+          {managementMode === 'observed' ? (
+            <section className={cn(panelClass, 'border-info/30 bg-info/5 p-5')}>
+              <SectionHeading title="Observed mode" description="Releasea provides visibility, while deploy control remains outside the platform." aside={<StatusBadge state="info" label="Limited control" />} />
+              <ul className="mt-4 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                {OBSERVED_MODE_RESTRICTIONS.map((item) => <li key={item} className="flex gap-2"><span aria-hidden="true">•</span><span>{item}</span></li>)}
+              </ul>
+            </section>
+          ) : null}
+        </TabsContent>
 
-              {releaseIntelligence ? (
+        <TabsContent value="governance" className="mt-0 space-y-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <SignalCard label="Deploy policy" value={policyLabel} description={`Evaluation for ${viewEnvLabel}.`} icon={<ShieldCheck className="h-4 w-4" />} badge={<StatusBadge state={policyState} label={policyLabel} />} />
+            <SignalCard label="Active blockers" value={deployPolicyPreflightLoading ? 'Checking' : String(policyViolations.length)} description={policyDryRun ? 'Reported as warnings in dry-run mode.' : 'Rules currently preventing a clean deploy.'} icon={<AlertTriangle className="h-4 w-4" />} />
+            <SignalCard label="Temporary exceptions" value={deployPolicyPreflightLoading ? 'Checking' : String(policyExceptions.length)} description="Time-bound exceptions applied to this evaluation." icon={<History className="h-4 w-4" />} />
+          </div>
+          <section className={cn(panelClass, 'p-5')}>
+            <SectionHeading title="Policy evaluation" description={`Rules evaluated before opening a deploy to ${viewEnvLabel}.`} aside={<StatusBadge state={policyState} label={policyLabel} />} />
+            <div className="mt-5">
+              {deployPolicyPreflightLoading ? <p className="text-sm text-muted-foreground">Checking deploy policy…</p> : policyViolations.length > 0 ? (
                 <div className="space-y-3">
-                  {releaseIntelligence.anomalies.length > 0 ? (
-                    <div className="space-y-2">
-                      {releaseIntelligence.anomalies.map((anomaly) => (
-                        <div
-                          key={anomaly.id}
-                          className={cn(
-                            'rounded-md border px-3 py-3 text-sm',
-                            anomaly.severity === 'critical'
-                              ? 'border-destructive/30 bg-destructive/10 text-destructive'
-                              : anomaly.severity === 'warning'
-                                ? 'border-warning/30 bg-warning/10 text-warning'
-                                : 'border-info/30 bg-info/10 text-info',
-                          )}
-                        >
-                          <p className="font-medium">{anomaly.title}</p>
-                          <p className="mt-1 text-xs opacity-90">{anomaly.detail}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <TrendingUp className="w-4 h-4" />
-                        <span className="text-xs">Release Comparison</span>
+                  <h4 className="text-sm font-semibold text-foreground">{policyDryRun ? 'Current warnings (dry-run)' : 'Current blockers'}</h4>
+                  <div className="divide-y divide-border/60 rounded-lg border border-border/60">
+                    {policyViolations.map((violation, index) => (
+                      <div key={`${violation.code}-${index}`} className="flex items-start gap-3 px-4 py-3">
+                        <AlertTriangle className={cn('mt-0.5 h-4 w-4 shrink-0', policyDryRun ? 'text-warning' : 'text-destructive')} />
+                        <div><p className="text-sm text-foreground">{violation.message}</p><p className="mt-1 font-mono text-[11px] text-muted-foreground">{violation.code}</p></div>
                       </div>
-                      <Badge variant="outline" className={`text-xs normal-case ${comparisonClasses}`}>
-                        {comparisonState.replace('-', ' ')}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-md border border-border/60 bg-background/60 p-3">
-                        <p className="text-xs text-muted-foreground">Latest successful release</p>
-                        <p className="font-mono text-sm text-foreground">{releaseIntelligence.latestReleaseLabel}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {releaseIntelligence.latestDeployAt
-                            ? format(parseISO(releaseIntelligence.latestDeployAt), 'PPP p')
-                            : 'Timestamp unavailable'}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-border/60 bg-background/60 p-3">
-                        <p className="text-xs text-muted-foreground">Previous successful release</p>
-                        <p className="font-mono text-sm text-foreground">
-                          {releaseIntelligence.previousReleaseLabel ?? '--'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {releaseIntelligence.previousDeployAt
-                            ? format(parseISO(releaseIntelligence.previousDeployAt), 'PPP p')
-                            : 'Timestamp unavailable'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Latency delta</p>
-                        <p className="font-semibold text-foreground">
-                          {releaseIntelligence.comparison.latencyChangePct == null
-                            ? '--'
-                            : `${releaseIntelligence.comparison.latencyChangePct}%`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">5xx delta</p>
-                        <p className="font-semibold text-foreground">
-                          {releaseIntelligence.comparison.errorRateChangePct == null
-                            ? '--'
-                            : `${releaseIntelligence.comparison.errorRateChangePct}%`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Availability delta</p>
-                        <p className="font-semibold text-foreground">
-                          {releaseIntelligence.comparison.availabilityChangePctPoints == null
-                            ? '--'
-                            : `${releaseIntelligence.comparison.availabilityChangePctPoints} pts`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                      {releaseIntelligence.comparison.summary}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <ShieldCheck className="w-4 h-4" />
-                      <span className="text-xs">SLO Snapshot</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Availability</p>
-                        <p className="text-lg font-semibold text-foreground">
-                          {releaseIntelligence.slo.availabilityPct == null ? '--' : `${releaseIntelligence.slo.availabilityPct}%`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Target {releaseIntelligence.slo.availabilityTargetPct}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">5xx error rate</p>
-                        <p className="text-lg font-semibold text-foreground">
-                          {releaseIntelligence.slo.errorRatePct == null ? '--' : `${releaseIntelligence.slo.errorRatePct}%`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Current telemetry window</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Latency p95</p>
-                        <p className="text-lg font-semibold text-foreground">
-                          {releaseIntelligence.slo.latencyP95AvgMs == null ? '--' : `${releaseIntelligence.slo.latencyP95AvgMs} ms`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Target {releaseIntelligence.slo.latencyTargetMs} ms</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-xs">Deploy Baseline</span>
-                    </div>
-                    {releaseIntelligence.baseline.available ? (
-                      <div className="space-y-3 text-sm">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-xs text-muted-foreground">Latency before</p>
-                            <p className="font-semibold text-foreground">
-                              {releaseIntelligence.baseline.latencyBeforeMs == null ? '--' : `${releaseIntelligence.baseline.latencyBeforeMs} ms`}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Latency after</p>
-                            <p className="font-semibold text-foreground">
-                              {releaseIntelligence.baseline.latencyAfterMs == null ? '--' : `${releaseIntelligence.baseline.latencyAfterMs} ms`}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">5xx before</p>
-                            <p className="font-semibold text-foreground">
-                              {releaseIntelligence.baseline.errorRateBeforePct == null ? '--' : `${releaseIntelligence.baseline.errorRateBeforePct}%`}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">5xx after</p>
-                            <p className="font-semibold text-foreground">
-                              {releaseIntelligence.baseline.errorRateAfterPct == null ? '--' : `${releaseIntelligence.baseline.errorRateAfterPct}%`}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
-                          <div>
-                            Latency change:{' '}
-                            <span className="font-medium text-foreground">
-                              {releaseIntelligence.baseline.latencyChangePct == null ? '--' : `${releaseIntelligence.baseline.latencyChangePct}%`}
-                            </span>
-                          </div>
-                          <div>
-                            5xx change:{' '}
-                            <span className="font-medium text-foreground">
-                              {releaseIntelligence.baseline.errorRateChangePct == null ? '--' : `${releaseIntelligence.baseline.errorRateChangePct}%`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Not enough telemetry exists before and after the latest deploy to compute a baseline yet.
-                      </p>
-                    )}
-                    <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                      {releaseIntelligence.rollback.message}
-                    </div>
-                    <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-background/60 px-3 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs text-muted-foreground">Rollback confidence</span>
-                        <Badge variant="outline" className={`text-xs normal-case ${rollbackConfidenceClasses}`}>
-                          {releaseIntelligence.rollback.confidence}
-                        </Badge>
-                      </div>
-                      <ul className="space-y-1 text-xs text-muted-foreground">
-                        {releaseIntelligence.rollback.factors.map((factor) => (
-                          <li key={factor}>• {factor}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-xs">Deploy Impact Timeline</span>
-                    </div>
-                    <div className="space-y-3">
-                      {releaseIntelligence.deployImpactTimeline.map((entry) => (
-                        <div key={entry.deployId} className="rounded-md border border-border/60 bg-background/60 p-3 space-y-2">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <p className="font-mono text-sm text-foreground">{entry.releaseLabel}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {entry.deployedAt ? format(parseISO(entry.deployedAt), 'PPP p') : 'Timestamp unavailable'}
-                              </p>
-                            </div>
-                            <Badge variant="outline" className={`text-xs normal-case ${deployImpactBadgeClasses(entry.impact)}`}>
-                              {entry.impact.replace('-', ' ')}
-                            </Badge>
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            <div>
-                              <p className="text-xs text-muted-foreground">Latency before</p>
-                              <p className="font-semibold text-foreground">
-                                {entry.latencyBeforeMs == null ? '--' : `${entry.latencyBeforeMs} ms`}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Latency after</p>
-                              <p className="font-semibold text-foreground">
-                                {entry.latencyAfterMs == null ? '--' : `${entry.latencyAfterMs} ms`}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">5xx before</p>
-                              <p className="font-semibold text-foreground">
-                                {entry.errorRateBeforePct == null ? '--' : `${entry.errorRateBeforePct}%`}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">5xx after</p>
-                              <p className="font-semibold text-foreground">
-                                {entry.errorRateAfterPct == null ? '--' : `${entry.errorRateAfterPct}%`}
-                              </p>
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">{entry.summary}</p>
-                        </div>
-                      ))}
-                    </div>
+                    ))}
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  Release intelligence needs at least one successful deploy and a metrics window with telemetry.
-                </p>
+                <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/5 px-4 py-4">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  <div><p className="text-sm font-medium text-foreground">No policy blockers</p><p className="mt-1 text-sm text-muted-foreground">The selected environment passes the current deploy policy evaluation.</p></div>
+                </div>
               )}
             </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          </section>
+          {policyExceptions.length > 0 ? (
+            <section className={cn(panelClass, 'p-5')}>
+              <SectionHeading title="Active exceptions" description="Review why each policy bypass exists and when it expires." aside={<StatusBadge state="review" label={`${policyExceptions.length} active`} />} />
+              <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
+                {policyExceptions.map((exception) => <div key={exception.id} className="grid gap-1 py-3 sm:grid-cols-[1fr_auto] sm:gap-6"><p className="text-sm text-foreground">{exception.reason || 'Temporary policy exception'}</p><p className="text-xs text-muted-foreground">Expires {safeDate(exception.expiresAt)}</p></div>)}
+              </div>
+            </section>
+          ) : null}
+          {managementMode === 'observed' ? <section className={cn(panelClass, 'p-5')}><SectionHeading title="Control ownership" description="This service is observed-only, so Releasea evaluates policy without owning delivery actions." aside={<StatusBadge state="neutral" label="Observed" />} /></section> : null}
+        </TabsContent>
+
+        <TabsContent value="gitops" className="mt-0 space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: 'Overall sync', signal: gitOpsSync, icon: <GitBranch className="h-4 w-4" /> },
+              { label: 'Desired state', signal: desiredState, icon: <CheckCircle2 className="h-4 w-4" /> },
+              { label: 'Repository policy', signal: repositoryPolicy, icon: <ShieldCheck className="h-4 w-4" /> },
+              { label: 'Repository drift', signal: drift, icon: <Activity className="h-4 w-4" /> },
+            ].map(({ label, signal, icon }) => <SignalCard key={label} label={label} value={signal.label} description={signal.description} icon={icon} badge={<StatusBadge state={signal.state} label={signal.label} />} />)}
+          </div>
+          <div className="grid items-start gap-6 xl:grid-cols-2">
+            <section className={cn(panelClass, 'p-5')}>
+              <SectionHeading title="Recent activity" description="The latest pull-request and drift events for this service." aside={<StatusBadge state="neutral" label={gitOpsTimelineLoading ? 'Refreshing' : `${gitOpsTimeline.length} events`} />} />
+              <div className="mt-5">
+                {timelineItems.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No GitOps activity recorded yet.</p> : (
+                  <div className="divide-y divide-border/60 border-y border-border/60">
+                    {timelineItems.map((event) => <div key={event.id} className="grid gap-2 py-3 sm:grid-cols-[1fr_auto] sm:gap-5"><div className="min-w-0"><p className="text-sm font-medium text-foreground">{event.label}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{event.message || 'GitOps event recorded.'}</p></div><div className="text-left sm:text-right"><p className="text-xs capitalize text-foreground">{event.status || 'Recorded'}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{safeDate(event.createdAt)}</p></div></div>)}
+                  </div>
+                )}
+              </div>
+            </section>
+            <section className={cn(panelClass, 'p-5')}>
+              <SectionHeading title="Repository layouts" description="Supported file structures. Expand a layout only when you need its exact paths." aside={<StatusBadge state="neutral" label={gitOpsLayoutPresetsLoading ? 'Refreshing' : `${gitOpsLayoutPresets.length} layouts`} />} />
+              <div className="mt-5 space-y-2">
+                {gitOpsLayoutPresets.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No repository layouts are available.</p> : gitOpsLayoutPresets.map((preset) => {
+                  const isCurrent = Boolean(gitOpsDrift?.filePath) && gitOpsDrift?.filePath === preset.primaryFilePath;
+                  return (
+                    <details key={preset.id} className="group rounded-lg border border-border/60 bg-background open:bg-muted/20">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 marker:hidden">
+                        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-foreground">{preset.label}</p>{isCurrent ? <StatusBadge state="ready" label="Drift path" /> : null}</div><p className="mt-0.5 truncate text-xs text-muted-foreground">{preset.primaryFilePath}</p></div>
+                        <StatusBadge state={preset.available ? 'ready' : 'neutral'} label={preset.available ? (preset.kind === 'starter' ? 'Starter' : 'Direct') : 'Unavailable'} />
+                      </summary>
+                      <div className="border-t border-border/60 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                        <p>{preset.description}</p>
+                        {preset.supportingFilePaths?.length ? <div className="mt-3"><p className="font-medium text-foreground">Supporting files</p><ul className="mt-1 space-y-1 font-mono text-[11px]">{preset.supportingFilePaths.map((path) => <li key={path}>{path}</li>)}</ul></div> : null}
+                        {!preset.available && preset.availabilityReason ? <p className="mt-3">{preset.availabilityReason}</p> : null}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="intelligence" className="mt-0 space-y-6">
+          {releaseIntelligence ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <SignalCard label="Availability" value={metricValue(releaseIntelligence.slo.availabilityPct, '%')} description={`Target ${releaseIntelligence.slo.availabilityTargetPct}%`} icon={<CheckCircle2 className="h-4 w-4" />} badge={<StatusBadge state={availabilityTone} label={availabilityState === 'unknown' ? 'No signal' : availabilityState.replace('-', ' ')} />} />
+                <SignalCard label="5xx error rate" value={metricValue(releaseIntelligence.slo.errorRatePct, '%')} description="Current telemetry window" icon={<AlertTriangle className="h-4 w-4" />} />
+                <SignalCard label="Latency p95" value={metricValue(releaseIntelligence.slo.latencyP95AvgMs, ' ms')} description={`Target ${releaseIntelligence.slo.latencyTargetMs} ms`} icon={<Activity className="h-4 w-4" />} badge={<StatusBadge state={latencyTone} label={latencyState === 'unknown' ? 'No signal' : latencyState.replace('-', ' ')} />} />
+                <SignalCard label="Rollback guidance" value={rollbackRecommendation.replace('-', ' ')} description={`${releaseIntelligence.rollback.confidence} confidence`} icon={<History className="h-4 w-4" />} badge={<StatusBadge state={rollbackTone} label={rollbackRecommendation.replace('-', ' ')} />} />
+              </div>
+              {releaseIntelligence.anomalies.length > 0 ? (
+                <section className={cn(panelClass, 'p-5')}>
+                  <SectionHeading title="Signals requiring attention" description="Anomalies detected in the current release window." aside={<StatusBadge state="review" label={`${releaseIntelligence.anomalies.length} detected`} />} />
+                  <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
+                    {releaseIntelligence.anomalies.map((anomaly) => <div key={anomaly.id} className="flex items-start justify-between gap-4 py-3"><div><p className="text-sm font-medium text-foreground">{anomaly.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{anomaly.detail}</p></div><StatusBadge state={anomaly.severity === 'critical' ? 'blocked' : anomaly.severity === 'warning' ? 'review' : 'info'} label={anomaly.severity} /></div>)}
+                  </div>
+                </section>
+              ) : null}
+              <div className="grid items-start gap-6 xl:grid-cols-2">
+                <section className={cn(panelClass, 'p-5')}>
+                  <SectionHeading title="Latest release comparison" description="Change in service behavior after the latest successful deploy." aside={<StatusBadge state={releaseIntelligence.comparison.verdict === 'improved' ? 'ready' : releaseIntelligence.comparison.verdict === 'regressed' ? 'blocked' : releaseIntelligence.comparison.verdict === 'steady' ? 'info' : 'neutral'} label={releaseIntelligence.comparison.verdict.replace('-', ' ')} />} />
+                  <div className="mt-5 grid grid-cols-2 gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
+                    <div><p className="text-xs text-muted-foreground">Latest</p><p className="mt-1 font-mono text-sm font-medium text-foreground">{releaseIntelligence.latestReleaseLabel}</p><p className="mt-1 text-[11px] text-muted-foreground">{safeDate(releaseIntelligence.latestDeployAt)}</p></div>
+                    <div className="border-l border-border/60 pl-4"><p className="text-xs text-muted-foreground">Previous</p><p className="mt-1 font-mono text-sm font-medium text-foreground">{releaseIntelligence.previousReleaseLabel ?? 'No previous release'}</p><p className="mt-1 text-[11px] text-muted-foreground">{safeDate(releaseIntelligence.previousDeployAt)}</p></div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 divide-x divide-border/60 border-y border-border/60 py-3 text-center">
+                    {[
+                      ['Latency', metricValue(releaseIntelligence.comparison.latencyChangePct, '%')],
+                      ['5xx rate', metricValue(releaseIntelligence.comparison.errorRateChangePct, '%')],
+                      ['Availability', metricValue(releaseIntelligence.comparison.availabilityChangePctPoints, ' pts')],
+                    ].map(([label, value]) => <div key={label} className="px-2"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-sm font-semibold text-foreground">{value}</p></div>)}
+                  </div>
+                  <p className="mt-4 text-sm leading-5 text-muted-foreground">{releaseIntelligence.comparison.summary}</p>
+                </section>
+                <section className={cn(panelClass, 'p-5')}>
+                  <SectionHeading title="Rollback assessment" description="Evidence available if the latest release needs to be reversed." aside={<StatusBadge state={rollbackTone} label={`${releaseIntelligence.rollback.confidence} confidence`} />} />
+                  <p className="mt-5 text-sm leading-6 text-muted-foreground">{releaseIntelligence.rollback.message}</p>
+                  <div className="mt-4 divide-y divide-border/60 border-y border-border/60">
+                    {releaseIntelligence.rollback.factors.length > 0 ? releaseIntelligence.rollback.factors.map((factor) => <div key={factor} className="flex gap-3 py-3 text-sm text-muted-foreground"><span aria-hidden="true">•</span><span>{factor}</span></div>) : <p className="py-4 text-sm text-muted-foreground">No rollback factors are available yet.</p>}
+                  </div>
+                </section>
+              </div>
+              <section className={cn(panelClass, 'p-5')}>
+                <SectionHeading title="Release history" description="Impact classification for recent successful deploys. Expand an entry for raw before-and-after values." aside={<StatusBadge state="neutral" label={`${releaseIntelligence.deployImpactTimeline.length} releases`} />} />
+                <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
+                  {releaseIntelligence.deployImpactTimeline.map((entry) => {
+                    const impactState: StatusState = entry.impact === 'improved' ? 'ready' : entry.impact === 'regressed' ? 'blocked' : entry.impact === 'steady' ? 'info' : 'neutral';
+                    return (
+                      <details key={entry.deployId} className="group">
+                        <summary className="grid cursor-pointer list-none gap-3 py-4 marker:hidden sm:grid-cols-[170px_1fr_auto] sm:items-center"><div><p className="font-mono text-sm font-medium text-foreground">{entry.releaseLabel}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{safeDate(entry.deployedAt)}</p></div><p className="text-xs leading-5 text-muted-foreground">{entry.summary}</p><StatusBadge state={impactState} label={entry.impact.replace('-', ' ')} /></summary>
+                        <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg bg-muted/30 p-4 text-sm sm:grid-cols-4">
+                          {[
+                            ['Latency before', metricValue(entry.latencyBeforeMs, ' ms')],
+                            ['Latency after', metricValue(entry.latencyAfterMs, ' ms')],
+                            ['5xx before', metricValue(entry.errorRateBeforePct, '%')],
+                            ['5xx after', metricValue(entry.errorRateAfterPct, '%')],
+                          ].map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold text-foreground">{value}</p></div>)}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              </section>
+            </>
+          ) : <EmptyState title="Release health is not available yet" description="A successful deploy and a telemetry window are required before Releasea can compare impact, evaluate SLOs, or advise on rollback." />}
+        </TabsContent>
+      </Tabs>
     </TabsContent>
   );
 };

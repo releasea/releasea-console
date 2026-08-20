@@ -1295,6 +1295,17 @@ export const createService = async (payload: Partial<Service>): Promise<Service>
   return postResource({ fallback, endpoint: '/services', payload, label: 'createService' });
 };
 
+export const createServiceStrict = async (
+  payload: Partial<Service>,
+): Promise<{ service: Service | null; error: string | null }> => {
+  const response = await apiClient.post<Service>('/services', payload);
+  if (response.error || !response.data) {
+    clientLogger.warn('api.createServiceStrict', 'Request failed', { error: response.error });
+    return { service: null, error: response.error || 'Failed to persist the service.' };
+  }
+  return { service: response.data, error: null };
+};
+
 export const updateService = async (serviceId: string, payload: Partial<Service>): Promise<Service> => {
   const now = new Date().toISOString();
   const fallback: Service = {

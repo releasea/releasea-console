@@ -102,7 +102,7 @@ export const LogsTab = ({
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_auto]">
           <Select value={selectedReplica} onValueChange={onSelectReplica}>
             <SelectTrigger className="w-full bg-muted/30" aria-label="Pod instance">
-              <SelectValue placeholder={podsLoading ? 'Discovering instances…' : replicaOptions.length === 0 ? 'No running instances' : 'Select instance'} />
+              <SelectValue placeholder={podsLoading ? 'Discovering instances…' : podDiscoveryError ? 'Instance discovery unavailable' : replicaOptions.length === 0 ? 'No log-producing instances' : 'Select instance'} />
             </SelectTrigger>
             <SelectContent>
               {replicaOptions.map((podName) => <SelectItem key={podName} value={podName}>{podName}</SelectItem>)}
@@ -134,8 +134,14 @@ export const LogsTab = ({
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div>
-            <p className="font-medium text-foreground">Log collection is unavailable</p>
-            <p className="mt-1 text-muted-foreground">{logsError || podDiscoveryError}</p>
+            <p className="font-medium text-foreground">Runtime log backend unavailable</p>
+            <p className="mt-1 text-muted-foreground">
+              The service can remain healthy, but Releasea cannot reach Loki to discover instances or load their logs.
+            </p>
+            <details className="mt-2 text-xs text-muted-foreground">
+              <summary className="cursor-pointer">Technical details</summary>
+              <p className="mt-1 break-all font-mono">{logsError || podDiscoveryError}</p>
+            </details>
           </div>
         </div>
       ) : null}
@@ -143,8 +149,8 @@ export const LogsTab = ({
       {!podsLoading && replicaOptions.length === 0 && !podDiscoveryError ? (
         <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
           <Server className="mx-auto h-8 w-8 text-muted-foreground" />
-          <h4 className="mt-3 text-sm font-semibold text-foreground">No running instances in {viewEnvLabel}</h4>
-          <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">Deploy the service in this environment first. Instances will appear here as soon as Loki receives their logs.</p>
+          <h4 className="mt-3 text-sm font-semibold text-foreground">No log-producing instances in {viewEnvLabel}</h4>
+          <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">No instance has sent logs to Loki in the selected retention window. Check runtime health before starting another deploy.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-[hsl(var(--terminal))] shadow-sm">
