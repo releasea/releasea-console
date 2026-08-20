@@ -515,13 +515,13 @@ export const SettingsTab = () => {
                         id="pauseIdleTimeoutMinutes"
                         type="number"
                         min="1"
-                        max="43200"
+                        max="10080"
                         value={operations.pauseIdleTimeoutMinutes}
                         onChange={(event) => operations.setPauseIdleTimeoutMinutes(event.target.value)}
                         className="bg-muted/50 font-mono"
                       />
                       <p className="text-xs text-muted-foreground">
-                        The worker checks recent request metrics before scaling the deployment to zero.
+                        Choose between 1 minute and 7 days. The worker verifies recent request metrics before pausing.
                       </p>
                     </div>
                   </div>
