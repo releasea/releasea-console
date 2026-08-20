@@ -113,8 +113,8 @@ export function ProviderReadinessChecks({
           const hasLiveSuccess = (card.health?.healthy ?? 0) > 0 && !hasLiveFailure;
 
           return (
-            <div key={card.id} className="rounded-lg border border-border bg-background p-4">
-              <div className="flex items-start gap-3">
+            <div key={card.id} className="flex h-full rounded-lg border border-border bg-background p-4">
+              <div className="flex h-full w-full items-start gap-3">
                 <div
                   className={`mt-0.5 rounded-md p-2 ${
                     hasLiveFailure
@@ -126,7 +126,7 @@ export function ProviderReadinessChecks({
                 >
                   {hasLiveSuccess ? <CheckCircle2 className="h-4 w-4" /> : hasLiveFailure ? <AlertTriangle className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex h-full min-w-0 flex-1 flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium text-foreground">{card.title}</p>
                     <Badge variant="outline" className={readinessBadgeClass(summary.state)}>
@@ -145,7 +145,7 @@ export function ProviderReadinessChecks({
                     {healthSummary}
                   </div>
                   {isAdmin ? (
-                    <Button asChild size="sm" variant="outline">
+                    <Button asChild size="sm" variant="outline" className="mt-auto self-start">
                       <Link to={card.href}>Open settings</Link>
                     </Button>
                   ) : (

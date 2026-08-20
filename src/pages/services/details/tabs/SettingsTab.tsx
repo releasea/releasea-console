@@ -13,6 +13,7 @@ import { OBSERVED_MODE_RESTRICTIONS } from '@/lib/management-mode';
 import type { DeployStrategyType, ServiceManagementMode } from '@/types/releasea';
 import { Power } from 'lucide-react';
 import { frameworkOptions } from '../constants';
+import { ServiceTabHeader } from '../ServiceTabHeader';
 import {
   normalizeRepoName,
   normalizeRegistryHost,
@@ -103,6 +104,11 @@ export const SettingsTab = () => {
 
   return (
   <TabsContent value="settings" className="space-y-6">
+    <ServiceTabHeader
+      title="Service configuration"
+      description="Manage source, runtime, deployment behavior, credentials, and environment variables."
+      environment={management.currentEnvironmentLabel}
+    />
     <form onSubmit={onSubmit} className="space-y-6">
       <SettingsSection
         title="Service details"
@@ -904,13 +910,16 @@ export const SettingsTab = () => {
         </>
       )}
 
-      <div className="flex justify-end gap-3">
+      <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85">
+        <p className="hidden text-xs text-muted-foreground sm:block">Review changes before applying them to the service.</p>
+        <div className="ml-auto flex items-center gap-2">
         <Button type="button" variant="ghost" onClick={onDiscard}>
-          Cancel
+          Discard changes
         </Button>
         <Button type="submit" disabled={settingsSaving}>
           {settingsSaving ? 'Saving...' : 'Save changes'}
         </Button>
+        </div>
       </div>
     </form>
 

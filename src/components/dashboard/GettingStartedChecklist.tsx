@@ -188,7 +188,7 @@ export function GettingStartedChecklist({
           return (
             <div
               key={step.id}
-              className={`rounded-lg border p-4 ${
+              className={`flex h-full rounded-lg border p-4 ${
                 step.complete
                   ? 'border-success/20 bg-success/5'
                   : needsAdmin
@@ -196,7 +196,7 @@ export function GettingStartedChecklist({
                     : 'border-border bg-background'
               }`}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex h-full w-full items-start gap-3">
                 <div
                   className={`mt-0.5 rounded-md p-2 ${
                     step.complete
@@ -208,7 +208,7 @@ export function GettingStartedChecklist({
                 >
                   {step.complete ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex h-full min-w-0 flex-1 flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium text-foreground">{step.title}</p>
                     <Badge variant="outline" className={stepStateBadgeClass(step, isAdmin)}>
@@ -217,7 +217,7 @@ export function GettingStartedChecklist({
                   </div>
                   <p className="text-sm text-muted-foreground">{step.description}</p>
                   {!step.complete && step.href && !needsAdmin && (
-                    <Button asChild size="sm" variant="outline">
+                    <Button asChild size="sm" variant="outline" className="mt-auto self-start">
                       <Link to={step.href}>{step.actionLabel ?? 'Open'}</Link>
                     </Button>
                   )}

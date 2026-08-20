@@ -78,7 +78,7 @@ export function FirstDeployGuide({
           return (
             <div
               key={step.id}
-              className={`rounded-lg border p-4 ${
+              className={`flex h-full rounded-lg border p-4 ${
                 step.complete
                   ? 'border-success/20 bg-success/5'
                   : isCurrent
@@ -86,7 +86,7 @@ export function FirstDeployGuide({
                     : 'border-border bg-background'
               }`}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex h-full w-full items-start gap-3">
                 <div
                   className={`mt-0.5 rounded-md p-2 ${
                     step.complete
@@ -98,7 +98,7 @@ export function FirstDeployGuide({
                 >
                   {step.complete ? <CheckCircle2 className="h-4 w-4" /> : <CircleDashed className="h-4 w-4" />}
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className="border-border bg-muted/40 text-muted-foreground">
                       Step {index + 1}
