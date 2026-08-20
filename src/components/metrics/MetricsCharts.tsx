@@ -40,6 +40,7 @@ interface MetricsChartsProps {
   variant?: 'microservice' | 'static-site';
   onTimeRangeChange: (from: Date, to: Date, toNow?: boolean) => void;
   onRefresh?: () => void | Promise<void>;
+  autoRefreshEnabled?: boolean;
 }
 
 interface SeriesInfo {
@@ -88,6 +89,7 @@ const MetricsCharts = ({
   variant = 'microservice',
   onTimeRangeChange,
   onRefresh,
+  autoRefreshEnabled = true,
 }: MetricsChartsProps) => {
   const { preferences } = usePlatformPreferences();
   const isStaticSite = variant === 'static-site';
@@ -131,7 +133,7 @@ const MetricsCharts = ({
 
   // Auto-refresh effect
   useEffect(() => {
-    if (!preferences.autoRefreshMetrics || !hasRefreshHandler) {
+    if (!autoRefreshEnabled || !preferences.autoRefreshMetrics || !hasRefreshHandler) {
       return;
     }
 
@@ -140,7 +142,7 @@ const MetricsCharts = ({
     }, preferences.metricsRefreshInterval * 1000);
 
     return () => window.clearInterval(interval);
-  }, [hasRefreshHandler, preferences.autoRefreshMetrics, preferences.metricsRefreshInterval, triggerRefresh]);
+  }, [autoRefreshEnabled, hasRefreshHandler, preferences.autoRefreshMetrics, preferences.metricsRefreshInterval, triggerRefresh]);
 
   const handleManualRefresh = useCallback(() => {
     void triggerRefresh();
@@ -205,9 +207,11 @@ const MetricsCharts = ({
   const selectedMetricsSource = selectedReplica === 'all'
     ? metrics
     : activeMetricsSources[0]?.metrics ?? null;
+  const diagnostics = metrics?.diagnostics;
+  const metricsUnavailable = Boolean(diagnostics?.error);
 
   const metricsData = useMemo(() => {
-    if (!metrics?.timestamps) return [];
+    if (!metrics?.timestamps || metricsUnavailable) return [];
     return metrics.timestamps.map((ts, i) => {
       const timestamp = new Date(ts).getTime();
       const row: Record<string, number | string> = { timestamp };
@@ -220,10 +224,10 @@ const MetricsCharts = ({
       });
       return row;
     });
-  }, [metrics, activeMetricsSources]);
+  }, [metrics, activeMetricsSources, metricsUnavailable]);
 
   const statusCodeData = useMemo(() => {
-    if (!metrics?.timestamps?.length) {
+    if (!metrics?.timestamps?.length || metricsUnavailable) {
       return [];
     }
     const statusCodes = metrics.statusCodes;
@@ -241,7 +245,7 @@ const MetricsCharts = ({
       '4xx': 0,
       '5xx': 0,
     }));
-  }, [metrics]);
+  }, [metrics, metricsUnavailable]);
 
   const statusPresence = useMemo(() => {
     if (!statusCodeData.length) {
@@ -376,21 +380,22 @@ const MetricsCharts = ({
   };
 
   // Summary stats
-  const cpuAvg = selectedMetricsSource?.cpu?.length ? Math.round(average(selectedMetricsSource.cpu)) : null;
-  const cpuPeak = selectedMetricsSource?.cpu?.length ? Math.round(Math.max(...selectedMetricsSource.cpu)) : null;
-  const memoryAvg = selectedMetricsSource?.memory?.length ? Math.round(average(selectedMetricsSource.memory)) : null;
-  const memoryPeak = selectedMetricsSource?.memory?.length ? Math.round(Math.max(...selectedMetricsSource.memory)) : null;
-  const latencyAvg = selectedMetricsSource?.latencyP95?.length
-    ? Number(average(selectedMetricsSource.latencyP95).toFixed(1))
+  const displayMetricsSource = metricsUnavailable ? null : selectedMetricsSource;
+  const cpuAvg = displayMetricsSource?.cpu?.length ? Math.round(average(displayMetricsSource.cpu)) : null;
+  const cpuPeak = displayMetricsSource?.cpu?.length ? Math.round(Math.max(...displayMetricsSource.cpu)) : null;
+  const memoryAvg = displayMetricsSource?.memory?.length ? Math.round(average(displayMetricsSource.memory)) : null;
+  const memoryPeak = displayMetricsSource?.memory?.length ? Math.round(Math.max(...displayMetricsSource.memory)) : null;
+  const latencyAvg = displayMetricsSource?.latencyP95?.length
+    ? Number(average(displayMetricsSource.latencyP95).toFixed(1))
     : null;
-  const latencyPeak = selectedMetricsSource?.latencyP95?.length
-    ? Number(Math.max(...selectedMetricsSource.latencyP95).toFixed(1))
+  const latencyPeak = displayMetricsSource?.latencyP95?.length
+    ? Number(Math.max(...displayMetricsSource.latencyP95).toFixed(1))
     : null;
-  const requestsAvg = selectedMetricsSource?.requests?.length
-    ? Math.round(average(selectedMetricsSource.requests))
+  const requestsAvg = displayMetricsSource?.requests?.length
+    ? Math.round(average(displayMetricsSource.requests))
     : null;
-  const requestsPeak = selectedMetricsSource?.requests?.length
-    ? Math.round(Math.max(...selectedMetricsSource.requests))
+  const requestsPeak = displayMetricsSource?.requests?.length
+    ? Math.round(Math.max(...displayMetricsSource.requests))
     : null;
   const formatRequests = (value: number | null) => {
     if (value === null) return '--';
@@ -492,8 +497,6 @@ const MetricsCharts = ({
     metrics.requests.some(v => v !== 0)
   );
 
-  const diagnostics = metrics?.diagnostics;
-
   return (
     <div className="space-y-4">
       {/* Diagnostics banner when no real data */}
@@ -573,9 +576,13 @@ const MetricsCharts = ({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {!isStaticSite && (
-            <span>{runningInstanceCount} running {runningInstanceCount === 1 ? 'instance' : 'instances'} · aggregate series</span>
+            <span>
+              {metricsUnavailable
+                ? 'Instance count unavailable · Prometheus offline'
+                : `${runningInstanceCount} running ${runningInstanceCount === 1 ? 'instance' : 'instances'} · aggregate series`}
+            </span>
           )}
-          {preferences.autoRefreshMetrics && (
+          {autoRefreshEnabled && preferences.autoRefreshMetrics && (
             <div className="flex items-center gap-1.5 text-[10px]">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>

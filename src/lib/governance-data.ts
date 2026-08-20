@@ -165,6 +165,17 @@ export const fetchAuditLogs = async (): Promise<AuditLogEntry[]> => {
   return (response.data ?? []).map((entry) => normalizeAuditLogEntry(entry as Partial<AuditLogEntry> & Record<string, unknown>));
 };
 
+export const fetchResourceAuditLogs = async (
+  resourceType: string,
+  resourceId: string,
+): Promise<AuditLogEntry[]> => {
+  if (!resourceType.trim() || !resourceId.trim()) return [];
+  const params = new URLSearchParams({ resourceType, resourceId });
+  const response = await apiClient.get<AuditLogEntry[]>(`/audit?${params.toString()}`);
+  if (response.error || !response.data) return [];
+  return response.data.map((entry) => normalizeAuditLogEntry(entry as Partial<AuditLogEntry> & Record<string, unknown>));
+};
+
 export const fetchGovernanceExceptions = async (): Promise<GovernanceTemporaryException[]> => {
   const response = await apiClient.get<GovernanceTemporaryException[]>('/governance/exceptions');
   if (response.error) {

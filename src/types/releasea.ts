@@ -18,10 +18,11 @@ export type DeployStatus =
   | 'progressing'
   | 'promoting'
   | 'completed'
-  | 'rollback'
+  | 'rolling-back'
+  | 'rolled-back'
   | 'failed'
   | 'retrying';
-export type LegacyDeployStatus = 'success' | 'in-progress' | 'queued';
+export type LegacyDeployStatus = 'success' | 'in-progress' | 'queued' | 'rollback';
 export type DeployStatusValue = DeployStatus | LegacyDeployStatus;
 // Core environments. Dynamic environments (qa, uat, sandbox, etc.) are also
 // supported and always map to one of the three fixed namespaces via resolveNamespace.
@@ -387,6 +388,8 @@ export interface Service {
   managementMode?: ServiceManagementMode;
   runtime?: Record<string, ServiceRuntimeState>;
   repoManaged?: boolean;
+  /** Catalog source used to scaffold this service. It is not the application repository. */
+  templateSource?: TemplateSource;
   scheduleCron?: string;
   scheduleTimezone?: string;
   scheduleCommand?: string;

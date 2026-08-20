@@ -13,6 +13,7 @@ interface StatusBadgeProps {
     | 'publishing'
     | 'unpublishing';
   className?: string;
+  label?: string;
 }
 
 const statusConfig = {
@@ -35,7 +36,9 @@ const statusConfig = {
   progressing: { label: 'Progressing', dotClass: 'status-dot-pending', bgClass: 'bg-warning/10 text-warning' },
   promoting: { label: 'Promoting', dotClass: 'status-dot-pending', bgClass: 'bg-warning/10 text-warning' },
   completed: { label: 'Completed', dotClass: 'status-dot-running', bgClass: 'bg-success/10 text-success' },
-  rollback: { label: 'Rollback', dotClass: 'status-dot-stopped', bgClass: 'bg-warning/10 text-warning' },
+  rollback: { label: 'Rolled back', dotClass: 'status-dot-stopped', bgClass: 'bg-warning/10 text-warning' },
+  'rolling-back': { label: 'Rolling back', dotClass: 'status-dot-pending', bgClass: 'bg-warning/10 text-warning' },
+  'rolled-back': { label: 'Rolled back', dotClass: 'status-dot-stopped', bgClass: 'bg-warning/10 text-warning' },
   retrying: { label: 'Retrying', dotClass: 'status-dot-pending', bgClass: 'bg-warning/10 text-warning' },
   success: { label: 'Completed', dotClass: 'status-dot-running', bgClass: 'bg-success/10 text-success' },
   failed: { label: 'Failed', dotClass: 'status-dot-stopped', bgClass: 'bg-destructive/10 text-destructive' },
@@ -47,7 +50,7 @@ const statusConfig = {
   unpublishing: { label: 'Unpublishing', dotClass: 'status-dot-pending', bgClass: 'bg-warning/10 text-warning' },
 };
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, className, label }: StatusBadgeProps) {
   const config = statusConfig[status] ?? statusConfig.pending;
   
   return (
@@ -57,7 +60,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
       className
     )}>
       <span className={cn('status-dot', config.dotClass)} />
-      {config.label}
+      {label ?? config.label}
     </span>
   );
 }
