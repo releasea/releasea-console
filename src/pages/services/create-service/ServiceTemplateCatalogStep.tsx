@@ -1,6 +1,7 @@
-import { BookOpen, Search } from 'lucide-react';
+import { BookOpen, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   catalogBlueprints,
@@ -38,8 +39,9 @@ export function ServiceTemplateCatalogStep({
   onTemplateSelect,
   onManageTemplates,
 }: ServiceTemplateCatalogStepProps) {
-  const verifiedCount = templates.filter((template) => template.verification?.status === 'verified').length;
-  const needsReviewCount = templates.filter((template) => template.verification?.status !== 'verified').length;
+  const verifiedCount = filteredTemplates.filter((template) => template.verification?.status === 'verified').length;
+  const needsReviewCount = filteredTemplates.filter((template) => template.verification?.status !== 'verified').length;
+  const hasActiveFilters = catalogQuery.trim() !== '' || blueprintFilter !== 'all' || frameworkFilter !== 'all';
   const groupedTemplates = catalogBlueprints
     .map((blueprint) => ({
       blueprint,
@@ -50,7 +52,7 @@ export function ServiceTemplateCatalogStep({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
       <section className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border bg-muted/20 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-4 border-b border-border bg-muted/20 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Service catalog</p>
             <h2 className="text-xl font-semibold text-foreground">Choose a template</h2>
@@ -58,89 +60,81 @@ export function ServiceTemplateCatalogStep({
               Browse curated blueprints with consistent defaults for security, scaling, and monitoring.
             </p>
           </div>
-          <p className="shrink-0 text-xs text-muted-foreground">
-            {filteredTemplates.length} of {templates.length} templates · {verifiedCount} verified · {needsReviewCount} need review
-          </p>
+          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-2" onClick={onManageTemplates}>
+            <BookOpen className="h-4 w-4" />
+            Manage templates
+          </Button>
         </div>
 
-        <div className="space-y-5 p-5">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search templates..."
-              value={catalogQuery}
-              onChange={(event) => onCatalogQueryChange(event.target.value)}
-              className="pl-9 bg-muted/40"
-            />
+        <div className="space-y-4 p-5">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <SlidersHorizontal className="h-4 w-4" />
+            Find the right starting point
           </div>
-
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <div className="min-w-0 space-y-2">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Blueprint catalog</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={blueprintFilter === 'all' ? 'default' : 'outline'}
-                  onClick={() => onBlueprintFilterChange('all')}
-                >
-                  All workloads
-                </Button>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_15rem_15rem]">
+            <div className="relative min-w-0">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Search service templates"
+                placeholder="Search by language, framework, or use case"
+                value={catalogQuery}
+                onChange={(event) => onCatalogQueryChange(event.target.value)}
+                className="h-10 bg-muted/30 pl-9"
+              />
+            </div>
+            <Select value={blueprintFilter} onValueChange={(value) => onBlueprintFilterChange(value as CatalogBlueprintId | 'all')}>
+              <SelectTrigger className="h-10 bg-muted/30" aria-label="Filter by workload type">
+                <SelectValue placeholder="All workload types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All workload types · {templates.length}</SelectItem>
                 {catalogBlueprints.map((blueprint) => {
                   const count = templates.filter((template) => getCatalogBlueprintId(template) === blueprint.id).length;
                   return (
-                    <Button
-                      key={blueprint.id}
-                      type="button"
-                      size="sm"
-                      variant={blueprintFilter === blueprint.id ? 'default' : 'outline'}
-                      onClick={() => onBlueprintFilterChange(blueprint.id)}
-                    >
+                    <SelectItem key={blueprint.id} value={blueprint.id}>
                       {blueprint.label} · {count}
-                    </Button>
+                    </SelectItem>
                   );
                 })}
-              </div>
-            </div>
-
-            {frameworkOptions.length > 0 && (
-              <div className="min-w-0 space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Starter paths</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={frameworkFilter === 'all' ? 'default' : 'outline'}
-                    onClick={() => onFrameworkFilterChange('all')}
-                  >
-                    All frameworks
-                  </Button>
-                  {frameworkOptions.map((framework) => (
-                    <Button
-                      key={framework.value}
-                      type="button"
-                      size="sm"
-                      variant={frameworkFilter === framework.value ? 'default' : 'outline'}
-                      onClick={() => onFrameworkFilterChange(framework.value)}
-                    >
-                      {framework.label} · {framework.count}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
+              </SelectContent>
+            </Select>
+            <Select value={frameworkFilter} onValueChange={onFrameworkFilterChange}>
+              <SelectTrigger className="h-10 bg-muted/30" aria-label="Filter by framework">
+                <SelectValue placeholder="All frameworks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All frameworks</SelectItem>
+                {frameworkOptions.map((framework) => (
+                  <SelectItem key={framework.value} value={framework.value}>
+                    {framework.label} · {framework.count}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium text-foreground">Create your own templates</p>
-              <p className="text-xs text-muted-foreground">
-                Import templates from Settings to define repositories, runtime, and scheduling defaults.
-              </p>
-            </div>
-            <Button type="button" variant="outline" size="sm" className="shrink-0 gap-2" onClick={onManageTemplates}>
-              <BookOpen className="h-4 w-4" />
-              Manage templates
-            </Button>
+          <div className="flex min-h-8 flex-col gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              <span className="font-medium text-foreground">{filteredTemplates.length}</span>{' '}
+              {filteredTemplates.length === 1 ? 'template found' : 'templates found'}
+              {' · '}
+              {needsReviewCount === 0 ? `${verifiedCount} verified` : `${needsReviewCount} require review`}
+            </p>
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 justify-start gap-2 px-2 sm:justify-center"
+                onClick={() => {
+                  onCatalogQueryChange('');
+                  onBlueprintFilterChange('all');
+                  onFrameworkFilterChange('all');
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear filters
+              </Button>
+            )}
           </div>
         </div>
       </section>
