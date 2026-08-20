@@ -26,7 +26,6 @@ import {
   fetchWorkers,
 } from '@/lib/data';
 import { isFailedDeployStatus, isSuccessfulDeployStatus } from '@/lib/deploy-status';
-import { getDocsUrl } from '@/lib/docs-url';
 import { buildOperatorHealthReport } from '@/lib/operator-health';
 import type {
   Deploy,
@@ -145,9 +144,14 @@ const Dashboard = () => {
           title="Dashboard"
           description="Monitor service health, deploys, and platform readiness."
           docsSlug="overview"
+          actions={(
+            <Button onClick={() => navigate(emptyServiceActionHref)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              {emptyServiceActionLabel}
+            </Button>
+          )}
         />
 
-        {/* Banner */}
         {showGettingStartedChecklist ? (
           <div className="space-y-6">
             <GettingStartedChecklist
@@ -193,27 +197,7 @@ const Dashboard = () => {
               firstServiceId={primaryServiceId}
             />
           </div>
-        ) : (
-          <div className="rounded-lg border border-border bg-card px-4 py-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold text-foreground">Create a production-ready service</h2>
-                <p className="text-sm text-muted-foreground">
-                  Standardized provisioning, safe deploys, and observability built in.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => navigate(newServiceHref)}>
-                  <Plus className="h-4 w-4" />
-                  New Service
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => window.location.assign(getDocsUrl())}>
-                  Docs
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        ) : null}
 
         {isAdmin && !showGettingStartedChecklist ? (
           <OperatorHealthReport report={operatorHealthReport} />

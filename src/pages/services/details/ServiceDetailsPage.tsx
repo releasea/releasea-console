@@ -2309,7 +2309,7 @@ const ServiceDetails = () => {
     const parsedPauseIdleMinutes = Number(pauseIdleTimeoutMinutes);
     const pauseIdleTimeoutSeconds =
       Number.isFinite(parsedPauseIdleMinutes) && parsedPauseIdleMinutes > 0
-        ? Math.max(60, Math.round(parsedPauseIdleMinutes * 60))
+        ? Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(parsedPauseIdleMinutes * 60)))
         : 3600;
     const scmCredentialId = serviceScmCredentialId === 'inherit' ? '' : serviceScmCredentialId;
     const registryCredentialId =

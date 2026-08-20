@@ -505,10 +505,12 @@ const IdentityProvider = () => {
               actions={(
                 <>
                   <DocumentationLink slug="settings-identity-governance" label="SSO guide" variant="button" />
-                  <Button size="sm" onClick={() => setAddProviderOpen(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add identity provider
-                  </Button>
+                  {(connectionsLoading || connections.length > 0) && (
+                    <Button size="sm" onClick={() => setAddProviderOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add identity provider
+                    </Button>
+                  )}
                 </>
               )}
             >
