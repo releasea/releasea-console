@@ -19,6 +19,7 @@ import {
   createServiceGitOpsPullRequest,
   deleteRule,
   fetchDeploys,
+  fetchAvailableAIProviders,
   fetchEnvironments,
   fetchScmCommits,
   fetchRuleDeploys,
@@ -30,8 +31,8 @@ import {
   fetchServiceGitOpsTimeline,
   fetchServiceDesiredStateValidation,
   fetchServiceGovernanceEvents,
-  fetchServiceLogs,
-  fetchServicePods,
+  fetchServiceLogsResult,
+  fetchServicePodsResult,
   fetchService,
   fetchMetrics,
   fetchProjects,
@@ -98,6 +99,7 @@ import type {
   ServiceStatusSnapshot,
   Worker,
   WorkerRegistration,
+  AIProviderOption,
 } from '@/types/releasea';
 import type {
   AuditLogEntry,
@@ -198,6 +200,39 @@ function isWorkerAvailableForEnvironment(worker: Worker, environment: string, re
   return normalizeWorkerTagsInput(requiredTags).every((tag) => availableTags.has(tag));
 }
 
+function resolveInitialServiceEnvironment(
+  service: Service,
+  serviceDeploys: Deploy[],
+  workers: Worker[],
+  registrations: WorkerRegistration[],
+): Environment {
+  const requiredTags = normalizeWorkerTagsInput(service.workerTags);
+  const recentDeployEnvironments = [...serviceDeploys]
+    .filter((deploy) => deploy.serviceId === service.id && deploy.environment)
+    .sort(
+      (a, b) =>
+        parseDeployTimestamp(b.startedAt, b.createdAt, b.updatedAt) -
+        parseDeployTimestamp(a.startedAt, a.createdAt, a.updatedAt),
+    )
+    .map((deploy) => deploy.environment as Environment);
+  const activeWorkerEnvironment = workers.find((worker) =>
+    isWorkerAvailableForEnvironment(worker, worker.environment, requiredTags),
+  )?.environment as Environment | undefined;
+  const deployWithActiveWorker = recentDeployEnvironments.find((environment) =>
+    workers.some((worker) => isWorkerAvailableForEnvironment(worker, environment, requiredTags)),
+  );
+  const registeredEnvironment = registrations.find((registration) => registration.environment)?.environment as Environment | undefined;
+
+  return (
+    deployWithActiveWorker ||
+    activeWorkerEnvironment ||
+    recentDeployEnvironments[0] ||
+    registeredEnvironment ||
+    (service.autoDeployEnvironment as Environment | undefined) ||
+    'prod'
+  );
+}
+
 function buildServiceSettingsHydrationKey(service: Service): string {
   return JSON.stringify({
     id: service.id,
@@ -294,6 +329,7 @@ const ServiceDetails = () => {
   const [deployLogOpen, setDeployLogOpen] = useState(false);
   const [selectedDeployLog, setSelectedDeployLog] = useState<Deploy | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsResetNonce, setSettingsResetNonce] = useState(0);
   const [deleteRuleOpen, setDeleteRuleOpen] = useState(false);
   const [selectedRule, setSelectedRule] = useState<RuleRow | null>(null);
   const [createRuleOpen, setCreateRuleOpen] = useState(false);
@@ -377,6 +413,10 @@ const ServiceDetails = () => {
   const [availableContainers, setAvailableContainers] = useState<string[]>([]);
   const [podsLoading, setPodsLoading] = useState(false);
   const [containersLoading, setContainersLoading] = useState(false);
+  const [podDiscoveryError, setPodDiscoveryError] = useState<string | null>(null);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logsNamespace, setLogsNamespace] = useState('');
+  const [lastLogsLoadedAt, setLastLogsLoadedAt] = useState<Date | null>(null);
   const [metricsFrom, setMetricsFrom] = useState(() => new Date(Date.now() - METRICS_DEFAULT_WINDOW_MS));
   const [metricsTo, setMetricsTo] = useState(() => new Date());
   const [metricsToNow, setMetricsToNow] = useState(true);
@@ -410,6 +450,7 @@ const ServiceDetails = () => {
   const [registryCredentials, setRegistryCredentials] = useState<RegistryCredential[]>([]);
   const [secretProviders, setSecretProviders] = useState<SecretProvider[]>([]);
   const [defaultSecretProviderId, setDefaultSecretProviderId] = useState('');
+  const [availableAIProviders, setAvailableAIProviders] = useState<AIProviderOption[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
@@ -475,6 +516,12 @@ const ServiceDetails = () => {
   }, [id]);
 
   useEffect(() => {
+    if (availableAIProviders.length === 0 && activeTab === 'assistant') {
+      setActiveTab('summary');
+    }
+  }, [activeTab, availableAIProviders.length]);
+
+  useEffect(() => {
     hadLiveDeployRef.current = false;
     hadPendingRuleDeployRef.current = false;
     hasLiveDeploysRef.current = false;
@@ -508,6 +555,7 @@ const ServiceDetails = () => {
           registryData,
           settingsData,
           profilesData,
+          aiProvidersData,
         ] = await Promise.all([
           id ? fetchService(id) : Promise.resolve(null),
           fetchServices(),
@@ -522,6 +570,7 @@ const ServiceDetails = () => {
           fetchRegistryCredentials(),
           fetchPlatformSettings(),
           fetchRuntimeProfiles(),
+          fetchAvailableAIProviders(),
         ]);
         if (!active) return;
         const mergedServices = directService
@@ -541,6 +590,28 @@ const ServiceDetails = () => {
         setSecretProviders(settingsData.secrets?.providers ?? []);
         setDefaultSecretProviderId(settingsData.secrets?.defaultProviderId ?? '');
         setProfiles(profilesData);
+        setAvailableAIProviders(aiProvidersData);
+        const initialService = directService ?? servicesData.find((item) => item.id === id);
+        if (initialService) {
+          const initialEnvironment = resolveInitialServiceEnvironment(
+            initialService,
+            deploysData,
+            workersData,
+            workerRegistrationsData,
+          );
+          hydratedServiceIdRef.current = initialService.id;
+          viewEnvInitialized.current = true;
+          setViewEnv(initialEnvironment);
+          setSelectedReplica('');
+          setSelectedContainer('');
+          setLogsLoaded(false);
+          setLogsError(null);
+          setPodDiscoveryError(null);
+          const now = new Date();
+          setMetricsFrom(new Date(now.getTime() - METRICS_DEFAULT_WINDOW_MS));
+          setMetricsTo(now);
+          setMetricsToNow(true);
+        }
         setLastRealtimeSyncAt(Date.now());
         setRealtimeSyncError(null);
       } catch (error) {
@@ -1661,7 +1732,7 @@ const ServiceDetails = () => {
     setEnvVars(initialEnvVars.length > 0 ? initialEnvVars : [
       { id: `env-${service.id}-0`, key: '', value: '', type: 'plain' as const },
     ]);
-  }, [service, deploysData]);
+  }, [service, deploysData, settingsResetNonce]);
 
   useEffect(() => {
     if (managementMode === 'observed' && autoDeploy) {
@@ -1684,6 +1755,10 @@ const ServiceDetails = () => {
     setSelectedContainer('');
     setAvailablePods([]);
     setAvailableContainers([]);
+    setPodDiscoveryError(null);
+    setLogsError(null);
+    setLogsNamespace('');
+    setLastLogsLoadedAt(null);
   }, [viewEnv]);
 
   // Load available pods when environment changes
@@ -1692,10 +1767,13 @@ const ServiceDetails = () => {
     let active = true;
     const loadPods = async () => {
       setPodsLoading(true);
-      const pods = await fetchServicePods(id, viewEnv);
+      const result = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
+      const pods = result.pods;
       const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
       setAvailablePods(sortedPods);
+      setLogsNamespace(result.namespace ?? '');
+      setPodDiscoveryError(result.error ?? null);
       setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
       setPodsLoading(false);
     };
@@ -1711,10 +1789,13 @@ const ServiceDetails = () => {
     if (!shouldRefreshPods) return;
     let active = true;
     const refreshPods = async () => {
-      const pods = await fetchServicePods(id, viewEnv);
+      const result = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
+      const pods = result.pods;
       const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
       setAvailablePods(sortedPods);
+      setLogsNamespace(result.namespace ?? '');
+      setPodDiscoveryError(result.error ?? null);
       setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
     };
     void refreshPods();
@@ -1731,10 +1812,13 @@ const ServiceDetails = () => {
     if (runtimeRefreshNonce === 0 || !id || !viewEnv) return;
     let active = true;
     const refreshRuntimeViews = async () => {
-      const pods = await fetchServicePods(id, viewEnv);
+      const podResult = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
+      const pods = podResult.pods;
       const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
       setAvailablePods(sortedPods);
+      setLogsNamespace(podResult.namespace ?? '');
+      setPodDiscoveryError(podResult.error ?? null);
       const nextReplica =
         selectedReplica && sortedPods.includes(selectedReplica)
           ? selectedReplica
@@ -1744,7 +1828,7 @@ const ServiceDetails = () => {
       if (logsLoaded && nextReplica) {
         const to = new Date();
         const from = new Date(to.getTime() - LOGS_DEFAULT_WINDOW_MS);
-        const runtimeLogs = await fetchServiceLogs(id, {
+        const runtimeResult = await fetchServiceLogsResult(id, {
           from,
           to,
           limit: LOG_LINE_LIMIT,
@@ -1753,7 +1837,11 @@ const ServiceDetails = () => {
           container: selectedContainer || undefined,
         });
         if (!active) return;
-        setLogs(runtimeLogs);
+        setLogs(runtimeResult.logs);
+        setLogsError(runtimeResult.error ?? null);
+        const runtimeNamespace = runtimeResult.diagnostics?.namespace ?? podResult.namespace;
+        if (runtimeNamespace) setLogsNamespace(runtimeNamespace);
+        setLastLogsLoadedAt(new Date());
       }
 
       await refreshMetrics();
@@ -1783,7 +1871,7 @@ const ServiceDetails = () => {
       setContainersLoading(true);
       const to = new Date();
       const from = new Date(to.getTime() - 3 * 60 * 60 * 1000);
-      const recentLogs = await fetchServiceLogs(id, {
+      const recentResult = await fetchServiceLogsResult(id, {
         from,
         to,
         limit: 1000,
@@ -1793,12 +1881,14 @@ const ServiceDetails = () => {
       if (!active) return;
       const containers = Array.from(
         new Set(
-          recentLogs
+          recentResult.logs
             .map((entry) => readContainerName(entry.metadata))
             .filter((value): value is string => value.length > 0),
         ),
       ).sort((a, b) => a.localeCompare(b));
       setAvailableContainers(containers);
+      setLogsError(recentResult.error ?? null);
+      if (recentResult.diagnostics?.namespace) setLogsNamespace(recentResult.diagnostics.namespace);
       setSelectedContainer((current) => (current && containers.includes(current) ? current : containers[0] || ''));
       setContainersLoading(false);
     };
@@ -2123,7 +2213,7 @@ const ServiceDetails = () => {
       const to = new Date();
       const recentWindowMs = selectedContainerIsHistorical ? 24 * 60 * 60 * 1000 : LOGS_DEFAULT_WINDOW_MS;
       const from = new Date(to.getTime() - recentWindowMs);
-      const data = await fetchServiceLogs(id, {
+      const result = await fetchServiceLogsResult(id, {
         from,
         to,
         limit: LOG_LINE_LIMIT,
@@ -2131,7 +2221,10 @@ const ServiceDetails = () => {
         pod: selectedReplica,
         container: selectedContainer || undefined,
       });
-      setLogs(data);
+      setLogs(result.logs);
+      setLogsError(result.error ?? null);
+      if (result.diagnostics?.namespace) setLogsNamespace(result.diagnostics.namespace);
+      setLastLogsLoadedAt(new Date());
     }
     setLogsLoaded(true);
     setLogsLoading(false);
@@ -2861,15 +2954,28 @@ const ServiceDetails = () => {
   };
 
   const handleDiscardSettings = () => {
+    settingsHydrationKeyRef.current = '';
+    setSettingsResetNonce((current) => current + 1);
     toast({
       title: 'Changes discarded',
-      description: 'No settings were saved.',
+      description: 'The form was restored to the last saved service configuration.',
     });
   };
 
-  const handleToggleServiceActive = () => {
+  const handleToggleServiceActive = async () => {
+    if (!service) return;
     const next = !isServiceActive;
+    const response = await apiClient.put<Service>(`/services/${service.id}`, { isActive: next });
+    if (response.error) {
+      toast({
+        title: next ? 'Failed to activate service' : 'Failed to deactivate service',
+        description: response.error,
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsServiceActive(next);
+    setServices((current) => current.map((item) => item.id === service.id ? { ...item, isActive: next } : item));
     toast({
       title: next ? 'Service activated' : 'Service deactivated',
       description: next
@@ -3547,7 +3653,7 @@ const ServiceDetails = () => {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-muted/50 flex w-full flex-wrap justify-start">
+          <TabsList className="flex h-auto w-full justify-start overflow-x-auto bg-muted/50 p-1 [&_[role=tab]]:min-w-[112px] [&_[role=tab]]:flex-1">
             <TabsTrigger value="summary" className="gap-2">
               <FileText className="w-4 h-4" />
               Summary
@@ -3572,10 +3678,12 @@ const ServiceDetails = () => {
               <TrendingUp className="w-4 h-4" />
               Delivery
             </TabsTrigger>
-            <TabsTrigger value="assistant" className="gap-2">
-              <Bot className="w-4 h-4" />
-              Assistant
-            </TabsTrigger>
+            {availableAIProviders.length > 0 && (
+              <TabsTrigger value="assistant" className="gap-2">
+                <Bot className="w-4 h-4" />
+                Assistant
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settings" className="gap-2">
               <Settings className="w-4 h-4" />
               Settings
@@ -3632,6 +3740,7 @@ const ServiceDetails = () => {
             metricsTo={metricsTo}
             metricsToNow={metricsToNow}
             variant={service.type === 'static-site' ? 'static-site' : 'microservice'}
+            viewEnvLabel={viewEnvLabel}
             onTimeRangeChange={handleMetricsTimeRangeChange}
             onRefresh={handleMetricsRefresh}
           />
@@ -3651,6 +3760,10 @@ const ServiceDetails = () => {
             onLoadLogs={handleLoadLogs}
             visibleLogs={visibleLogs}
             viewEnvLabel={viewEnvLabel}
+            namespace={logsNamespace}
+            podDiscoveryError={podDiscoveryError}
+            logsError={logsError}
+            lastLoadedAt={lastLogsLoadedAt}
           />
 
           <EventsTab
@@ -3664,6 +3777,8 @@ const ServiceDetails = () => {
             liveSyncLabel={lastRealtimeSyncLabel}
             liveSyncActive={isLiveSyncConnected || isFastPolling}
             liveSyncPaused={isLiveSyncPaused}
+            viewEnvLabel={viewEnvLabel}
+            onGoToSummary={() => setActiveTab('summary')}
           />
 
           <RulesTab
@@ -3678,6 +3793,7 @@ const ServiceDetails = () => {
             onOpenCopyRule={openCopyRule}
             onOpenPublishRule={openPublishRule}
             onDeleteRule={handleOpenDeleteRule}
+            viewEnvLabel={viewEnvLabel}
           />
 
           <DeliveryTab
@@ -3699,7 +3815,9 @@ const ServiceDetails = () => {
             releaseIntelligence={releaseIntelligence}
           />
 
-          <AssistantTab serviceId={service.id} environment={viewEnv} />
+          {availableAIProviders.length > 0 && (
+            <AssistantTab serviceId={service.id} environment={viewEnv} providers={availableAIProviders} />
+          )}
 
           <ServiceSettingsFormStoreProvider value={settingsFormStore}>
             <SettingsTab />

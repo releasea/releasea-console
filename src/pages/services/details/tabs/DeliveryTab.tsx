@@ -16,6 +16,7 @@ import type {
 import { buildServiceReadinessScorecard } from '@/lib/service-readiness';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, ShieldCheck, TrendingUp } from 'lucide-react';
+import { ServiceTabHeader } from '../ServiceTabHeader';
 
 type DeliveryTabProps = {
   service: Service;
@@ -292,16 +293,15 @@ export const DeliveryTab = ({
 
   return (
     <TabsContent value="delivery" className="space-y-6">
+      <ServiceTabHeader
+        title="Delivery"
+        description="Review deploy readiness, governance gates, GitOps state, and release health before promoting changes."
+        environment={viewEnvLabel}
+      />
       <div className="rounded-lg border border-border/70 bg-card/95 p-4 shadow-sm">
         <Tabs defaultValue={initialSection} className="space-y-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-foreground">Delivery</h3>
-              <p className="text-sm text-muted-foreground">
-                Govern delivery readiness, GitOps posture, and release health without overloading one screen.
-              </p>
-            </div>
-            <TabsList className="w-full justify-start overflow-x-auto bg-muted/60 lg:w-auto">
+          <div className="overflow-x-auto">
+            <TabsList className="w-full justify-start bg-muted/60 sm:w-auto">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="governance">Governance</TabsTrigger>
               <TabsTrigger value="gitops">GitOps</TabsTrigger>

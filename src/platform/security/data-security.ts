@@ -5,7 +5,7 @@ const KEY_VALUE_SECRET_PATTERN =
 const EMAIL_PATTERN = /\b([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[\w.-]+\.[A-Za-z]{2,})\b/g;
 const IPV4_PATTERN =
   /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/g;
-const IPV6_PATTERN = /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g;
+const IPV6_CANDIDATE_PATTERN = /\b[0-9a-fA-F:]{2,39}\b/g;
 const SECRET_KEY_PATTERN =
   /(password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|client[-_]?secret|authorization|cookie|session|jwt)/i;
 const ELLIPSIS = '...';
@@ -102,7 +102,12 @@ export const redactSensitiveText = (value: string, options?: RedactTextOptions):
   }
   if (options?.maskIPs) {
     output = output.replace(IPV4_PATTERN, (match) => maskIPAddress(match));
-    output = output.replace(IPV6_PATTERN, (match) => maskIPAddress(match));
+    output = output.replace(IPV6_CANDIDATE_PATTERN, (match) => {
+      const colonCount = (match.match(/:/g) ?? []).length;
+      // Avoid treating timestamps such as 12:34:56 as IPv6. A non-compressed
+      // IPv6 address has eight groups; compressed forms explicitly contain ::.
+      return match.includes('::') || colonCount === 7 ? maskIPAddress(match) : match;
+    });
   }
   return trimLength(output, maxLength);
 };

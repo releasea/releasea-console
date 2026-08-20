@@ -6,12 +6,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { TabsContent } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
-import { createServiceAIAnalysis, fetchAvailableAIProviders, fetchServiceAIAnalyses } from '@/lib/data';
+import { createServiceAIAnalysis, fetchServiceAIAnalyses } from '@/lib/data';
 import type { AIAnalysis, AIAnalysisKind, AIProviderOption } from '@/types/releasea';
 
 interface AssistantTabProps {
   serviceId: string;
   environment: string;
+  providers: AIProviderOption[];
 }
 
 const analysisOptions: Array<{ kind: AIAnalysisKind; label: string; description: string }> = [
@@ -23,9 +24,8 @@ const analysisOptions: Array<{ kind: AIAnalysisKind; label: string; description:
 const severityVariant = (severity?: string): 'destructive' | 'secondary' | 'outline' =>
   severity === 'critical' ? 'destructive' : severity === 'warning' ? 'secondary' : 'outline';
 
-export function AssistantTab({ serviceId, environment }: AssistantTabProps) {
+export function AssistantTab({ serviceId, environment, providers }: AssistantTabProps) {
   const [history, setHistory] = useState<AIAnalysis[]>([]);
-  const [providers, setProviders] = useState<AIProviderOption[]>([]);
   const [providerId, setProviderId] = useState('');
   const [kind, setKind] = useState<AIAnalysisKind>('health-summary');
   const [question, setQuestion] = useState('');
@@ -34,17 +34,11 @@ export function AssistantTab({ serviceId, environment }: AssistantTabProps) {
   const refresh = useCallback(async () => setHistory(await fetchServiceAIAnalyses(serviceId)), [serviceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    let active = true;
-    void fetchAvailableAIProviders().then((items) => {
-      if (!active) return;
-      setProviders(items);
-      setProviderId((current) => {
-        if (current && items.some((item) => item.id === current)) return current;
-        return items.find((item) => item.default)?.id ?? items[0]?.id ?? '';
-      });
+    setProviderId((current) => {
+      if (current && providers.some((item) => item.id === current)) return current;
+      return providers.find((item) => item.default)?.id ?? providers[0]?.id ?? '';
     });
-    return () => { active = false; };
-  }, []);
+  }, [providers]);
   const latest = useMemo(() => history.find((item) => item.status === 'completed'), [history]);
 
   const run = async () => {

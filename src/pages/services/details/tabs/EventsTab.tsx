@@ -6,6 +6,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import type { Deploy, RuleDeploy } from '@/types/releasea';
 import type { AuditLogEntry } from '@/types/governance';
 import { AlertTriangle, FileText, GitBranch, Rocket, Route as RouteIcon, Shield } from 'lucide-react';
+import { ServiceTabHeader } from '../ServiceTabHeader';
 
 const logsActionButtonClassName =
   'gap-2 border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 hover:text-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-500/25';
@@ -66,6 +67,8 @@ type EventsTabProps = {
   liveSyncLabel: string;
   liveSyncActive?: boolean;
   liveSyncPaused?: boolean;
+  viewEnvLabel: string;
+  onGoToSummary: () => void;
 };
 
 export const EventsTab = ({
@@ -79,8 +82,15 @@ export const EventsTab = ({
   liveSyncLabel,
   liveSyncActive = false,
   liveSyncPaused = false,
+  viewEnvLabel,
+  onGoToSummary,
 }: EventsTabProps) => (
   <TabsContent value="events" className="space-y-4">
+    <ServiceTabHeader
+      title="Activity"
+      description="Follow deployments, rule publications, and governance decisions in chronological order."
+      environment={viewEnvLabel}
+    />
     <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
       {liveSyncError ? (
         <span className="inline-flex items-center gap-1 text-warning">
@@ -202,7 +212,14 @@ export const EventsTab = ({
             </tr>
           ))}
           {events.length === 0 && (
-            <TableEmptyRow colSpan={7} icon={<Rocket className="h-5 w-5 text-muted-foreground" />} />
+            <TableEmptyRow
+              colSpan={7}
+              icon={<Rocket className="h-5 w-5 text-muted-foreground" />}
+              title={`No activity in ${viewEnvLabel}`}
+              description="Deploy this service or publish a traffic rule to create the first operational event."
+              actionLabel="Review service"
+              onAction={onGoToSummary}
+            />
           )}
         </tbody>
       </table>

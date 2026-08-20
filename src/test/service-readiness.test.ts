@@ -59,10 +59,13 @@ const verifiedRepositoryPolicy: ServiceGitOpsRepositoryPolicyCheck = {
 const healthyRelease: ReleaseIntelligenceSummary = {
   slo: {
     overallState: 'meeting',
-    summary: 'SLOs are currently within target.',
-    availabilityPercent: 99.95,
-    latencyP95Ms: 180,
-    errorRatePercent: 0.2,
+    availabilityPct: 99.95,
+    latencyP95AvgMs: 180,
+    errorRatePct: 0.2,
+    availabilityTargetPct: 99.9,
+    latencyTargetMs: 500,
+    availabilityState: 'meeting',
+    latencyState: 'meeting',
   },
   comparison: {
     latestVersion: '1.2.3',
@@ -74,9 +77,11 @@ const healthyRelease: ReleaseIntelligenceSummary = {
   },
   rollback: {
     recommendation: 'stable',
-    summary: 'No rollback signal detected from current telemetry.',
+    message: 'No rollback signal detected from current telemetry.',
+    confidence: 'high',
+    factors: [],
   },
-};
+} as ReleaseIntelligenceSummary;
 
 describe('buildServiceReadinessScorecard', () => {
   it('returns a ready scorecard for a well-configured managed service', () => {
@@ -133,5 +138,24 @@ describe('buildServiceReadinessScorecard', () => {
 
     expect(scorecard.state).toBe('review');
     expect(scorecard.sections.find((section) => section.id === 'governance')?.state).toBe('review');
+  });
+
+  it('keeps operations in review when telemetry or rollback evidence is incomplete', () => {
+    const scorecard = buildServiceReadinessScorecard({
+      service: baseService,
+      requirements: readyRequirements,
+      deployPolicyPreflight: cleanPolicy,
+      gitOpsRepositoryPolicyCheck: verifiedRepositoryPolicy,
+      gitOpsDrift: inSyncDrift,
+      releaseIntelligence: {
+        ...healthyRelease,
+        slo: { ...healthyRelease.slo, overallState: 'unknown' },
+        rollback: { ...healthyRelease.rollback, recommendation: 'insufficient-data' },
+      } as ReleaseIntelligenceSummary,
+    });
+
+    const operations = scorecard.sections.find((section) => section.id === 'operations');
+    expect(operations?.state).toBe('review');
+    expect(operations?.score).toBe(50);
   });
 });
