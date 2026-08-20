@@ -73,6 +73,16 @@ describe('CreateServicePage cluster import', () => {
         updatedAt: '2026-01-01T00:00:00Z',
         services: [],
       },
+      {
+        id: 'proj-default',
+        name: 'Default',
+        slug: 'default',
+        description: '',
+        teamId: 'team-1',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        services: [],
+      },
     ]);
     fetchEnvironments.mockResolvedValue([
       { id: 'dev', name: 'Development', description: 'Development' },
@@ -219,6 +229,25 @@ describe('CreateServicePage cluster import', () => {
         updatedAt: '2026-01-01T00:00:00Z',
       },
     ]);
+  });
+
+  it('selects the default project and exposes idle scaling settings', async () => {
+    render(
+      <MemoryRouter initialEntries={['/services/create']}>
+        <CreateServicePage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /adoptable microservice/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('combobox')[0]).toHaveTextContent('Default');
+    });
+
+    const pauseSwitch = screen.getByRole('switch', { name: 'Pause service when idle' });
+    expect(screen.queryByLabelText('Idle timeout (minutes)')).not.toBeInTheDocument();
+    fireEvent.click(pauseSwitch);
+    expect(screen.getByLabelText('Idle timeout (minutes)')).toHaveValue(60);
   });
 
   it('pre-fills service fields from a discovered cluster workload', async () => {
