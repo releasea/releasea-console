@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Layers, Settings2, Trash2, Server, CheckCircle } from 'lucide-react';
+import { Plus, Layers, Settings2, Trash2, CheckCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -339,42 +339,6 @@ const Environments = () => {
           </div>
         </SectionCard>
 
-        {/* Info Section */}
-        <SectionCard
-          title="About Environments"
-          description="How environments work in Releasea"
-          icon={<Server className="w-5 h-5 text-primary" />}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-success" />
-                <p className="font-medium text-foreground">Isolation</p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Each environment has isolated workers, services, and deployment pipelines.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-success" />
-                <p className="font-medium text-foreground">Promotion</p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Deploy configurations can be promoted from dev to staging to production.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-success" />
-                <p className="font-medium text-foreground">Access Control</p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Team permissions can be scoped per environment for security.
-              </p>
-            </div>
-          </div>
-        </SectionCard>
       </div>
 
       {/* Edit Modal */}
