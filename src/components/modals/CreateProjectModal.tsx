@@ -177,7 +177,7 @@ export function CreateProjectModal({ open, onOpenChange, onCreated }: CreateProj
       <DialogContent className="sm:max-w-[680px] bg-card border-border">
         <DialogHeader>
           <div className="flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-xl font-semibold">Project Bootstrap Wizard</DialogTitle>
+            <DialogTitle className="text-xl font-semibold">Create project</DialogTitle>
             <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
               Step {step + 1} of {stepCount}
             </Badge>

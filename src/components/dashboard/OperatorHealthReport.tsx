@@ -57,9 +57,9 @@ export const OperatorHealthReport = ({ report }: { report: OperatorHealthReportM
       </div>
     </div>
 
-    <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid auto-rows-fr gap-4 p-4 md:grid-cols-2 2xl:grid-cols-4">
       {report.lanes.map((lane) => (
-        <div key={lane.id} className="rounded-lg border border-border/60 bg-muted/10 p-4 space-y-3">
+        <div key={lane.id} className="flex h-full flex-col rounded-lg border border-border/60 bg-muted/10 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="rounded-md bg-muted/60 p-2 ring-1 ring-border/60">
@@ -74,10 +74,12 @@ export const OperatorHealthReport = ({ report }: { report: OperatorHealthReportM
               {levelLabel(lane.level)}
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground">{lane.detail}</p>
-          <Button asChild variant="outline" size="sm">
-            <Link to={lane.href}>Open</Link>
-          </Button>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">{lane.detail}</p>
+          <div className="mt-auto pt-4">
+            <Button asChild variant="outline" size="sm">
+              <Link to={lane.href}>Open</Link>
+            </Button>
+          </div>
         </div>
       ))}
     </div>

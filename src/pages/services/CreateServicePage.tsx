@@ -1043,7 +1043,7 @@ export default function CreateService() {
     const parsedPauseIdleMinutes = Number(pauseIdleTimeoutMinutes);
     const pauseIdleTimeoutSeconds =
       Number.isFinite(parsedPauseIdleMinutes) && parsedPauseIdleMinutes > 0
-        ? Math.max(60, Math.round(parsedPauseIdleMinutes * 60))
+        ? Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(parsedPauseIdleMinutes * 60)))
         : 3600;
     const resolvedProjectId = projectId || originProjectId || undefined;
     const platformScmId = platformScmCredential?.id ?? '';
@@ -1993,13 +1993,13 @@ export default function CreateService() {
                                 id="pauseIdleTimeoutMinutes"
                                 type="number"
                                 min="1"
-                                max="43200"
+                                max="10080"
                                 value={pauseIdleTimeoutMinutes}
                                 onChange={(event) => setPauseIdleTimeoutMinutes(event.target.value)}
                                 className="bg-muted/50 font-mono"
                               />
                               <p className="text-xs text-muted-foreground">
-                                The worker checks recent request metrics before scaling the deployment to zero.
+                                Choose between 1 minute and 7 days. The worker verifies recent request metrics before pausing.
                               </p>
                             </div>
                           </div>
