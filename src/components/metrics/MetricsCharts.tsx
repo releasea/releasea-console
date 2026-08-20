@@ -97,8 +97,11 @@ const MetricsCharts = ({
   const onRefreshRef = useRef(onRefresh);
   const refreshInFlightRef = useRef(false);
   const hasRefreshHandler = Boolean(onRefresh);
-  const fallbackReplicaLabel = isStaticSite ? 'traffic' : 'service';
-  const resolvedReplicaOptions = replicaOptions.length > 0 ? replicaOptions : [fallbackReplicaLabel];
+  // The API exposes one aggregate service series. Keep the chart faithful to
+  // that data instead of deriving artificial per-pod values.
+  const aggregateSeriesLabel = isStaticSite ? 'traffic total' : 'service total';
+  const resolvedReplicaOptions = [aggregateSeriesLabel];
+  const runningInstanceCount = replicaOptions.length;
   const selectedWindowMs = Math.max(60_000, metricsTo.getTime() - metricsFrom.getTime());
   const [relativeRangeValue, setRelativeRangeValue] = useState<RelativeRangeValue>(() =>
     resolveRelativeRangeValue(selectedWindowMs, metricsToNow),
@@ -170,8 +173,7 @@ const MetricsCharts = ({
         if (!clampTo100) return Number(scaled.toFixed(1));
         return Math.max(0, Math.min(100, Math.round(scaled)));
       });
-    const shouldScale = resolvedReplicaOptions.length > 1 && !isStaticSite;
-    const factor = shouldScale ? 1 + (replicaIndex + 1) * 0.04 : 1;
+    const factor = 1;
     return {
       ...metrics,
       cpu: scaleSeries(metrics.cpu, factor, true),
@@ -500,10 +502,13 @@ const MetricsCharts = ({
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
             <div className="space-y-1 text-sm">
-              <p className="font-medium text-foreground">No metrics data available</p>
+              <p className="font-medium text-foreground">
+                {diagnostics?.error ? 'Metrics collection is unavailable' : 'No telemetry samples in this window'}
+              </p>
               <p className="text-muted-foreground">
-                Metrics are not available for this service and environment yet.
-                Please try again later.
+                {diagnostics?.error
+                  ? 'Prometheus could not complete the query. Refresh after the observability backend recovers.'
+                  : 'The service may be idle or newly deployed. The charts below show the exact values returned by Prometheus.'}
               </p>
               {diagnostics?.error && (
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -567,6 +572,9 @@ const MetricsCharts = ({
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {!isStaticSite && (
+            <span>{runningInstanceCount} running {runningInstanceCount === 1 ? 'instance' : 'instances'} · aggregate series</span>
+          )}
           {preferences.autoRefreshMetrics && (
             <div className="flex items-center gap-1.5 text-[10px]">
               <span className="relative flex h-1.5 w-1.5">
@@ -584,6 +592,7 @@ const MetricsCharts = ({
               size="sm"
               className="h-7 w-7 p-0"
               onClick={handleManualRefresh}
+              aria-label="Refresh metrics"
               title={`Last refresh: ${format(lastRefresh, 'HH:mm:ss')}`}
             >
               <RefreshCw className="h-3.5 w-3.5" />

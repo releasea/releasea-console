@@ -140,7 +140,7 @@ const Dashboard = () => {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="mx-auto w-full max-w-screen-2xl space-y-6">
         <ListPageHeader
           title="Dashboard"
           description="Monitor service health, deploys, and platform readiness."
@@ -220,91 +220,93 @@ const Dashboard = () => {
         ) : null}
 
         {/* Operational summary */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
-              <h2 className="text-sm font-semibold text-foreground">Operational summary</h2>
-              <span className="text-xs text-muted-foreground">Updated now</span>
+        <section className="space-y-3" aria-labelledby="operational-summary-heading">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 id="operational-summary-heading" className="text-base font-semibold text-foreground">
+                Operational summary
+              </h2>
+              <p className="text-sm text-muted-foreground">Current platform capacity and delivery health.</p>
             </div>
-            <div className="divide-y divide-border/50">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-md bg-muted/60 p-2 ring-1 ring-border/60">
-                    <FolderKanban className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Active projects</p>
-                    <p className="text-xs text-muted-foreground">Across {teamsCount} teams</p>
-                  </div>
-                </div>
-                <div className="text-right min-w-[72px]">
-                  <div className="text-xl font-semibold text-foreground tabular-nums">{projects.length}</div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-md bg-muted/60 p-2 ring-1 ring-border/60">
-                    <Server className="h-4 w-4 text-info" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Running services</p>
-                    <p className="text-xs text-muted-foreground">{serviceBreakdown}</p>
-                  </div>
-                </div>
-                <div className="text-right min-w-[72px]">
-                  <div className="text-xl font-semibold text-foreground tabular-nums">
-                    {runningServices}/{services.length}
-                  </div>
-                  <span className="text-xs text-success">+12% this week</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-md bg-muted/60 p-2 ring-1 ring-border/60">
-                    <Cpu className="h-4 w-4 text-warning" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Workers online</p>
-                    <p className="text-xs text-muted-foreground">Across {environmentsCount} environments</p>
-                  </div>
-                </div>
-                <div className="text-right min-w-[72px]">
-                  <div className="text-xl font-semibold text-foreground tabular-nums">
-                    {onlineWorkers}/{workers.length}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <span className="shrink-0 text-xs text-muted-foreground">Updated now</span>
           </div>
 
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
-              <h2 className="text-sm font-semibold text-foreground">Deploy reliability</h2>
-              <Rocket className="h-4 w-4 text-success" />
-            </div>
-            <div className="px-4 py-4">
+          <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="rounded-lg bg-primary/10 p-2 text-primary ring-1 ring-primary/15">
+                  <FolderKanban className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-muted-foreground">Projects</span>
+              </div>
+              <div className="mt-auto pt-6">
+                <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">{projects.length}</p>
+                <p className="mt-1 text-sm font-medium text-foreground">Active projects</p>
+                <p className="mt-1 text-xs text-muted-foreground">Across {teamsCount} teams</p>
+              </div>
+            </article>
+
+            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="rounded-lg bg-info/10 p-2 text-info ring-1 ring-info/15">
+                  <Server className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-muted-foreground">Services</span>
+              </div>
+              <div className="mt-auto pt-6">
+                <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                  {runningServices}/{services.length}
+                </p>
+                <p className="mt-1 text-sm font-medium text-foreground">Running services</p>
+                <p className="mt-1 text-xs text-muted-foreground">{serviceBreakdown}</p>
+              </div>
+            </article>
+
+            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="rounded-lg bg-warning/10 p-2 text-warning ring-1 ring-warning/15">
+                  <Cpu className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-muted-foreground">Workers</span>
+              </div>
+              <div className="mt-auto pt-6">
+                <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                  {onlineWorkers}/{workers.length}
+                </p>
+                <p className="mt-1 text-sm font-medium text-foreground">Workers online</p>
+                <p className="mt-1 text-xs text-muted-foreground">Across {environmentsCount} environments</p>
+              </div>
+            </article>
+
+            <article className="flex h-full min-h-[164px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="rounded-lg bg-success/10 p-2 text-success ring-1 ring-success/15">
+                  <Rocket className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-muted-foreground">Deploys</span>
+              </div>
               {totalDeploys === 0 ? (
-                <EmptyState
-                  icon={<Rocket className="h-5 w-5 text-muted-foreground" />}
-                  title="No deploy history yet"
-                  description="Complete the first deploy to populate reliability metrics and release intelligence."
-                  compact
-                  tone="muted"
-                />
+                <div className="mt-auto pt-6">
+                  <p className="text-3xl font-semibold tracking-tight text-muted-foreground tabular-nums">—</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">No deploy history yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Complete the first deploy to measure reliability.</p>
+                </div>
               ) : (
-                <>
-                  <div className="text-3xl font-semibold text-foreground tabular-nums">{deploySuccessRate}%</div>
-                  <p className="mt-1 text-xs text-muted-foreground">Success rate over recent runs</p>
-                  <Progress value={deploySuccessRate} className="mt-4 h-2" />
-                  <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                <div className="mt-auto pt-6">
+                  <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                    {deploySuccessRate}%
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-foreground">Deploy reliability</p>
+                  <Progress value={deploySuccessRate} className="mt-3 h-1.5" />
+                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{successDeploys} success</span>
                     <span>{failedDeploys} failed</span>
                   </div>
-                </>
+                </div>
               )}
-            </div>
+            </article>
           </div>
-        </div>
+        </section>
 
         {/* Main Content */}
         <div className="space-y-6">
