@@ -157,5 +157,22 @@ describe('buildServiceReadinessScorecard', () => {
     const operations = scorecard.sections.find((section) => section.id === 'operations');
     expect(operations?.state).toBe('review');
     expect(operations?.score).toBe(50);
+    expect(scorecard.state).toBe('ready');
+    expect(scorecard.score).toBe(100);
+  });
+
+  it('keeps optional GitOps adoption advisory without reducing deploy readiness', () => {
+    const scorecard = buildServiceReadinessScorecard({
+      service: baseService,
+      requirements: readyRequirements,
+      deployPolicyPreflight: cleanPolicy,
+      gitOpsRepositoryPolicyCheck: verifiedRepositoryPolicy,
+      gitOpsDrift: { ...inSyncDrift, state: 'missing', inSync: false, message: 'No desired state file exists.' },
+      releaseIntelligence: healthyRelease,
+    });
+
+    expect(scorecard.sections.find((section) => section.id === 'gitops')?.state).toBe('review');
+    expect(scorecard.state).toBe('ready');
+    expect(scorecard.score).toBe(100);
   });
 });

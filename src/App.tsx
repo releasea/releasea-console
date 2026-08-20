@@ -17,6 +17,8 @@ const Services = lazy(() => import("./pages/services/ServicesPage"));
 const CreateService = lazy(() => import("./pages/services/CreateServicePage"));
 const ServiceDetails = lazy(() => import("./pages/services/details/ServiceDetailsPage"));
 const Workers = lazy(() => import("./pages/workers/WorkersPage"));
+const WorkerDetails = lazy(() => import("./pages/workers/WorkerDetailsPage"));
+const WorkerPoolDetails = lazy(() => import("./pages/workers/WorkerPoolDetailsPage"));
 const Environments = lazy(() => import("./pages/environments/EnvironmentsPage"));
 const Teams = lazy(() => import("./pages/teams/TeamsPage"));
 const IdentityProvider = lazy(() => import("./pages/identity-provider/IdentityProviderPage"));
@@ -48,6 +50,8 @@ const App = () => (
               <Route path="/services/new" element={<ProtectedRoute requiredRole="developer"><CreateService /></ProtectedRoute>} />
               <Route path="/services/:id" element={<ProtectedRoute><ServiceDetails /></ProtectedRoute>} />
               <Route path="/workers" element={<ProtectedRoute requiredRole="admin"><Workers /></ProtectedRoute>} />
+              <Route path="/workers/pools/:id" element={<ProtectedRoute requiredRole="admin"><WorkerPoolDetails /></ProtectedRoute>} />
+              <Route path="/workers/:id" element={<ProtectedRoute requiredRole="admin"><WorkerDetails /></ProtectedRoute>} />
               <Route path="/environments" element={<ProtectedRoute requiredRole="admin"><Environments /></ProtectedRoute>} />
               <Route path="/teams" element={<ProtectedRoute requiredRole="admin"><Teams /></ProtectedRoute>} />
               <Route path="/identity-provider" element={<ProtectedRoute requiredRole="admin"><IdentityProvider /></ProtectedRoute>} />

@@ -13,6 +13,7 @@ type MetricsTabProps = {
   viewEnvLabel: string;
   onTimeRangeChange: (from: Date, to: Date, toNow?: boolean) => void;
   onRefresh: () => Promise<void>;
+  liveUpdatesEnabled?: boolean;
 };
 
 export const MetricsTab = ({
@@ -25,6 +26,7 @@ export const MetricsTab = ({
   viewEnvLabel,
   onTimeRangeChange,
   onRefresh,
+  liveUpdatesEnabled = true,
 }: MetricsTabProps) => (
   <TabsContent value="metrics" className="space-y-4">
     <ServiceTabHeader
@@ -41,6 +43,7 @@ export const MetricsTab = ({
       variant={variant}
       onTimeRangeChange={onTimeRangeChange}
       onRefresh={onRefresh}
+      autoRefreshEnabled={liveUpdatesEnabled}
     />
   </TabsContent>
 );

@@ -1,17 +1,14 @@
 import { Button } from '@/components/ui/button';
-import { TableEmptyRow } from '@/components/layout/EmptyState';
+import { EmptyState } from '@/components/layout/EmptyState';
 import { TablePagination } from '@/components/layout/TablePagination';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TabsContent } from '@/components/ui/tabs';
 import type { Deploy, RuleDeploy } from '@/types/releasea';
 import type { AuditLogEntry } from '@/types/governance';
-import { AlertTriangle, FileText, GitBranch, Rocket, Route as RouteIcon, Shield } from 'lucide-react';
+import { AlertTriangle, Clock3, GitBranch, Rocket, Route as RouteIcon, ScrollText, Shield, TerminalSquare } from 'lucide-react';
 import { ServiceTabHeader } from '../ServiceTabHeader';
 
-const logsActionButtonClassName =
-  'gap-2 border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 hover:bg-cyan-500/20 hover:text-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-500/25';
-const logsActionIconWrapClassName =
-  'inline-flex h-5 w-5 items-center justify-center rounded-sm bg-cyan-500/20 text-cyan-700 dark:text-cyan-200';
+const logsActionButtonClassName = 'h-9 w-full justify-start gap-2 px-3 sm:w-40';
 
 type PaginationState = {
   page: number;
@@ -71,6 +68,12 @@ type EventsTabProps = {
   onGoToSummary: () => void;
 };
 
+const eventKind = {
+  deploy: { label: 'Deployment', icon: Rocket },
+  'rule-deploy': { label: 'Traffic rule', icon: RouteIcon },
+  governance: { label: 'Governance', icon: Shield },
+} as const;
+
 export const EventsTab = ({
   visibleEvents,
   events,
@@ -87,151 +90,121 @@ export const EventsTab = ({
 }: EventsTabProps) => (
   <TabsContent value="events" className="space-y-4">
     <ServiceTabHeader
-      title="Activity"
-      description="Follow deployments, rule publications, and governance decisions in chronological order."
+      title="Events"
+      description="Deployments, traffic changes, and governance decisions in chronological order."
       environment={viewEnvLabel}
+      actions={
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {liveSyncError ? <AlertTriangle className="h-3.5 w-3.5 text-warning" /> : null}
+          <span className={liveSyncError ? 'text-warning' : undefined}>
+            {liveSyncError
+              ? `Sync delayed · ${liveSyncLabel}`
+              : liveSyncPaused
+                ? `Sync paused · ${liveSyncLabel}`
+                : `Sync ${liveSyncActive ? 'active' : 'idle'} · ${liveSyncLabel}`}
+          </span>
+        </div>
+      }
     />
-    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
-      {liveSyncError ? (
-        <span className="inline-flex items-center gap-1 text-warning">
-          <AlertTriangle className="w-3 h-3" />
-          Live sync delayed: {liveSyncError}
-        </span>
-      ) : liveSyncPaused ? (
-        <span className="text-muted-foreground">
-          Live sync paused in hidden tab • Last sync {liveSyncLabel}
-        </span>
+
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      {visibleEvents.length > 0 ? (
+        <ol className="p-5" aria-label="Service events timeline">
+          {visibleEvents.map((event, index) => {
+            const kind = eventKind[event.kind];
+            const KindIcon = kind.icon;
+            return (
+              <li key={event.id} className="relative flex gap-4 pb-6 last:pb-0">
+                <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+                  <KindIcon className="h-4 w-4" />
+                </div>
+                {index < visibleEvents.length - 1 ? (
+                  <>
+                    <span className="absolute left-4 top-8 h-[calc(100%-1rem)] w-px bg-border" aria-hidden="true" />
+                    <span className="absolute bottom-3 left-12 right-0 h-px bg-border/60" aria-hidden="true" />
+                  </>
+                ) : null}
+
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="break-words text-sm font-medium text-foreground">{event.label}</p>
+                        <StatusBadge status={event.status} className="normal-case" />
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>{kind.label}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{deployEnvLabel(event.environment)}</span>
+                        {event.triggeredBy ? <><span aria-hidden="true">·</span><span>by {event.triggeredBy}</span></> : null}
+                      </div>
+                      {event.kind === 'deploy' && event.branch ? (
+                        <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                          <GitBranch className="h-3.5 w-3.5" />
+                          {event.branch}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock3 className="h-3.5 w-3.5" />
+                        {event.timeLabel}
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 sm:pt-0.5">
+                      {event.kind === 'deploy' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={logsActionButtonClassName}
+                          onClick={() => onOpenDeployLog(event.deploy)}
+                        >
+                          <ScrollText className="h-4 w-4 text-muted-foreground" />
+                          Deployment log
+                        </Button>
+                      ) : event.kind === 'rule-deploy' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={logsActionButtonClassName}
+                          onClick={onOpenRuleRuntimeLogs}
+                        >
+                          <TerminalSquare className="h-4 w-4 text-muted-foreground" />
+                          Runtime log
+                        </Button>
+                      ) : (
+                        <div className="flex h-9 w-full items-center justify-start px-3 text-xs text-muted-foreground sm:w-40">
+                          Policy decision
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       ) : (
-        <span className="text-muted-foreground">
-          Live sync {liveSyncActive ? 'active' : 'idle'} • Last sync {liveSyncLabel}
-        </span>
-      )}
-    </div>
-    <div className="bg-card border border-border rounded-lg overflow-hidden">
-      <table className="w-full" aria-label="Service events">
-        <thead>
-          <tr className="border-b border-border bg-muted/30">
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Status
-            </th>
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Type
-            </th>
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Reference
-            </th>
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Environment
-            </th>
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Started by
-            </th>
-            <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Date
-            </th>
-            <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {visibleEvents.map((event) => (
-            <tr key={event.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-              <td className="px-4 py-3">
-                <StatusBadge status={event.status} className="normal-case" />
-              </td>
-              <td className="px-4 py-3">
-                {event.kind === 'deploy' ? (
-                  <div className="flex items-center gap-1.5">
-                    <Rocket className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Deploy</span>
-                  </div>
-                ) : event.kind === 'rule-deploy' ? (
-                  <div className="flex items-center gap-1.5">
-                    <RouteIcon className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Rule deploy</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <Shield className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Governance</span>
-                  </div>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                {event.kind === 'deploy' ? (
-                  <div className="flex flex-col gap-1">
-                    <span className="font-mono text-sm">{event.label}</span>
-                    {event.branch && (
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <GitBranch className="w-3 h-3" />
-                        Branch {event.branch}
-                      </span>
-                    )}
-                  </div>
-                ) : event.kind === 'rule-deploy' ? (
-                  <span className="font-mono text-sm">{event.label}</span>
-                ) : (
-                  <span className="text-sm text-foreground">{event.label}</span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-sm text-muted-foreground">
-                {deployEnvLabel(event.environment)}
-              </td>
-              <td className="px-4 py-3 text-sm text-muted-foreground">{event.triggeredBy}</td>
-              <td className="px-4 py-3 text-sm text-muted-foreground">{event.timeLabel}</td>
-              <td className="px-4 py-3 text-right">
-                {event.kind === 'deploy' ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={logsActionButtonClassName}
-                    onClick={() => onOpenDeployLog(event.deploy)}
-                  >
-                    <span className={logsActionIconWrapClassName}>
-                      <FileText className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="font-medium">View logs</span>
-                  </Button>
-                ) : event.kind === 'rule-deploy' ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={logsActionButtonClassName}
-                    onClick={onOpenRuleRuntimeLogs}
-                  >
-                    <span className={logsActionIconWrapClassName}>
-                      <FileText className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="font-medium">Runtime logs</span>
-                  </Button>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Policy event</span>
-                )}
-              </td>
-            </tr>
-          ))}
-          {events.length === 0 && (
-            <TableEmptyRow
-              colSpan={7}
-              icon={<Rocket className="h-5 w-5 text-muted-foreground" />}
-              title={`No activity in ${viewEnvLabel}`}
-              description="Deploy this service or publish a traffic rule to create the first operational event."
-              actionLabel="Review service"
-              onAction={onGoToSummary}
-            />
-          )}
-        </tbody>
-      </table>
-      {events.length > 0 && (
-        <TablePagination
-          page={pagination.page}
-          pageSize={pagination.pageSize}
-          totalItems={events.length}
-          totalPages={pagination.totalPages}
-          onPageChange={pagination.setPage}
+        <EmptyState
+          icon={<Rocket className="h-5 w-5 text-muted-foreground" />}
+          title={`No activity in ${viewEnvLabel}`}
+          description="Deploy this service or publish a traffic rule to create the first operational event."
+          actionLabel="Review service"
+          onAction={onGoToSummary}
+          tone="muted"
         />
       )}
+
+      {events.length > 0 ? (
+        <div className="border-t border-border">
+          <TablePagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            totalItems={events.length}
+            totalPages={pagination.totalPages}
+            onPageChange={pagination.setPage}
+          />
+        </div>
+      ) : null}
     </div>
   </TabsContent>
 );

@@ -59,6 +59,7 @@ import { useTablePagination } from '@/hooks/use-table-pagination';
 import { apiClient } from '@/lib/api-client';
 import { useSSEStream } from '@/lib/use-sse-stream';
 import { sanitizeExternalURL } from '@/platform/security/data-security';
+import { getApplicationRepositoryUrl } from '@/lib/service-repository';
 import { ServiceSettingsFormStoreProvider } from '@/forms/store/service-settings-form-store';
 import {
   isFailedDeployStatus,
@@ -111,6 +112,7 @@ import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
 import { ManagementModeTransitionDialog, type ManagementTransitionRequirement } from './ManagementModeTransitionDialog';
+import { GitOpsConfirmationDialog, type GitOpsAction } from './GitOpsConfirmationDialog';
 import { DeliveryTab } from './tabs/DeliveryTab';
 import { EventsTab, type ServiceEvent } from './tabs/EventsTab';
 import { LogsTab } from './tabs/LogsTab';
@@ -326,6 +328,7 @@ const ServiceDetails = () => {
   const [gitOpsArgoCDPullRequestBusy, setGitOpsArgoCDPullRequestBusy] = useState(false);
   const [gitOpsFluxPullRequestBusy, setGitOpsFluxPullRequestBusy] = useState(false);
   const [gitOpsPullRequestBusy, setGitOpsPullRequestBusy] = useState(false);
+  const [gitOpsConfirmationAction, setGitOpsConfirmationAction] = useState<GitOpsAction | null>(null);
   const [deployLogOpen, setDeployLogOpen] = useState(false);
   const [selectedDeployLog, setSelectedDeployLog] = useState<Deploy | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -405,6 +408,8 @@ const ServiceDetails = () => {
   const [scheduleTimeout, setScheduleTimeout] = useState('');
 
   const [isServiceActive, setIsServiceActive] = useState(true);
+  const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
+  const [availabilityBusy, setAvailabilityBusy] = useState(false);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [selectedReplica, setSelectedReplica] = useState('');
@@ -513,6 +518,7 @@ const ServiceDetails = () => {
 
   useEffect(() => {
     setActiveTab('summary');
+    setLiveUpdatesEnabled(true);
   }, [id]);
 
   useEffect(() => {
@@ -741,19 +747,20 @@ const ServiceDetails = () => {
   const hasService = Boolean(service);
   const serviceManagementMode = service?.managementMode ?? 'managed';
   const serviceRepoUrlValue = service?.repoUrl?.trim() ?? '';
+  const serviceApplicationRepoUrlValue = service ? getApplicationRepositoryUrl(service) : '';
   const serviceSourceTypeValue = service?.sourceType ?? '';
   const serviceDockerImageValue = service?.dockerImage ?? '';
   const serviceDeployTemplateIdValue = service?.deployTemplateId ?? '';
   const serviceNameValue = service?.name ?? '';
 
   const refreshGitOpsTimeline = useCallback(async () => {
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceApplicationRepoUrlValue) {
       setGitOpsTimeline([]);
       return;
     }
     const result = await fetchServiceGitOpsTimeline(id);
     setGitOpsTimeline(result.events ?? []);
-  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
+  }, [hasService, id, serviceApplicationRepoUrlValue, serviceManagementMode]);
 
   const handleLiveStateEvent = useCallback(
     (event: LiveStateChangeEvent) => {
@@ -790,7 +797,7 @@ const ServiceDetails = () => {
     onResyncRequired: handleLiveStateResyncRequired,
     onDeleted: () => setRealtimeSyncError('Service no longer exists.'),
     onError: (msg) => markRealtimeSyncFailure(msg, msg),
-    enabled: !!id,
+    enabled: !!id && liveUpdatesEnabled,
     storeKey: sseEndpoint,
     coalesceMs: 120,
     pauseWhenHidden: true,
@@ -931,7 +938,7 @@ const ServiceDetails = () => {
 
   useEffect(() => {
     let active = true;
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceApplicationRepoUrlValue) {
       setGitOpsRepositoryPolicyCheck(null);
       setGitOpsRepositoryPolicyCheckLoading(false);
       return;
@@ -955,7 +962,7 @@ const ServiceDetails = () => {
     return () => {
       active = false;
     };
-  }, [id, hasService, serviceManagementMode, serviceRepoUrlValue, serviceSourceTypeValue, serviceDockerImageValue, serviceDeployTemplateIdValue, service?.branch, service?.scmCredentialId]);
+  }, [id, hasService, serviceManagementMode, serviceApplicationRepoUrlValue, serviceSourceTypeValue, serviceDockerImageValue, serviceDeployTemplateIdValue, service?.branch, service?.scmCredentialId]);
 
   useEffect(() => {
     let active = true;
@@ -983,11 +990,11 @@ const ServiceDetails = () => {
     return () => {
       active = false;
     };
-  }, [hasService, id, serviceManagementMode, serviceNameValue, serviceRepoUrlValue]);
+  }, [hasService, id, serviceManagementMode, serviceNameValue, serviceApplicationRepoUrlValue]);
 
   useEffect(() => {
     let active = true;
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceApplicationRepoUrlValue) {
       setGitOpsTimeline([]);
       setGitOpsTimelineLoading(false);
       return;
@@ -1011,11 +1018,11 @@ const ServiceDetails = () => {
     return () => {
       active = false;
     };
-  }, [hasService, id, serviceManagementMode, serviceRepoUrlValue]);
+  }, [hasService, id, serviceApplicationRepoUrlValue, serviceManagementMode]);
 
   useEffect(() => {
     let active = true;
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue) {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceApplicationRepoUrlValue) {
       setGitOpsDrift(null);
       setGitOpsDriftLoading(false);
       setGitOpsDriftRefreshing(false);
@@ -1045,7 +1052,7 @@ const ServiceDetails = () => {
     return () => {
       active = false;
     };
-  }, [id, hasService, serviceManagementMode, serviceRepoUrlValue]);
+  }, [id, hasService, serviceApplicationRepoUrlValue, serviceManagementMode]);
 
   const gitOpsDriftStateValue = gitOpsDrift?.state ?? '';
   const gitOpsDriftExpectedHashValue = gitOpsDrift?.expectedHash ?? '';
@@ -1053,7 +1060,7 @@ const ServiceDetails = () => {
   const gitOpsDriftFilePathValue = gitOpsDrift?.filePath ?? '';
 
   useEffect(() => {
-    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceRepoUrlValue || !gitOpsDriftStateValue) {
+    if (!id || !hasService || serviceManagementMode === 'observed' || !serviceApplicationRepoUrlValue || !gitOpsDriftStateValue) {
       return;
     }
     void refreshGitOpsTimeline();
@@ -1066,7 +1073,7 @@ const ServiceDetails = () => {
     id,
     refreshGitOpsTimeline,
     serviceManagementMode,
-    serviceRepoUrlValue,
+    serviceApplicationRepoUrlValue,
   ]);
 
   useEffect(() => {
@@ -1074,7 +1081,7 @@ const ServiceDetails = () => {
       window.clearInterval(servicePoller.current);
       servicePoller.current = null;
     }
-    if (isFastPolling || isLiveSyncConnected || isLiveSyncPaused) {
+    if (!liveUpdatesEnabled || isFastPolling || isLiveSyncConnected || isLiveSyncPaused) {
       return;
     }
     const interval = service?.status === 'creating' ? 5000 : 20000;
@@ -1090,10 +1097,10 @@ const ServiceDetails = () => {
         servicePoller.current = null;
       }
     };
-  }, [service?.status, isFastPolling, isLiveSyncConnected, isLiveSyncPaused, refreshRealtimeSnapshot, runRealtimeRefresh]);
+  }, [service?.status, isFastPolling, isLiveSyncConnected, isLiveSyncPaused, liveUpdatesEnabled, refreshRealtimeSnapshot, runRealtimeRefresh]);
 
   useEffect(() => {
-    if (isLiveSyncPaused) {
+    if (!liveUpdatesEnabled || isLiveSyncPaused) {
       return;
     }
     const interval = window.setInterval(() => {
@@ -1102,7 +1109,7 @@ const ServiceDetails = () => {
     return () => {
       window.clearInterval(interval);
     };
-  }, [isLiveSyncConnected, isLiveSyncPaused, refreshWorkers, runRealtimeRefresh]);
+  }, [isLiveSyncConnected, isLiveSyncPaused, liveUpdatesEnabled, refreshWorkers, runRealtimeRefresh]);
   const credentialScopeLabel = (scope: string) => {
     if (scope === 'project') return 'Project';
     if (scope === 'service') return 'Service';
@@ -1290,6 +1297,14 @@ const ServiceDetails = () => {
       setIsFastPolling(false);
       return;
     }
+    if (!liveUpdatesEnabled) {
+      if (deployPoller.current) {
+        window.clearInterval(deployPoller.current);
+        deployPoller.current = null;
+      }
+      setIsFastPolling(false);
+      return;
+    }
     if (isLiveSyncConnected) {
       if (deployPoller.current) {
         window.clearInterval(deployPoller.current);
@@ -1388,6 +1403,7 @@ const ServiceDetails = () => {
     id,
     isLiveSyncConnected,
     isFastPolling,
+    liveUpdatesEnabled,
     refreshRealtimeSnapshot,
     runRealtimeRefresh,
   ]);
@@ -1770,11 +1786,10 @@ const ServiceDetails = () => {
       const result = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
       const pods = result.pods;
-      const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
-      setAvailablePods(sortedPods);
+      setAvailablePods(pods);
       setLogsNamespace(result.namespace ?? '');
       setPodDiscoveryError(result.error ?? null);
-      setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
+      setSelectedReplica((current) => (current && pods.includes(current) ? current : pods[0] || ''));
       setPodsLoading(false);
     };
     loadPods();
@@ -1785,18 +1800,17 @@ const ServiceDetails = () => {
 
   useEffect(() => {
     if (!id || !viewEnv) return;
-    const shouldRefreshPods = activeTab === 'logs' || hasLiveDeploys || isFastPolling;
+    const shouldRefreshPods = liveUpdatesEnabled && (activeTab === 'logs' || hasLiveDeploys || isFastPolling);
     if (!shouldRefreshPods) return;
     let active = true;
     const refreshPods = async () => {
       const result = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
       const pods = result.pods;
-      const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
-      setAvailablePods(sortedPods);
+      setAvailablePods(pods);
       setLogsNamespace(result.namespace ?? '');
       setPodDiscoveryError(result.error ?? null);
-      setSelectedReplica((current) => (current && sortedPods.includes(current) ? current : sortedPods[0] || ''));
+      setSelectedReplica((current) => (current && pods.includes(current) ? current : pods[0] || ''));
     };
     void refreshPods();
     const interval = window.setInterval(() => {
@@ -1806,7 +1820,7 @@ const ServiceDetails = () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, [activeTab, hasLiveDeploys, id, isFastPolling, viewEnv]);
+  }, [activeTab, hasLiveDeploys, id, isFastPolling, liveUpdatesEnabled, viewEnv]);
 
   useEffect(() => {
     if (runtimeRefreshNonce === 0 || !id || !viewEnv) return;
@@ -1815,14 +1829,13 @@ const ServiceDetails = () => {
       const podResult = await fetchServicePodsResult(id, viewEnv);
       if (!active) return;
       const pods = podResult.pods;
-      const sortedPods = [...pods].sort((a, b) => a.localeCompare(b));
-      setAvailablePods(sortedPods);
+      setAvailablePods(pods);
       setLogsNamespace(podResult.namespace ?? '');
       setPodDiscoveryError(podResult.error ?? null);
       const nextReplica =
-        selectedReplica && sortedPods.includes(selectedReplica)
+        selectedReplica && pods.includes(selectedReplica)
           ? selectedReplica
-          : (sortedPods[0] ?? '');
+          : (pods[0] ?? '');
       setSelectedReplica(nextReplica);
 
       if (logsLoaded && nextReplica) {
@@ -1923,7 +1936,7 @@ const ServiceDetails = () => {
     );
   }
 
-  const envCount = envVars.filter((variable) => variable.key.trim().length > 0).length;
+  const envCount = Object.keys(service.environment ?? {}).length;
   const envCountLabel = `${envCount} ${envCount === 1 ? 'variable' : 'variables'}`;
   const viewEnvLabel = environmentOptions.find((env) => env.id === viewEnv)?.name ?? viewEnv;
   const lastRealtimeSyncLabel = lastRealtimeSyncAt
@@ -1932,10 +1945,38 @@ const ServiceDetails = () => {
   const deployEnvLabel = (env?: string) =>
     environmentOptions.find((option) => option.id === env)?.name ?? (env ? env.toUpperCase() : '-');
   const latestVersionLabel = latestDeploy?.commit
-    ? `Commit ${latestDeploy.commit.substring(0, 8)}`
+    ? /^[a-f0-9]{7,40}$/i.test(latestDeploy.commit.trim())
+      ? `Commit ${latestDeploy.commit.substring(0, 8)}`
+      : latestDeploy.commit.trim() === (latestDeploy.branch?.trim() || service.branch?.trim() || 'main')
+        ? `Branch ${latestDeploy.commit.trim()}`
+        : `Version ${latestDeploy.commit.trim()}`
     : service.repoUrl
       ? `Branch ${service.branch || 'main'} (latest commit)`
       : 'No deploys yet';
+  const deployedEnvironmentsLabel = Array.from(
+    new Set(
+      deploysData
+        .filter((deploy) => deploy.serviceId === service.id && deploy.environment && isSuccessfulDeployStatus(deploy.status))
+        .map((deploy) => deployEnvLabel(deploy.environment)),
+    ),
+  ).join(', ') || 'Not deployed yet';
+  const configuredReplicas = Math.max(0, Number(service.replicas ?? service.minReplicas ?? 0));
+  const runtimeState = service.runtime?.[viewEnv];
+  const runningInstancesLabel = podsLoading
+    ? 'Checking...'
+    : availablePods.length > 0
+      ? `${availablePods.length} ${availablePods.length === 1 ? 'running instance' : 'running instances'}`
+      : podDiscoveryError
+        ? runtimeState?.status === 'healthy' && configuredReplicas > 0
+          ? `${configuredReplicas} healthy ${configuredReplicas === 1 ? 'instance' : 'instances'} (worker reported)`
+          : `${configuredReplicas} desired · discovery unavailable`
+        : 'No active instances observed';
+  const healthStatusLabel = runtimeState?.status
+    ? runtimeState.status.charAt(0).toUpperCase() + runtimeState.status.slice(1)
+    : 'Not reported';
+  const healthUpdatedLabel = runtimeState?.updatedAt
+    ? `Updated ${format(new Date(runtimeState.updatedAt), 'MMM dd, HH:mm:ss')}`
+    : 'No runtime probe has been reported for this environment.';
 
 
   const serviceTypeLabel = {
@@ -1957,22 +1998,23 @@ const ServiceDetails = () => {
     service.deployTemplateId === 'tpl-cronjob' ||
     Boolean(service.scheduleCron || service.scheduleCommand);
 
-  const selectedProfile = profiles.find((p) => p.id === profileId);
+  const selectedProfile = profiles.find((p) => p.id === service.profileId);
   const instanceLabel = selectedProfile
     ? `${selectedProfile.name} (${selectedProfile.cpu}, ${selectedProfile.memory})`
     : 'No profile';
 
-  const repositoryUrl = sourceType === 'git' ? repoUrl : null;
+  const persistedSourceType = service.sourceType ?? (service.repoUrl ? 'git' : service.dockerImage ? 'registry' : 'git');
+  const repositoryUrl = persistedSourceType === 'git' ? serviceApplicationRepoUrlValue || null : null;
   const servicePublicURL = sanitizeExternalURL(service.url ?? '');
-  const dockerImageLabel = sourceType === 'docker' ? dockerImage : null;
-  const branchName = branch;
-  const dockerfileLabel = dockerfilePath;
-  const dockerContextLabel = dockerContext;
-  const healthPath = healthCheckPath || '/healthz';
+  const dockerImageLabel = persistedSourceType === 'registry' ? service.dockerImage?.trim() || null : null;
+  const branchName = service.branch?.trim() || 'main';
+  const dockerfileLabel = service.dockerfilePath?.trim() || 'Dockerfile';
+  const dockerContextLabel = service.dockerContext?.trim() || service.rootDir?.trim() || '.';
+  const healthPath = service.healthCheckPath?.trim() || '/healthz';
   const exportActionsDisabled =
     desiredStateExportBusy || (service.managementMode ?? 'managed') === 'observed';
   const gitOpsActionsDisabled =
-    (service.managementMode ?? 'managed') === 'observed' || !service.repoUrl?.trim();
+    (service.managementMode ?? 'managed') === 'observed' || !serviceApplicationRepoUrlValue;
   const gitOpsMenuBusy = gitOpsPullRequestBusy || gitOpsArgoCDPullRequestBusy || gitOpsFluxPullRequestBusy;
   const gitOpsMenuLabel = gitOpsPullRequestBusy
     ? 'Opening GitOps PR...'
@@ -1993,21 +2035,12 @@ const ServiceDetails = () => {
             ? 'border-destructive/30 text-destructive'
             : 'border-border/60 text-muted-foreground',
   ].join(' ');
-  const desiredStateBadgeLabel = desiredStateValidationLoading
-    ? 'Desired state: checking'
-    : desiredStateValidation?.status === 'verified'
-      ? 'Desired state: valid'
-      : desiredStateValidation?.status === 'needs-review'
-        ? 'Desired state: review'
-        : desiredStateValidation?.status === 'invalid'
-          ? 'Desired state: invalid'
-          : 'Desired state: unavailable';
   const gitOpsDriftIndicatorClassName = [
     'inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs',
     gitOpsDrift?.state === 'in-sync'
       ? 'border-success/30 text-success'
       : gitOpsDrift?.state === 'missing'
-        ? 'border-warning/30 text-warning'
+        ? 'border-border/60 text-muted-foreground'
         : gitOpsDrift?.state === 'out-of-sync'
           ? 'border-destructive/30 text-destructive'
           : 'border-border/60 text-muted-foreground',
@@ -2017,7 +2050,7 @@ const ServiceDetails = () => {
     gitOpsDrift?.state === 'in-sync'
       ? 'bg-success'
       : gitOpsDrift?.state === 'missing'
-        ? 'bg-warning'
+        ? 'bg-muted-foreground/70'
         : gitOpsDrift?.state === 'out-of-sync'
           ? 'bg-destructive'
           : 'bg-muted-foreground/70',
@@ -2027,7 +2060,7 @@ const ServiceDetails = () => {
     gitOpsDrift?.state === 'in-sync'
       ? 'In sync'
       : gitOpsDrift?.state === 'missing'
-        ? 'File missing'
+        ? 'Not configured'
         : gitOpsDrift?.state === 'out-of-sync'
           ? 'Drift'
           : gitOpsDriftLoading
@@ -2147,18 +2180,19 @@ const ServiceDetails = () => {
     values.reduce((sum, value) => sum + value, 0) / values.length;
 
   // Summary metrics for Overview tab
-  const cpuAvg = metrics?.cpu?.length ? Math.round(average(metrics.cpu)) : null;
-  const cpuPeak = metrics?.cpu?.length ? Math.round(Math.max(...metrics.cpu)) : null;
-  const memoryAvg = metrics?.memory?.length ? Math.round(average(metrics.memory)) : null;
-  const memoryPeak = metrics?.memory?.length ? Math.round(Math.max(...metrics.memory)) : null;
-  const latencyAvg = metrics?.latencyP95?.length
-    ? Number(average(metrics.latencyP95).toFixed(1))
+  const usableMetrics = metrics?.diagnostics?.error ? null : metrics;
+  const cpuAvg = usableMetrics?.cpu?.length ? Math.round(average(usableMetrics.cpu)) : null;
+  const cpuPeak = usableMetrics?.cpu?.length ? Math.round(Math.max(...usableMetrics.cpu)) : null;
+  const memoryAvg = usableMetrics?.memory?.length ? Math.round(average(usableMetrics.memory)) : null;
+  const memoryPeak = usableMetrics?.memory?.length ? Math.round(Math.max(...usableMetrics.memory)) : null;
+  const latencyAvg = usableMetrics?.latencyP95?.length
+    ? Number(average(usableMetrics.latencyP95).toFixed(1))
     : null;
-  const latencyPeak = metrics?.latencyP95?.length
-    ? Number(Math.max(...metrics.latencyP95).toFixed(1))
+  const latencyPeak = usableMetrics?.latencyP95?.length
+    ? Number(Math.max(...usableMetrics.latencyP95).toFixed(1))
     : null;
-  const requestsAvg = metrics?.requests?.length ? Math.round(average(metrics.requests)) : null;
-  const requestsPeak = metrics?.requests?.length ? Math.round(Math.max(...metrics.requests)) : null;
+  const requestsAvg = usableMetrics?.requests?.length ? Math.round(average(usableMetrics.requests)) : null;
+  const requestsPeak = usableMetrics?.requests?.length ? Math.round(Math.max(...usableMetrics.requests)) : null;
   const cpuAvgLabel = cpuAvg === null ? '--' : `${cpuAvg}%`;
   const cpuPeakLabel = cpuPeak === null ? '--' : `${cpuPeak}%`;
   const memoryAvgLabel = memoryAvg === null ? '--' : `${memoryAvg}%`;
@@ -2173,7 +2207,7 @@ const ServiceDetails = () => {
   const requestsAvgLabel = formatRequests(requestsAvg);
   const requestsPeakLabel = formatRequests(requestsPeak);
   const currentEnvironmentConfig = environmentOptions.find((environment) => environment.id === viewEnv) ?? null;
-  const releaseIntelligence = buildReleaseIntelligenceSummary(deploysSorted, metrics, currentEnvironmentConfig);
+  const releaseIntelligence = buildReleaseIntelligenceSummary(deploysSorted, usableMetrics, currentEnvironmentConfig);
 
   const toKubernetesName = (value: string) =>
     value
@@ -2965,23 +2999,42 @@ const ServiceDetails = () => {
   const handleToggleServiceActive = async () => {
     if (!service) return;
     const next = !isServiceActive;
-    const response = await apiClient.put<Service>(`/services/${service.id}`, { isActive: next });
-    if (response.error) {
-      toast({
-        title: next ? 'Failed to activate service' : 'Failed to deactivate service',
-        description: response.error,
-        variant: 'destructive',
+    setAvailabilityBusy(true);
+    try {
+      const response = await apiClient.put<Service>(`/services/${service.id}`, {
+        isActive: next,
+        scaleEnvironment: viewEnv,
       });
-      return;
+      if (response.error) {
+        toast({
+          title: next ? 'Failed to activate service' : 'Failed to deactivate service',
+          description: response.error,
+          variant: 'destructive',
+        });
+        return;
+      }
+      setIsServiceActive(next);
+      setServices((current) => current.map((item) => item.id === service.id ? { ...item, isActive: next } : item));
+      toast({
+        title: next ? 'Service activation queued' : 'Service deactivation queued',
+        description: next
+          ? `Releasea is restoring the configured instances in ${viewEnvLabel}.`
+          : `Releasea is removing active instances from ${viewEnvLabel}.`,
+      });
+    } finally {
+      setAvailabilityBusy(false);
     }
-    setIsServiceActive(next);
-    setServices((current) => current.map((item) => item.id === service.id ? { ...item, isActive: next } : item));
-    toast({
-      title: next ? 'Service activated' : 'Service deactivated',
-      description: next
-        ? 'Traffic is now allowed for this service.'
-        : 'Traffic has been disabled for this service.',
-    });
+  };
+
+  const handleLiveUpdatesChange = (enabled: boolean) => {
+    setLiveUpdatesEnabled(enabled);
+    if (enabled) {
+      void runRealtimeRefresh(
+        refreshRealtimeSnapshot,
+        'Unable to resume live service updates.',
+      );
+      void runRealtimeRefresh(refreshWorkers, 'Unable to refresh worker status.');
+    }
   };
 
   const handleOpenDeleteService = () => {
@@ -3172,7 +3225,7 @@ const ServiceDetails = () => {
       });
       return;
     }
-    if (!service.repoUrl?.trim()) {
+    if (!getApplicationRepositoryUrl(service)) {
       toast({
         title: 'Repository required',
         description: 'This service does not have a repository URL configured, so Releasea cannot open a GitOps pull request.',
@@ -3226,7 +3279,7 @@ const ServiceDetails = () => {
       });
       return;
     }
-    if (!service.repoUrl?.trim()) {
+    if (!getApplicationRepositoryUrl(service)) {
       toast({
         title: 'Repository required',
         description: 'This service does not have a repository URL configured, so Releasea cannot open an Argo CD starter pull request.',
@@ -3285,7 +3338,7 @@ const ServiceDetails = () => {
       });
       return;
     }
-    if (!service.repoUrl?.trim()) {
+    if (!getApplicationRepositoryUrl(service)) {
       toast({
         title: 'Repository required',
         description: 'This service does not have a repository URL configured, so Releasea cannot open a Flux starter pull request.',
@@ -3332,6 +3385,19 @@ const ServiceDetails = () => {
     } finally {
       setGitOpsFluxPullRequestBusy(false);
     }
+  };
+
+  const handleConfirmGitOpsAction = async () => {
+    const action = gitOpsConfirmationAction;
+    if (!action) return;
+    if (action === 'releasea') {
+      await handleOpenGitOpsPullRequest();
+    } else if (action === 'argocd') {
+      await handleOpenArgoCDGitOpsPullRequest();
+    } else {
+      await handleOpenFluxGitOpsPullRequest();
+    }
+    setGitOpsConfirmationAction(null);
   };
 
   const settingsFormStore = {
@@ -3485,15 +3551,15 @@ const ServiceDetails = () => {
                     >
                       {(service.managementMode ?? 'managed') === 'observed' ? 'Observed' : 'Managed'}
                     </Badge>
-                    {(service.managementMode ?? 'managed') !== 'observed' && (
+                    {(service.managementMode ?? 'managed') !== 'observed' && desiredStateValidation?.status === 'invalid' && (
                     <Badge
                       variant="outline"
                       className={desiredStateBadgeClassName}
                     >
-                      {desiredStateBadgeLabel}
+                      Delivery config invalid
                     </Badge>
                     )}
-                    {service.repoUrl?.trim() && (service.managementMode ?? 'managed') !== 'observed' && (
+                    {serviceApplicationRepoUrlValue && (service.managementMode ?? 'managed') !== 'observed' && (
                       <span className={gitOpsDriftIndicatorClassName}>
                         <span className={gitOpsDriftDotClassName} aria-hidden="true" />
                         <span>GitOps {gitOpsDriftLabel}</span>
@@ -3559,8 +3625,9 @@ const ServiceDetails = () => {
                     variant="outline"
                     size="sm"
                     className="gap-2"
-                    disabled={gitOpsMenuBusy}
+                    disabled={gitOpsMenuBusy || gitOpsActionsDisabled}
                     aria-busy={gitOpsMenuBusy}
+                    title={gitOpsActionsDisabled ? 'Configure the application repository to enable GitOps' : undefined}
                   >
                     {gitOpsMenuBusy ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -3574,7 +3641,7 @@ const ServiceDetails = () => {
                 <DropdownMenuContent align="end" className="w-60">
                   <DropdownMenuLabel>Pull requests</DropdownMenuLabel>
                   <DropdownMenuItem
-                    onClick={() => void handleOpenGitOpsPullRequest()}
+                    onClick={() => setGitOpsConfirmationAction('releasea')}
                     disabled={
                       gitOpsPullRequestBusy ||
                       gitOpsActionsDisabled
@@ -3584,7 +3651,7 @@ const ServiceDetails = () => {
                     Open GitOps PR
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => void handleOpenArgoCDGitOpsPullRequest()}
+                    onClick={() => setGitOpsConfirmationAction('argocd')}
                     disabled={
                       gitOpsArgoCDPullRequestBusy ||
                       gitOpsActionsDisabled
@@ -3594,7 +3661,7 @@ const ServiceDetails = () => {
                     Open Argo CD PR
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => void handleOpenFluxGitOpsPullRequest()}
+                    onClick={() => setGitOpsConfirmationAction('flux')}
                     disabled={
                       gitOpsFluxPullRequestBusy ||
                       gitOpsActionsDisabled
@@ -3694,8 +3761,11 @@ const ServiceDetails = () => {
           service={service}
           serviceTypeLabel={serviceTypeLabel}
           runtimeLabel={runtimeLabel}
-          isServiceActive={isServiceActive}
+          liveUpdatesEnabled={liveUpdatesEnabled}
           instanceLabel={instanceLabel}
+          runningInstancesLabel={runningInstancesLabel}
+          deployedEnvironmentsLabel={deployedEnvironmentsLabel}
+          latestVersionLabel={latestVersionLabel}
           viewEnvLabel={viewEnvLabel}
           displayStatus={serviceDisplayStatus}
           latestDeployStrategySummary={deploysSorted[0]?.strategyStatus?.summary ?? undefined}
@@ -3705,7 +3775,9 @@ const ServiceDetails = () => {
             dockerfileLabel={dockerfileLabel}
             dockerContextLabel={dockerContextLabel}
             envCountLabel={envCountLabel}
-            healthPath={healthPath}
+          healthPath={healthPath}
+          healthStatusLabel={healthStatusLabel}
+          healthUpdatedLabel={healthUpdatedLabel}
             appUrls={appUrls}
             deployBusy={deployBusy}
             deployDisabled={deployActionTemporarilyBlocked}
@@ -3728,9 +3800,7 @@ const ServiceDetails = () => {
             latencyPeakLabel={latencyPeakLabel}
             requestsAvgLabel={requestsAvgLabel}
             requestsPeakLabel={requestsPeakLabel}
-            isLive={isLiveSyncConnected || isFastPolling}
-            isLivePaused={isLiveSyncPaused}
-            liveSyncError={realtimeSyncError}
+            onToggleLiveUpdates={handleLiveUpdatesChange}
           />
 
           <MetricsTab
@@ -3743,6 +3813,7 @@ const ServiceDetails = () => {
             viewEnvLabel={viewEnvLabel}
             onTimeRangeChange={handleMetricsTimeRangeChange}
             onRefresh={handleMetricsRefresh}
+            liveUpdatesEnabled={liveUpdatesEnabled}
           />
 
           <LogsTab
@@ -3776,7 +3847,7 @@ const ServiceDetails = () => {
             liveSyncError={realtimeSyncError}
             liveSyncLabel={lastRealtimeSyncLabel}
             liveSyncActive={isLiveSyncConnected || isFastPolling}
-            liveSyncPaused={isLiveSyncPaused}
+            liveSyncPaused={!liveUpdatesEnabled || isLiveSyncPaused}
             viewEnvLabel={viewEnvLabel}
             onGoToSummary={() => setActiveTab('summary')}
           />
@@ -3942,6 +4013,17 @@ const ServiceDetails = () => {
         requirements={managementTransitionRequirements}
         onConfirm={handleConfirmManagedTransition}
         isSaving={settingsSaving}
+      />
+
+      <GitOpsConfirmationDialog
+        action={gitOpsConfirmationAction}
+        serviceName={service.name}
+        repository={serviceApplicationRepoUrlValue || 'Application repository not configured'}
+        branch={service.branch?.trim() || 'main'}
+        environment={viewEnvLabel}
+        busy={gitOpsMenuBusy}
+        onOpenChange={(open) => !open && setGitOpsConfirmationAction(null)}
+        onConfirm={() => void handleConfirmGitOpsAction()}
       />
 
       <ConfirmPromoteCanaryModal
