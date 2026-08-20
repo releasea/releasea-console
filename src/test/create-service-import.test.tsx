@@ -415,13 +415,17 @@ describe('CreateServicePage cluster import', () => {
     expect(screen.getByRole('heading', { name: 'Scheduled Jobs' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Static Sites' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Static Sites · 1' }));
+    const workloadFilter = screen.getByRole('combobox', { name: 'Filter by workload type' });
+    fireEvent.click(workloadFilter);
+    fireEvent.click(await screen.findByRole('option', { name: 'Static Sites · 1' }));
     expect(await screen.findByRole('heading', { name: 'Static Sites' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Services and APIs' })).not.toBeInTheDocument();
     expect(screen.queryByText('API Blueprint')).not.toBeInTheDocument();
     expect(screen.getByText('Vite Marketing Site')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Vite · 1' }));
+    const frameworkFilter = screen.getByRole('combobox', { name: 'Filter by framework' });
+    fireEvent.click(frameworkFilter);
+    fireEvent.click(await screen.findByRole('option', { name: 'Vite · 1' }));
     expect(screen.getByText('Vite Marketing Site')).toBeInTheDocument();
     expect(screen.queryByText('Nightly Cleanup Job')).not.toBeInTheDocument();
   });
