@@ -60,6 +60,14 @@ type ServiceDetailsDialogsProps = {
     setNewRuleName: (value: string) => void;
     newRuleAction: RulePolicyConfig['action'];
     setNewRuleAction: (value: RulePolicyConfig['action']) => void;
+    newRuleAuthMode: NonNullable<RulePolicyConfig['authMode']>;
+    setNewRuleAuthMode: (value: NonNullable<RulePolicyConfig['authMode']>) => void;
+    newRuleJWTIssuer: string;
+    setNewRuleJWTIssuer: (value: string) => void;
+    newRuleJWKSUri: string;
+    setNewRuleJWKSUri: (value: string) => void;
+    newRuleAudiences: string;
+    setNewRuleAudiences: (value: string) => void;
     newRuleMethods: string[];
     toggleNewRuleMethod: (method: string) => void;
     newRulePathDraft: string;
@@ -81,6 +89,14 @@ type ServiceDetailsDialogsProps = {
     setEditRuleName: (value: string) => void;
     editRuleAction: RulePolicyConfig['action'];
     setEditRuleAction: (value: RulePolicyConfig['action']) => void;
+    editRuleAuthMode: NonNullable<RulePolicyConfig['authMode']>;
+    setEditRuleAuthMode: (value: NonNullable<RulePolicyConfig['authMode']>) => void;
+    editRuleJWTIssuer: string;
+    setEditRuleJWTIssuer: (value: string) => void;
+    editRuleJWKSUri: string;
+    setEditRuleJWKSUri: (value: string) => void;
+    editRuleAudiences: string;
+    setEditRuleAudiences: (value: string) => void;
     editRuleMethods: string[];
     toggleEditRuleMethod: (method: string) => void;
     editRulePathDraft: string;
@@ -306,7 +322,7 @@ export const ServiceDetailsDialogs = ({
           }
         }}
       >
-        <DialogContent className="sm:max-w-[720px] bg-card border-border">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[720px] bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-lg font-semibold">Create rule</DialogTitle>
             <DialogDescription>
@@ -344,6 +360,10 @@ export const ServiceDetailsDialogs = ({
             </div>
 
             <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Route scope</p>
+                <p className="text-xs text-muted-foreground">Choose which requests this rule controls.</p>
+              </div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Methods</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -402,8 +422,64 @@ export const ServiceDetailsDialogs = ({
               </div>
             </div>
 
+            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2 · Access control</p>
+                <p className="text-xs text-muted-foreground">
+                  {createRule.newRuleAction === 'deny'
+                    ? 'Matching requests are blocked before they reach the application.'
+                    : 'Keep the route public or require a JWT issued by your identity provider.'}
+                </p>
+              </div>
+              {createRule.newRuleAction === 'allow' && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {([
+                      ['public', 'Public access', 'No identity token is required.'],
+                      ['jwt', 'JWT / OIDC', 'Validate tokens through the provider JWKS endpoint.'],
+                    ] as const).map(([value, title, description]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => createRule.setNewRuleAuthMode(value)}
+                        className={cn(
+                          'rounded-lg border p-3 text-left transition-colors',
+                          createRule.newRuleAuthMode === value
+                            ? 'border-primary/50 bg-primary/5'
+                            : 'border-border/60 bg-card/50 hover:border-border',
+                        )}
+                      >
+                        <p className="text-sm font-medium text-foreground">{title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {createRule.newRuleAuthMode === 'jwt' && (
+                    <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="new-rule-jwt-issuer">JWT issuer</Label>
+                        <Input id="new-rule-jwt-issuer" value={createRule.newRuleJWTIssuer} onChange={(event) => createRule.setNewRuleJWTIssuer(event.target.value)} placeholder="https://id.example.com/realms/platform" className="bg-muted/40 font-mono text-xs" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-rule-jwks-uri">JWKS URL</Label>
+                        <Input id="new-rule-jwks-uri" value={createRule.newRuleJWKSUri} onChange={(event) => createRule.setNewRuleJWKSUri(event.target.value)} placeholder="https://id.example.com/.well-known/jwks.json" className="bg-muted/40 font-mono text-xs" />
+                      </div>
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="new-rule-audiences">Allowed audiences <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                        <Input id="new-rule-audiences" value={createRule.newRuleAudiences} onChange={(event) => createRule.setNewRuleAudiences(event.target.value)} placeholder="payments-api, internal-clients" className="bg-muted/40 font-mono text-xs" />
+                        <p className="text-xs text-muted-foreground">Comma-separated. Tokens are verified at the Istio sidecar before application traffic is allowed.</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
             <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Publication</p>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">3 · Publication</p>
+                <p className="text-xs text-muted-foreground">Choose where the protected route becomes reachable.</p>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-3">
                   <Checkbox
@@ -462,7 +538,7 @@ export const ServiceDetailsDialogs = ({
           }
         }}
       >
-        <DialogContent className="sm:max-w-[720px] bg-card border-border">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[720px] bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-lg font-semibold">Edit rule</DialogTitle>
             <DialogDescription>
@@ -558,6 +634,44 @@ export const ServiceDetailsDialogs = ({
                   ))}
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Access control</p>
+                <p className="text-xs text-muted-foreground">
+                  {editRule.editRuleAction === 'deny'
+                    ? 'Matching requests are blocked before they reach the application.'
+                    : 'Control whether matching requests require a validated identity token.'}
+                </p>
+              </div>
+              {editRule.editRuleAction === 'allow' && (
+                <>
+                  <Select value={editRule.editRuleAuthMode} onValueChange={(value) => editRule.setEditRuleAuthMode(value as NonNullable<RulePolicyConfig['authMode']>)}>
+                    <SelectTrigger className="bg-muted/40"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">Public — no token required</SelectItem>
+                      <SelectItem value="jwt">JWT / OIDC — validate issuer and signature</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {editRule.editRuleAuthMode === 'jwt' && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-rule-jwt-issuer">JWT issuer</Label>
+                        <Input id="edit-rule-jwt-issuer" value={editRule.editRuleJWTIssuer} onChange={(event) => editRule.setEditRuleJWTIssuer(event.target.value)} className="bg-muted/40 font-mono text-xs" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-rule-jwks-uri">JWKS URL</Label>
+                        <Input id="edit-rule-jwks-uri" value={editRule.editRuleJWKSUri} onChange={(event) => editRule.setEditRuleJWKSUri(event.target.value)} className="bg-muted/40 font-mono text-xs" />
+                      </div>
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="edit-rule-audiences">Allowed audiences</Label>
+                        <Input id="edit-rule-audiences" value={editRule.editRuleAudiences} onChange={(event) => editRule.setEditRuleAudiences(event.target.value)} placeholder="payments-api, internal-clients" className="bg-muted/40 font-mono text-xs" />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

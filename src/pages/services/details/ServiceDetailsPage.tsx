@@ -338,6 +338,10 @@ const ServiceDetails = () => {
   const [createRuleOpen, setCreateRuleOpen] = useState(false);
   const [newRuleName, setNewRuleName] = useState('');
   const [newRuleAction, setNewRuleAction] = useState<RulePolicyConfig['action']>('allow');
+  const [newRuleAuthMode, setNewRuleAuthMode] = useState<NonNullable<RulePolicyConfig['authMode']>>('public');
+  const [newRuleJWTIssuer, setNewRuleJWTIssuer] = useState('');
+  const [newRuleJWKSUri, setNewRuleJWKSUri] = useState('');
+  const [newRuleAudiences, setNewRuleAudiences] = useState('');
   const [newRuleMethods, setNewRuleMethods] = useState<string[]>(['GET']);
   const [newRulePaths, setNewRulePaths] = useState<string[]>([]);
   const [newRulePathDraft, setNewRulePathDraft] = useState('');
@@ -345,6 +349,10 @@ const ServiceDetails = () => {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editRuleName, setEditRuleName] = useState('');
   const [editRuleAction, setEditRuleAction] = useState<RulePolicyConfig['action']>('allow');
+  const [editRuleAuthMode, setEditRuleAuthMode] = useState<NonNullable<RulePolicyConfig['authMode']>>('public');
+  const [editRuleJWTIssuer, setEditRuleJWTIssuer] = useState('');
+  const [editRuleJWKSUri, setEditRuleJWKSUri] = useState('');
+  const [editRuleAudiences, setEditRuleAudiences] = useState('');
   const [editRuleMethods, setEditRuleMethods] = useState<string[]>(['GET']);
   const [editRulePaths, setEditRulePaths] = useState<string[]>(['/']);
   const [editRulePathDraft, setEditRulePathDraft] = useState('');
@@ -2596,6 +2604,10 @@ const ServiceDetails = () => {
   const resetNewRuleForm = () => {
     setNewRuleName('');
     setNewRuleAction('allow');
+    setNewRuleAuthMode('public');
+    setNewRuleJWTIssuer('');
+    setNewRuleJWKSUri('');
+    setNewRuleAudiences('');
     setNewRuleMethods(['GET']);
     setNewRulePaths([]);
     setNewRulePathDraft('');
@@ -2606,6 +2618,10 @@ const ServiceDetails = () => {
     setEditingRuleId(null);
     setEditRuleName('');
     setEditRuleAction('allow');
+    setEditRuleAuthMode('public');
+    setEditRuleJWTIssuer('');
+    setEditRuleJWKSUri('');
+    setEditRuleAudiences('');
     setEditRuleMethods(['GET']);
     setEditRulePaths(['/']);
     setEditRulePathDraft('');
@@ -2642,6 +2658,10 @@ const ServiceDetails = () => {
     setEditingRuleId(rule.id);
     setEditRuleName(rule.name);
     setEditRuleAction(rule.policy?.action ?? 'allow');
+    setEditRuleAuthMode(rule.policy?.authMode ?? 'public');
+    setEditRuleJWTIssuer(rule.policy?.jwtIssuer ?? '');
+    setEditRuleJWKSUri(rule.policy?.jwksUri ?? '');
+    setEditRuleAudiences((rule.policy?.audiences ?? []).join(', '));
     setEditRuleMethods(rule.methods.length ? rule.methods : ['GET']);
     setEditRulePaths(rule.paths.length ? rule.paths : ['/']);
     setEditRulePathDraft('');
@@ -2706,6 +2726,10 @@ const ServiceDetails = () => {
       toast({ title: 'Incomplete rule', description: 'Select at least one method and one path.' });
       return;
     }
+    if (editRuleAction === 'allow' && editRuleAuthMode === 'jwt' && (!editRuleJWTIssuer.trim() || !editRuleJWKSUri.trim())) {
+      toast({ title: 'Identity provider required', description: 'Provide both the JWT issuer and JWKS URL.' });
+      return;
+    }
 
     const existingRule = serviceRules.find((r) => r.id === editingRuleId);
     const updated = await updateRule(editingRuleId, {
@@ -2715,6 +2739,10 @@ const ServiceDetails = () => {
       policy: {
         ...(existingRule?.policy ?? { timeoutMs: 1500, retries: 2, ipPolicy: 'open' }),
         action: editRuleAction,
+        authMode: editRuleAction === 'deny' ? 'public' : editRuleAuthMode,
+        jwtIssuer: editRuleJWTIssuer.trim(),
+        jwksUri: editRuleJWKSUri.trim(),
+        audiences: editRuleAudiences.split(',').map((item) => item.trim()).filter(Boolean),
       },
     });
 
@@ -2791,6 +2819,10 @@ const ServiceDetails = () => {
       toast({ title: 'Incomplete rule', description: 'Select at least one method and one path.' });
       return;
     }
+    if (newRuleAction === 'allow' && newRuleAuthMode === 'jwt' && (!newRuleJWTIssuer.trim() || !newRuleJWKSUri.trim())) {
+      toast({ title: 'Identity provider required', description: 'Provide both the JWT issuer and JWKS URL.' });
+      return;
+    }
 
     const wantsPublish = newRulePublishTargets.internal || newRulePublishTargets.external;
 
@@ -2808,6 +2840,10 @@ const ServiceDetails = () => {
         timeoutMs: 1500,
         retries: 2,
         ipPolicy: 'open',
+        authMode: newRuleAction === 'deny' ? 'public' : newRuleAuthMode,
+        jwtIssuer: newRuleJWTIssuer.trim(),
+        jwksUri: newRuleJWKSUri.trim(),
+        audiences: newRuleAudiences.split(',').map((item) => item.trim()).filter(Boolean),
       },
       internal: wantsPublish ? newRulePublishTargets.internal : false,
       external: wantsPublish ? newRulePublishTargets.external : false,
@@ -3387,8 +3423,8 @@ const ServiceDetails = () => {
     }
   };
 
-  const handleConfirmGitOpsAction = async () => {
-    const action = gitOpsConfirmationAction;
+  const handleConfirmGitOpsAction = async (selectedAction?: GitOpsAction) => {
+    const action = selectedAction ?? gitOpsConfirmationAction;
     if (!action) return;
     if (action === 'releasea') {
       await handleOpenGitOpsPullRequest();
@@ -3618,60 +3654,23 @@ const ServiceDetails = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    disabled={gitOpsMenuBusy || gitOpsActionsDisabled}
-                    aria-busy={gitOpsMenuBusy}
-                    title={gitOpsActionsDisabled ? 'Configure the application repository to enable GitOps' : undefined}
-                  >
-                    {gitOpsMenuBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <GitPullRequest className="h-4 w-4" />
-                    )}
-                    {gitOpsMenuLabel}
-                    {!gitOpsMenuBusy && <ChevronDown className="h-3.5 w-3.5" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuLabel>Pull requests</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('releasea')}
-                    disabled={
-                      gitOpsPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open GitOps PR
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('argocd')}
-                    disabled={
-                      gitOpsArgoCDPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open Argo CD PR
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('flux')}
-                    disabled={
-                      gitOpsFluxPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open Flux PR
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={gitOpsMenuBusy || gitOpsActionsDisabled}
+                aria-busy={gitOpsMenuBusy}
+                title={gitOpsActionsDisabled ? 'Configure the application repository to enable GitOps' : undefined}
+                onClick={() => setGitOpsConfirmationAction('releasea')}
+              >
+                {gitOpsMenuBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <GitPullRequest className="h-4 w-4" />
+                )}
+                {gitOpsMenuBusy ? gitOpsMenuLabel : 'Configure GitOps'}
+              </Button>
             </div>
           </div>
         </div>
@@ -3923,6 +3922,14 @@ const ServiceDetails = () => {
           setNewRuleName,
           newRuleAction,
           setNewRuleAction,
+          newRuleAuthMode,
+          setNewRuleAuthMode,
+          newRuleJWTIssuer,
+          setNewRuleJWTIssuer,
+          newRuleJWKSUri,
+          setNewRuleJWKSUri,
+          newRuleAudiences,
+          setNewRuleAudiences,
           newRuleMethods,
           toggleNewRuleMethod,
           newRulePathDraft,
@@ -3944,6 +3951,14 @@ const ServiceDetails = () => {
           setEditRuleName,
           editRuleAction,
           setEditRuleAction,
+          editRuleAuthMode,
+          setEditRuleAuthMode,
+          editRuleJWTIssuer,
+          setEditRuleJWTIssuer,
+          editRuleJWKSUri,
+          setEditRuleJWKSUri,
+          editRuleAudiences,
+          setEditRuleAudiences,
           editRuleMethods,
           toggleEditRuleMethod,
           editRulePathDraft,
@@ -4023,7 +4038,7 @@ const ServiceDetails = () => {
         environment={viewEnvLabel}
         busy={gitOpsMenuBusy}
         onOpenChange={(open) => !open && setGitOpsConfirmationAction(null)}
-        onConfirm={() => void handleConfirmGitOpsAction()}
+        onConfirm={(action) => void handleConfirmGitOpsAction(action)}
       />
 
       <ConfirmPromoteCanaryModal

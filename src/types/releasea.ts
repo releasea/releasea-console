@@ -435,6 +435,10 @@ export interface RulePolicyConfig {
   ipPolicy: 'open' | 'allowlist' | 'blocklist';
   ipList?: string[];
   requiredHeaders?: string[];
+  authMode?: 'public' | 'jwt';
+  jwtIssuer?: string;
+  jwksUri?: string;
+  audiences?: string[];
 }
 
 export interface ManagedRule extends Rule {
