@@ -7,11 +7,13 @@ import ProjectsPage from '@/pages/projects/ProjectsPage';
 const fetchProjects = vi.fn();
 const fetchServices = vi.fn();
 const fetchTeams = vi.fn();
+const fetchDeploys = vi.fn();
 
 vi.mock('@/lib/data', () => ({
   fetchProjects: (...args: unknown[]) => fetchProjects(...args),
   fetchServices: (...args: unknown[]) => fetchServices(...args),
   fetchTeams: (...args: unknown[]) => fetchTeams(...args),
+  fetchDeploys: (...args: unknown[]) => fetchDeploys(...args),
 }));
 
 vi.mock('@/components/layout/AppLayout', () => ({
@@ -41,6 +43,7 @@ describe('ProjectsPage deep links', () => {
     fetchProjects.mockResolvedValue([]);
     fetchServices.mockResolvedValue([]);
     fetchTeams.mockResolvedValue([]);
+    fetchDeploys.mockResolvedValue([]);
   });
 
   it('opens the create-project modal when action=create is present', async () => {

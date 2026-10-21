@@ -47,6 +47,8 @@ import {
   fetchPlatformSettings,
   publishRuleTargets,
   promoteCanary,
+  switchBlueGreen,
+  promoteRule,
   updateRule,
 } from '@/lib/data';
 import type { ScmCommit } from '@/lib/data';
@@ -111,6 +113,7 @@ import type {
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
 import { ServiceDetailsDialogs } from './ServiceDetailsDialogs';
 import { ConfirmPromoteCanaryModal } from '@/components/modals/ConfirmPromoteCanaryModal';
+import { ConfirmSwitchBlueGreenModal } from '@/components/modals/ConfirmSwitchBlueGreenModal';
 import { ManagementModeTransitionDialog, type ManagementTransitionRequirement } from './ManagementModeTransitionDialog';
 import { GitOpsConfirmationDialog, type GitOpsAction } from './GitOpsConfirmationDialog';
 import { DeliveryTab } from './tabs/DeliveryTab';
@@ -121,9 +124,11 @@ import { RulesTab } from './tabs/RulesTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { SummaryTab } from './tabs/SummaryTab';
 import { AssistantTab } from './tabs/AssistantTab';
-import { buildGateways, getGatewayTargets, getPublicationLabel, LOG_LINE_LIMIT } from './constants';
+import { buildGateways, environmentHostSlug, environmentServiceHost, getGatewayTargets, getPublicationLabel, LOG_LINE_LIMIT } from './constants';
+import type { RuleFormTab } from './RuleForm';
 import type { RuntimeProfile } from '@/types/runtime-profile';
 import type { EnvVar, PublicationTargets, RuleRow, ServiceDetailsLocationState } from './types';
+import { defaultEdgePolicyDraft, edgePolicyDraftFromRule, edgePolicyError, edgePolicyFields } from './edge-policy';
 
 const FAST_POLL_INTERVAL_MS = 2500;
 const FAST_POLL_GRACE_MS = 30_000;
@@ -323,6 +328,7 @@ const ServiceDetails = () => {
   const [deployVersion, setDeployVersion] = useState('');
   const [confirmDeployOpen, setConfirmDeployOpen] = useState(false);
   const [pendingDeployVersion, setPendingDeployVersion] = useState<string | null>(null);
+  const [pendingPromoteFrom, setPendingPromoteFrom] = useState<string | null>(null);
   const [commits, setCommits] = useState<ScmCommit[]>([]);
   const [desiredStateExportBusy, setDesiredStateExportBusy] = useState(false);
   const [gitOpsArgoCDPullRequestBusy, setGitOpsArgoCDPullRequestBusy] = useState(false);
@@ -338,16 +344,31 @@ const ServiceDetails = () => {
   const [createRuleOpen, setCreateRuleOpen] = useState(false);
   const [newRuleName, setNewRuleName] = useState('');
   const [newRuleAction, setNewRuleAction] = useState<RulePolicyConfig['action']>('allow');
+  const [newRuleAuthMode, setNewRuleAuthMode] = useState<NonNullable<RulePolicyConfig['authMode']>>('public');
+  const [newRuleJWTIssuer, setNewRuleJWTIssuer] = useState('');
+  const [newRuleJWKSUri, setNewRuleJWKSUri] = useState('');
+  const [newRuleAudiences, setNewRuleAudiences] = useState('');
+  const [newEdge, setNewEdge] = useState(defaultEdgePolicyDraft);
   const [newRuleMethods, setNewRuleMethods] = useState<string[]>(['GET']);
   const [newRulePaths, setNewRulePaths] = useState<string[]>([]);
   const [newRulePathDraft, setNewRulePathDraft] = useState('');
   const [editRuleOpen, setEditRuleOpen] = useState(false);
+  const [editRuleTab, setEditRuleTab] = useState<RuleFormTab>('route');
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editRuleName, setEditRuleName] = useState('');
   const [editRuleAction, setEditRuleAction] = useState<RulePolicyConfig['action']>('allow');
+  const [editRuleAuthMode, setEditRuleAuthMode] = useState<NonNullable<RulePolicyConfig['authMode']>>('public');
+  const [editRuleJWTIssuer, setEditRuleJWTIssuer] = useState('');
+  const [editRuleJWKSUri, setEditRuleJWKSUri] = useState('');
+  const [editRuleAudiences, setEditRuleAudiences] = useState('');
+  const [editEdge, setEditEdge] = useState(defaultEdgePolicyDraft);
   const [editRuleMethods, setEditRuleMethods] = useState<string[]>(['GET']);
-  const [editRulePaths, setEditRulePaths] = useState<string[]>(['/']);
+  const [editRulePaths, setEditRulePaths] = useState<string[]>([]);
   const [editRulePathDraft, setEditRulePathDraft] = useState('');
+  const [editRulePublishTargets, setEditRulePublishTargets] = useState<PublicationTargets>({
+    internal: false,
+    external: false,
+  });
   const [copyRuleOpen, setCopyRuleOpen] = useState(false);
   const [copyRuleId, setCopyRuleId] = useState<string | null>(null);
   const [copyRuleEnvs, setCopyRuleEnvs] = useState<string[]>([]);
@@ -466,6 +487,7 @@ const ServiceDetails = () => {
   const hadLiveDeployRef = useRef(false);
   const hadPendingRuleDeployRef = useRef(false);
   const hasLiveDeploysRef = useRef(false);
+  const hasCanaryPromotionRef = useRef(false);
   const hasPendingRuleDeploysRef = useRef(false);
   const hasOptimisticQueuedDeployRef = useRef(false);
   const publishRuleSubmittingRef = useRef(false);
@@ -474,6 +496,9 @@ const ServiceDetails = () => {
   const [promoteCanaryInProgress, setPromoteCanaryInProgress] = useState(false);
   const [promoteCanaryOpen, setPromoteCanaryOpen] = useState(false);
   const [promoteCanaryViolations, setPromoteCanaryViolations] = useState<DeployPolicyViolation[]>([]);
+  const [switchBlueGreenInProgress, setSwitchBlueGreenInProgress] = useState(false);
+  const [switchBlueGreenOpen, setSwitchBlueGreenOpen] = useState(false);
+  const [switchBlueGreenViolations, setSwitchBlueGreenViolations] = useState<DeployPolicyViolation[]>([]);
   const [deployLoading, setDeployLoading] = useState(false);
   const [isFastPolling, setIsFastPolling] = useState(false);
   const [runtimeRefreshNonce, setRuntimeRefreshNonce] = useState(0);
@@ -1132,6 +1157,49 @@ const ServiceDetails = () => {
         parseDeployTimestamp(a.startedAt, a.createdAt, a.updatedAt),
     );
   }, [deploys]);
+  const upstreamEnvironment = viewEnv === 'staging' ? 'dev' : viewEnv === 'prod' ? 'staging' : null;
+  const [catalogDeploys, setCatalogDeploys] = useState<Deploy[]>([]);
+  const deployRefreshKey = deploys.map((deploy) => `${deploy.id}:${deploy.status}`).join('|');
+  useEffect(() => {
+    if (!id) {
+      setCatalogDeploys([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchDeploys().then((items) => {
+      if (cancelled) return;
+      setCatalogDeploys(items.filter((deploy) => deploy.serviceId === id));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [deployRefreshKey, id]);
+  const upstreamDeploys = useMemo(
+    () => (upstreamEnvironment ? catalogDeploys.filter((deploy) => deploy.environment === upstreamEnvironment) : []),
+    [catalogDeploys, upstreamEnvironment],
+  );
+  const promotableRelease = useMemo(() => {
+    if (!upstreamEnvironment || !id) return null;
+    const source = upstreamDeploys
+      .filter((deploy) =>
+        isSuccessfulDeployStatus(deploy.status) &&
+        Boolean(deploy.commit?.trim() || deploy.image?.trim()),
+      )
+      .sort((a, b) =>
+        parseDeployTimestamp(b.startedAt, b.createdAt, b.updatedAt) -
+        parseDeployTimestamp(a.startedAt, a.createdAt, a.updatedAt),
+      )[0];
+    if (!source) return null;
+    const commit = source.commit?.trim() || '';
+    const image = source.image?.trim() || '';
+    const version = image ? (commit || image) : 'reusable image';
+    return {
+      environment: upstreamEnvironment,
+      environmentLabel: getEnvironmentLabel(upstreamEnvironment),
+      version,
+      versionLabel: image && version.length > 12 ? version.slice(0, 8) : version,
+    };
+  }, [id, upstreamDeploys, upstreamEnvironment]);
   const serviceRuleDeploys = useMemo(() => {
     return ruleDeploysData
       .filter((rd) => rd.serviceId === id && (rd.environment ? rd.environment === viewEnv : true))
@@ -1335,6 +1403,7 @@ const ServiceDetails = () => {
     }
 
     hasLiveDeploysRef.current = hasLiveDeploys;
+    hasCanaryPromotionRef.current = promoteCanaryInProgress || switchBlueGreenInProgress || deploysSorted[0]?.strategyStatus?.phase === 'promoting';
     hasPendingRuleDeploysRef.current = hasPendingRuleDeploys;
     hasOptimisticQueuedDeployRef.current = hasOptimisticQueuedDeploy;
     hadLiveDeployRef.current = hasLiveDeploys;
@@ -1344,6 +1413,7 @@ const ServiceDetails = () => {
       hasOptimisticQueuedDeploy ||
       hasLiveDeploys ||
       hasPendingRuleDeploys ||
+      hasCanaryPromotionRef.current ||
       Date.now() < fastPollGraceUntilRef.current;
 
     if (!shouldFastPoll) {
@@ -1383,6 +1453,7 @@ const ServiceDetails = () => {
           hasOptimisticQueuedDeployRef.current ||
           hasLiveDeploysRef.current ||
           hasPendingRuleDeploysRef.current ||
+          hasCanaryPromotionRef.current ||
           Date.now() < fastPollGraceUntilRef.current;
         if (!keepPolling) {
           if (deployPoller.current) {
@@ -1404,50 +1475,89 @@ const ServiceDetails = () => {
     isLiveSyncConnected,
     isFastPolling,
     liveUpdatesEnabled,
+    promoteCanaryInProgress,
+    switchBlueGreenInProgress,
+    deploysSorted,
     refreshRealtimeSnapshot,
     runRealtimeRefresh,
   ]);
+  const canaryStrategyPhase = deploysSorted[0]?.strategyStatus?.phase;
+  const canaryStrategyStep = deploysSorted[0]?.strategyStatus?.details?.step;
+  const previousCanaryPhase = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousCanaryPhase.current;
+    previousCanaryPhase.current = canaryStrategyPhase;
+    const finished = canaryStrategyPhase === 'promoted' && (previous === 'promoting' || promoteCanaryInProgress || switchBlueGreenInProgress);
+    if (finished) {
+      setPromoteCanaryInProgress(false);
+      setSwitchBlueGreenInProgress(false);
+      if (deployStrategyType === 'blue-green') {
+        toast({
+          title: 'Traffic switched',
+          description: deploysSorted[0]?.strategyStatus?.summary || `Traffic in ${getEnvironmentLabel(viewEnv)} is on the new slot.`,
+        });
+      } else if (deployStrategyType === 'canary') {
+        toast({
+          title: 'Canary is stable',
+          description: `All traffic in ${getEnvironmentLabel(viewEnv)} is on the new version.`,
+        });
+      }
+      return;
+    }
+    if (previous === 'promoting' && canaryStrategyStep === 'failed') {
+      setPromoteCanaryInProgress(false);
+      setSwitchBlueGreenInProgress(false);
+      toast({
+        title: deployStrategyType === 'blue-green' ? 'Switch did not finish' : 'Promotion failed',
+        description: deploysSorted[0]?.strategyStatus?.summary || 'The current traffic split is unchanged.',
+        variant: 'destructive',
+      });
+    }
+  }, [canaryStrategyPhase, canaryStrategyStep, deployStrategyType, deploysSorted, promoteCanaryInProgress, switchBlueGreenInProgress, viewEnv]);
   const environmentRules = useMemo(
     () => serviceRules.filter((rule) => rule.environment === viewEnv),
     [serviceRules, viewEnv],
   );
-  const appUrls = useMemo(() => {
+  const environmentUrls = useMemo(() => {
     if (!service) return [];
-    const protocolOrder: Record<RuleProtocol, number> = { https: 0, http: 1, grpc: 2, tcp: 3 };
-    const protocolsByTarget = {
-      internal: new Set<RuleProtocol>(),
-      external: new Set<RuleProtocol>(),
-    };
-    const activeRules = serviceRules.filter(
+    const slug = environmentHostSlug(viewEnv);
+    const publishedRules = serviceRules.filter(
       (rule) =>
         rule.serviceId === service.id &&
-        rule.environment === viewEnv &&
-        rule.status !== 'draft',
+        environmentHostSlug(rule.environment) === slug &&
+        rule.status === 'published',
     );
-    for (const rule of activeRules) {
+    const rows: Array<{ id: string; href: string | null; display: string; zoneLabel: string }> = [];
+    const seen = new Set<string>();
+    for (const rule of publishedRules) {
       const targets = getGatewayTargets(rule.gateways ?? []);
-      if (targets.internal) {
-        protocolsByTarget.internal.add(rule.protocol);
-      }
-      if (targets.external) {
-        protocolsByTarget.external.add(rule.protocol);
+      if (!targets.internal && !targets.external) continue;
+      const zoneLabel = targets.internal && targets.external
+        ? 'Internal and external'
+        : targets.external
+          ? 'External'
+          : 'Internal';
+      const zone = targets.external && !targets.internal ? 'external' : 'internal';
+      const protocol = rule.protocol || 'https';
+      const storedHosts = (rule.hosts ?? [])
+        .map((host) => host.trim())
+        .filter((host) => host.includes('.') && !host.includes('cluster.local'));
+      const hosts = storedHosts.length > 0
+        ? storedHosts
+        : [environmentServiceHost(service.name, slug, zone)];
+      for (const host of hosts) {
+        const safe = sanitizeExternalURL(`${protocol}://${host}`);
+        if (!safe.display || seen.has(safe.display)) continue;
+        seen.add(safe.display);
+        rows.push({
+          id: `${rule.id}:${safe.display}`,
+          href: safe.href,
+          display: safe.display,
+          zoneLabel,
+        });
       }
     }
-    const buildUrls = (target: 'internal' | 'external', suffix: string) => {
-      const protocols = Array.from(protocolsByTarget[target]).sort(
-        (a, b) => (protocolOrder[a] ?? 99) - (protocolOrder[b] ?? 99),
-      );
-      return protocols.map((protocol) => ({
-        ...sanitizeExternalURL(`${protocol}://${service.name}.releasea.${suffix}`),
-        id: `${target}-${protocol}`,
-        protocolLabel: protocol.toUpperCase(),
-        targetLabel: target === 'internal' ? 'Internal' : 'External',
-      }));
-    };
-    return [
-      ...buildUrls('internal', 'internal'),
-      ...buildUrls('external', 'external'),
-    ];
+    return rows;
   }, [service, serviceRules, viewEnv]);
   const editingRule = useMemo(
     () => serviceRules.find((rule) => rule.id === editingRuleId) ?? null,
@@ -1953,27 +2063,51 @@ const ServiceDetails = () => {
     : service.repoUrl
       ? `Branch ${service.branch || 'main'} (latest commit)`
       : 'No deploys yet';
-  const deployedEnvironmentsLabel = Array.from(
-    new Set(
-      deploysData
-        .filter((deploy) => deploy.serviceId === service.id && deploy.environment && isSuccessfulDeployStatus(deploy.status))
-        .map((deploy) => deployEnvLabel(deploy.environment)),
-    ),
-  ).join(', ') || 'Not deployed yet';
+  const deployedEnvironmentsLabel = (() => {
+    const order = ['dev', 'staging', 'prod'];
+    const ids = new Set<string>();
+    for (const deploy of [...catalogDeploys, ...deploys]) {
+      if (!deploy.environment || !isSuccessfulDeployStatus(deploy.status)) continue;
+      const slug = environmentHostSlug(deploy.environment);
+      if (slug) ids.add(slug);
+    }
+    const labels = Array.from(ids)
+      .sort((left, right) => {
+        const leftIndex = order.indexOf(left);
+        const rightIndex = order.indexOf(right);
+        return (leftIndex === -1 ? 99 : leftIndex) - (rightIndex === -1 ? 99 : rightIndex);
+      })
+      .map((env) => deployEnvLabel(env));
+    return labels.join(', ') || 'Not deployed yet';
+  })();
   const configuredReplicas = Math.max(0, Number(service.replicas ?? service.minReplicas ?? 0));
   const runtimeState = service.runtime?.[viewEnv];
-  const runningInstancesLabel = podsLoading
-    ? 'Checking...'
-    : availablePods.length > 0
-      ? `${availablePods.length} ${availablePods.length === 1 ? 'running instance' : 'running instances'}`
-      : podDiscoveryError
-        ? runtimeState?.status === 'healthy' && configuredReplicas > 0
-          ? `${configuredReplicas} healthy ${configuredReplicas === 1 ? 'instance' : 'instances'} (worker reported)`
-          : `${configuredReplicas} desired · discovery unavailable`
-        : 'No active instances observed';
-  const healthStatusLabel = runtimeState?.status
-    ? runtimeState.status.charAt(0).toUpperCase() + runtimeState.status.slice(1)
-    : 'Not reported';
+  const runtimeReason = runtimeState?.reason?.trim() ?? '';
+  const removedShadowOnly = runtimeState?.status === 'degraded'
+    && /-(?:canary|blue|green): deployment not found$/i.test(runtimeReason);
+  const desiredInstances = configuredReplicas > 0 ? configuredReplicas : 1;
+  const instanceWord = desiredInstances === 1 ? 'instance' : 'instances';
+  const canaryServing = service.deploymentStrategy?.type === 'canary'
+    && Number(service.deploymentStrategy?.canaryPercent ?? 0) > 0
+    && deploysSorted[0]?.strategyStatus?.phase !== 'promoted'
+    && (isSuccessfulDeployStatus(deploysSorted[0]?.status) || deploysSorted[0]?.strategyStatus?.phase === 'promoting');
+  const runningInstancesLabel = runtimeState?.status === 'healthy' || removedShadowOnly
+    ? `${desiredInstances} ${canaryServing ? 'stable' : 'running'} ${instanceWord}`
+    : runtimeState?.status === 'idle'
+      ? 'Paused'
+      : runtimeState
+        ? `${desiredInstances} desired ${instanceWord}`
+        : podsLoading
+          ? 'Checking...'
+          : 'Not reported';
+  const healthStatusLabel = removedShadowOnly
+    ? 'Healthy'
+    : runtimeState?.status
+      ? runtimeState.status.charAt(0).toUpperCase() + runtimeState.status.slice(1)
+      : 'Not reported';
+  const healthReasonLabel = removedShadowOnly || !runtimeReason || runtimeState?.status === 'healthy'
+    ? ''
+    : runtimeReason;
   const healthUpdatedLabel = runtimeState?.updatedAt
     ? `Updated ${format(new Date(runtimeState.updatedAt), 'MMM dd, HH:mm:ss')}`
     : 'No runtime probe has been reported for this environment.';
@@ -1985,11 +2119,33 @@ const ServiceDetails = () => {
     worker: 'Worker',
   }[service.type];
 
+  const liveBlueGreenPrimary: 'blue' | 'green' = (() => {
+    const recorded = service?.deploymentStrategy?.environmentSlots?.[viewEnv];
+    if (recorded === 'blue' || recorded === 'green') return recorded;
+    const fallback = service?.deploymentStrategy?.blueGreenPrimary;
+    return fallback === 'green' ? 'green' : 'blue';
+  })();
+  const pendingSwitchDetails = deploysSorted[0]?.strategyStatus?.details;
+  const pendingSwitchPhase = deploysSorted[0]?.strategyStatus?.phase;
+  const recordedCandidate = pendingSwitchDetails?.candidateSlot;
+  const recordedActive = pendingSwitchDetails?.activeSlot;
+  const useRecordedSwitch =
+    pendingSwitchDetails?.switchPending === true || pendingSwitchPhase === 'promoting';
+  const switchTargetSlot: 'blue' | 'green' =
+    useRecordedSwitch && (recordedCandidate === 'blue' || recordedCandidate === 'green')
+      ? recordedCandidate
+      : liveBlueGreenPrimary === 'blue'
+        ? 'green'
+        : 'blue';
+  const switchActiveSlot: 'blue' | 'green' =
+    useRecordedSwitch && (recordedActive === 'blue' || recordedActive === 'green')
+      ? recordedActive
+      : liveBlueGreenPrimary;
   const deployStrategyLabel =
     deployStrategyType === 'canary'
       ? `Canary ${canaryPercent}%`
       : deployStrategyType === 'blue-green'
-        ? `Blue/Green (${blueGreenPrimary})`
+        ? `Blue/Green (${liveBlueGreenPrimary})`
         : 'Rolling';
 
   const runtimeLabel = resolveRuntimeLabel(service);
@@ -2596,6 +2752,11 @@ const ServiceDetails = () => {
   const resetNewRuleForm = () => {
     setNewRuleName('');
     setNewRuleAction('allow');
+    setNewRuleAuthMode('public');
+    setNewRuleJWTIssuer('');
+    setNewRuleJWKSUri('');
+    setNewRuleAudiences('');
+    setNewEdge(defaultEdgePolicyDraft());
     setNewRuleMethods(['GET']);
     setNewRulePaths([]);
     setNewRulePathDraft('');
@@ -2606,9 +2767,17 @@ const ServiceDetails = () => {
     setEditingRuleId(null);
     setEditRuleName('');
     setEditRuleAction('allow');
+    setEditRuleAuthMode('public');
+    setEditRuleJWTIssuer('');
+    setEditRuleJWKSUri('');
+    setEditRuleAudiences('');
+    setEditEdge(defaultEdgePolicyDraft());
     setEditRuleMethods(['GET']);
-    setEditRulePaths(['/']);
+    setEditRulePaths([]);
     setEditRulePathDraft('');
+    setEditRulePublishTargets({ internal: false, external: false });
+    setEditRuleTab('route');
+    setCopyRuleEnvs([]);
   };
 
   const toggleNewRuleMethod = (method: string) => {
@@ -2639,12 +2808,20 @@ const ServiceDetails = () => {
       showObservedRuleManagementToast();
       return;
     }
+    setEditRuleTab('route');
+    setCopyRuleEnvs([]);
     setEditingRuleId(rule.id);
     setEditRuleName(rule.name);
     setEditRuleAction(rule.policy?.action ?? 'allow');
+    setEditRuleAuthMode(rule.policy?.authMode ?? 'public');
+    setEditRuleJWTIssuer(rule.policy?.jwtIssuer ?? '');
+    setEditRuleJWKSUri(rule.policy?.jwksUri ?? '');
+    setEditRuleAudiences((rule.policy?.audiences ?? []).join(', '));
+    setEditEdge(edgePolicyDraftFromRule(rule.policy));
     setEditRuleMethods(rule.methods.length ? rule.methods : ['GET']);
     setEditRulePaths(rule.paths.length ? rule.paths : ['/']);
     setEditRulePathDraft('');
+    setEditRulePublishTargets(getGatewayTargets(rule.gateways ?? []));
     setEditRuleOpen(true);
   };
 
@@ -2658,14 +2835,17 @@ const ServiceDetails = () => {
   };
 
   const addEditRulePath = () => {
-    const draft = editRulePathDraft.trim();
+    let draft = editRulePathDraft.trim();
     if (!draft) return;
+    if (!draft.startsWith('/')) {
+      draft = `/${draft}`;
+    }
     setEditRulePaths((current) => (current.includes(draft) ? current : [...current, draft]));
     setEditRulePathDraft('');
   };
 
   const removeEditRulePath = (path: string) => {
-    setEditRulePaths((current) => (current.length === 1 ? current : current.filter((item) => item !== path)));
+    setEditRulePaths((current) => current.filter((item) => item !== path));
   };
 
   const resetCopyRuleForm = () => {
@@ -2695,40 +2875,59 @@ const ServiceDetails = () => {
     );
   };
 
-  const handleSaveRuleEdits = async () => {
-    if (!editingRuleId) return;
+  const handleSaveRuleEdits = async (options?: { close?: boolean; announce?: boolean }) => {
+    const close = options?.close !== false;
+    const announce = options?.announce !== false;
+    if (!editingRuleId) return false;
     const trimmedName = editRuleName.trim();
     if (!trimmedName) {
       toast({ title: 'Name required', description: 'Give the rule a name before saving.' });
-      return;
+      return false;
     }
     if (editRulePaths.length === 0 || editRuleMethods.length === 0) {
       toast({ title: 'Incomplete rule', description: 'Select at least one method and one path.' });
-      return;
+      return false;
+    }
+    if (editRuleAction === 'allow' && editRuleAuthMode === 'jwt' && (!editRuleJWTIssuer.trim() || !editRuleJWKSUri.trim())) {
+      toast({ title: 'Identity provider required', description: 'Provide both the JWT issuer and JWKS URL.' });
+      return false;
+    }
+    const edgeError = edgePolicyError(editRuleAction, editRuleAuthMode, editEdge);
+    if (edgeError) {
+      toast({ title: 'Edge policy incomplete', description: edgeError });
+      return false;
     }
 
-    const existingRule = serviceRules.find((r) => r.id === editingRuleId);
     const updated = await updateRule(editingRuleId, {
       name: trimmedName,
       methods: editRuleMethods,
       paths: editRulePaths,
       policy: {
-        ...(existingRule?.policy ?? { timeoutMs: 1500, retries: 2, ipPolicy: 'open' }),
+        ...edgePolicyFields(editEdge),
         action: editRuleAction,
+        authMode: editRuleAction === 'deny' ? 'public' : editRuleAuthMode,
+        jwtIssuer: editRuleJWTIssuer.trim(),
+        jwksUri: editRuleJWKSUri.trim(),
+        audiences: editRuleAudiences.split(',').map((item) => item.trim()).filter(Boolean),
       },
     });
 
     if (!updated) {
       toast({ title: 'Failed to update rule', description: 'Check API connectivity.', variant: 'destructive' });
-      return;
+      return false;
     }
 
     setServiceRules((current) =>
       current.map((rule) => (rule.id === editingRuleId ? { ...rule, ...updated } : rule)),
     );
-    setEditRuleOpen(false);
-    resetEditRuleForm();
-    toast({ title: 'Rule updated', description: 'Changes saved successfully.' });
+    if (announce) {
+      toast({ title: 'Rule updated', description: 'Changes saved successfully.' });
+    }
+    if (close) {
+      setEditRuleOpen(false);
+      resetEditRuleForm();
+    }
+    return true;
   };
 
   const handleCopyRuleConfirm = async () => {
@@ -2736,48 +2935,54 @@ const ServiceDetails = () => {
     const sourceRule = serviceRules.find((rule) => rule.id === copyRuleId);
     if (!sourceRule) return;
     if (copyRuleEnvs.length === 0) {
-      toast({ title: 'Select environments', description: 'Choose at least one environment to copy.' });
+      toast({ title: 'Select environments', description: 'Choose at least one environment to promote into.' });
       return;
     }
-    const existingByEnv = new Set(
-      serviceRules
-        .filter((rule) => rule.serviceId === service.id && rule.name === sourceRule.name)
-        .map((rule) => rule.environment),
-    );
-    const envsToCreate = copyRuleEnvs.filter((envId) => !existingByEnv.has(envId as Environment));
-
-    if (envsToCreate.length === 0) {
-      toast({ title: 'Already exists', description: 'Rules with this name already exist in the selected environments.' });
-      return;
-    }
-
-    const created: ManagedRule[] = [];
-    for (const envId of envsToCreate) {
-      const result = await createRule({
-        name: sourceRule.name,
-        serviceId: service.id,
-        environment: envId as ManagedRule['environment'],
-        hosts: sourceRule.hosts,
-        paths: sourceRule.paths,
-        methods: sourceRule.methods,
-        protocol: sourceRule.protocol,
-        port: sourceRule.port,
-        policy: sourceRule.policy,
-      });
-      if (result) {
-        created.push(result);
+    const promoted: ManagedRule[] = [];
+    for (const envId of copyRuleEnvs) {
+      const result = await promoteRule(copyRuleId, envId);
+      if (!result?.rule) {
+        toast({
+          title: 'Promotion failed',
+          description: `Could not promote the rule to ${getEnvironmentLabel(envId)}.`,
+          variant: 'destructive',
+        });
+        continue;
       }
+      if (result.republish) {
+        const published = await publishRuleTargets(result.rule.id, {
+          internal: result.internal,
+          external: result.external,
+          environment: envId,
+        });
+        if (!published.success) {
+          toast({
+            title: 'Revision saved',
+            description: published.error || `Publish the new revision in ${getEnvironmentLabel(envId)} to make it live.`,
+            variant: 'destructive',
+          });
+        }
+      }
+      promoted.push(result.rule);
     }
 
-    if (created.length > 0) {
-      setServiceRules((current) => [...current, ...created]);
+    if (promoted.length > 0) {
+      setServiceRules((current) => {
+        const byId = new Map(current.map((rule) => [rule.id, rule]));
+        for (const rule of promoted) {
+          byId.set(rule.id, rule);
+        }
+        return [...byId.values()];
+      });
     }
-    setCopyRuleEnvs([]);
     setCopyRuleOpen(false);
-    toast({
-      title: 'Rule copied',
-      description: `Copied to ${created.length} environment(s).`,
-    });
+    resetCopyRuleForm();
+    if (promoted.length > 0) {
+      toast({
+        title: 'Rule promoted',
+        description: `Advanced the contract to ${promoted.length} environment(s).`,
+      });
+    }
   };
 
   const handleCreateRule = async () => {
@@ -2791,8 +2996,15 @@ const ServiceDetails = () => {
       toast({ title: 'Incomplete rule', description: 'Select at least one method and one path.' });
       return;
     }
-
-    const wantsPublish = newRulePublishTargets.internal || newRulePublishTargets.external;
+    if (newRuleAction === 'allow' && newRuleAuthMode === 'jwt' && (!newRuleJWTIssuer.trim() || !newRuleJWKSUri.trim())) {
+      toast({ title: 'Identity provider required', description: 'Provide both the JWT issuer and JWKS URL.' });
+      return;
+    }
+    const edgeError = edgePolicyError(newRuleAction, newRuleAuthMode, newEdge);
+    if (edgeError) {
+      toast({ title: 'Edge policy incomplete', description: edgeError });
+      return;
+    }
 
     const created = await createRule({
       name: trimmedName,
@@ -2804,13 +3016,15 @@ const ServiceDetails = () => {
       protocol: 'https',
       port: service.port ?? 80,
       policy: {
+        ...edgePolicyFields(newEdge),
         action: newRuleAction,
-        timeoutMs: 1500,
-        retries: 2,
-        ipPolicy: 'open',
+        authMode: newRuleAction === 'deny' ? 'public' : newRuleAuthMode,
+        jwtIssuer: newRuleJWTIssuer.trim(),
+        jwksUri: newRuleJWKSUri.trim(),
+        audiences: newRuleAudiences.split(',').map((item) => item.trim()).filter(Boolean),
       },
-      internal: wantsPublish ? newRulePublishTargets.internal : false,
-      external: wantsPublish ? newRulePublishTargets.external : false,
+      internal: false,
+      external: false,
     });
 
     if (!created) {
@@ -2822,24 +3036,14 @@ const ServiceDetails = () => {
     setCreateRuleOpen(false);
     resetNewRuleForm();
 
-    if (wantsPublish) {
-      toast({
-        title: 'Rule created & queued',
-        description: `Publishing to ${getPublicationLabel(newRulePublishTargets).toLowerCase()} in ${getEnvironmentLabel(viewEnv)}.`,
-      });
-      void runRealtimeRefresh(
-        refreshRealtimeSnapshot,
-        'Unable to refresh new rule status.',
-      );
-    } else {
-      toast({
-        title: 'Rule created',
-        description: `Saved as draft in ${getEnvironmentLabel(viewEnv)}.`,
-      });
-    }
+    toast({
+      title: 'Rule created',
+      description: `Saved as draft in ${getEnvironmentLabel(viewEnv)}.`,
+    });
   };
 
   const handleDeployLatest = async () => {
+    setPendingPromoteFrom(null);
     if (deployActionTemporarilyBlocked) {
       toast({
         title: 'Deploy temporarily blocked',
@@ -2871,6 +3075,20 @@ const ServiceDetails = () => {
       return;
     }
     setPendingDeployVersion(latestValue);
+    setConfirmDeployOpen(true);
+  };
+
+  const handlePromoteRelease = () => {
+    if (!promotableRelease) return;
+    if (deployActionTemporarilyBlocked) {
+      toast({
+        title: 'Deploy temporarily blocked',
+        description: deployBlockedMessage,
+      });
+      return;
+    }
+    setPendingPromoteFrom(promotableRelease.environment);
+    setPendingDeployVersion(promotableRelease.version);
     setConfirmDeployOpen(true);
   };
 
@@ -2924,16 +3142,60 @@ const ServiceDetails = () => {
     setPromoteCanaryOpen(true);
   };
 
+  const handleSwitchBlueGreen = async () => {
+    if (!service || deployStrategyType !== 'blue-green') return;
+    setSwitchBlueGreenViolations([]);
+    setSwitchBlueGreenOpen(true);
+  };
+
+  const handleConfirmSwitchBlueGreen = async () => {
+    if (!service || deployStrategyType !== 'blue-green') return false;
+    setSwitchBlueGreenInProgress(true);
+    try {
+      const result = await switchBlueGreen(service.id, viewEnv);
+      if (result.error) {
+        setSwitchBlueGreenInProgress(false);
+        setSwitchBlueGreenViolations(result.violations ?? []);
+        void refreshGovernanceEvents();
+        toast({
+          title: 'Switch did not start',
+          description:
+            (result.violations?.length ?? 0) > 0
+              ? summarizeDeployPolicyViolations(result.violations ?? [])
+              : result.error,
+          variant: 'destructive',
+        });
+        return false;
+      }
+      setSwitchBlueGreenViolations([]);
+      toast({
+        title: 'Switch started',
+        description: 'Traffic moves when the new slot is confirmed. The address stays published.',
+      });
+      void refreshRealtimeSnapshot();
+      return true;
+    } catch {
+      setSwitchBlueGreenInProgress(false);
+      toast({
+        title: 'Switch did not start',
+        description: 'The request did not reach Releasea. Try again.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  };
+
   const handleConfirmPromoteCanary = async () => {
-    if (!service || deployStrategyType !== 'canary') return;
+    if (!service || deployStrategyType !== 'canary') return false;
     setPromoteCanaryInProgress(true);
     try {
       const result = await promoteCanary(service.id, viewEnv);
       if (result.error) {
+        setPromoteCanaryInProgress(false);
         setPromoteCanaryViolations(result.violations ?? []);
         void refreshGovernanceEvents();
         toast({
-          title: 'Promote failed',
+          title: 'Promotion did not start',
           description:
             (result.violations?.length ?? 0) > 0
               ? summarizeDeployPolicyViolations(result.violations ?? [])
@@ -2945,16 +3207,19 @@ const ServiceDetails = () => {
 
       setPromoteCanaryViolations([]);
       toast({
-        title: 'Canary promoted successfully',
-        description: `All traffic in ${getEnvironmentLabel(viewEnv)} is now being shifted to the new version. Your default canary percentage is preserved for the next deploy.`,
+        title: 'Promotion started',
+        description: 'Follow the steps on the summary. The app URL stays published.',
       });
-      await runRealtimeRefresh(
-        refreshRealtimeSnapshot,
-        'Unable to refresh canary promotion status.',
-      );
+      void refreshRealtimeSnapshot();
       return true;
-    } finally {
+    } catch {
       setPromoteCanaryInProgress(false);
+      toast({
+        title: 'Promotion did not start',
+        description: 'The request did not reach Releasea. Try again.',
+        variant: 'destructive',
+      });
+      return false;
     }
   };
 
@@ -2967,6 +3232,7 @@ const ServiceDetails = () => {
       return;
     }
     if (!deployVersion) return;
+    setPendingPromoteFrom(null);
     setPendingDeployVersion(deployVersion);
     setDeployVersionOpen(false);
     setConfirmDeployOpen(true);
@@ -3387,8 +3653,8 @@ const ServiceDetails = () => {
     }
   };
 
-  const handleConfirmGitOpsAction = async () => {
-    const action = gitOpsConfirmationAction;
+  const handleConfirmGitOpsAction = async (selectedAction?: GitOpsAction) => {
+    const action = selectedAction ?? gitOpsConfirmationAction;
     if (!action) return;
     if (action === 'releasea') {
       await handleOpenGitOpsPullRequest();
@@ -3618,60 +3884,23 @@ const ServiceDetails = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    disabled={gitOpsMenuBusy || gitOpsActionsDisabled}
-                    aria-busy={gitOpsMenuBusy}
-                    title={gitOpsActionsDisabled ? 'Configure the application repository to enable GitOps' : undefined}
-                  >
-                    {gitOpsMenuBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <GitPullRequest className="h-4 w-4" />
-                    )}
-                    {gitOpsMenuLabel}
-                    {!gitOpsMenuBusy && <ChevronDown className="h-3.5 w-3.5" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuLabel>Pull requests</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('releasea')}
-                    disabled={
-                      gitOpsPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open GitOps PR
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('argocd')}
-                    disabled={
-                      gitOpsArgoCDPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open Argo CD PR
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setGitOpsConfirmationAction('flux')}
-                    disabled={
-                      gitOpsFluxPullRequestBusy ||
-                      gitOpsActionsDisabled
-                    }
-                  >
-                    <GitPullRequest className="mr-2 h-4 w-4" />
-                    Open Flux PR
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={gitOpsMenuBusy || gitOpsActionsDisabled}
+                aria-busy={gitOpsMenuBusy}
+                title={gitOpsActionsDisabled ? 'Configure the application repository to enable GitOps' : undefined}
+                onClick={() => setGitOpsConfirmationAction('releasea')}
+              >
+                {gitOpsMenuBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <GitPullRequest className="h-4 w-4" />
+                )}
+                {gitOpsMenuBusy ? gitOpsMenuLabel : 'Configure GitOps'}
+              </Button>
             </div>
           </div>
         </div>
@@ -3777,21 +4006,42 @@ const ServiceDetails = () => {
             envCountLabel={envCountLabel}
           healthPath={healthPath}
           healthStatusLabel={healthStatusLabel}
+          healthReasonLabel={healthReasonLabel}
           healthUpdatedLabel={healthUpdatedLabel}
-            appUrls={appUrls}
+            environmentUrls={environmentUrls}
             deployBusy={deployBusy}
             deployDisabled={deployActionTemporarilyBlocked}
             deployRestrictionMessage={deployActionTemporarilyBlocked ? deployBlockedMessage : undefined}
             onDeployLatest={handleDeployLatest}
             onOpenVersionPicker={handleOpenVersionPicker}
+            promotableRelease={promotableRelease}
+            onPromoteRelease={handlePromoteRelease}
             isCanaryStrategy={deployStrategyType === 'canary'}
+            isBlueGreenStrategy={deployStrategyType === 'blue-green'}
+            blueGreenTargetLabel={switchTargetSlot}
             canaryPercent={Number(service.deploymentStrategy?.canaryPercent ?? canaryPercent) || 10}
-            canPromoteCanary={
-              deployStrategyType === 'canary' &&
-              isSuccessfulDeployStatus(deploysSorted[0]?.status)
+            canPromote={
+              deployStrategyType === 'canary'
+                ? isSuccessfulDeployStatus(deploysSorted[0]?.status) &&
+                  !deployBusy &&
+                  deploysSorted[0]?.strategyStatus?.phase !== 'promoted' &&
+                  (Number(service.deploymentStrategy?.canaryPercent ?? canaryPercent) || 0) > 0
+                : deployStrategyType === 'blue-green' &&
+                  isSuccessfulDeployStatus(deploysSorted[0]?.status) &&
+                  !deployBusy &&
+                  deploysSorted[0]?.strategyStatus?.phase !== 'promoted' &&
+                  (deploysSorted[0]?.strategyStatus?.details?.switchPending === true ||
+                    deploysSorted[0]?.strategyStatus?.phase === 'promoting' ||
+                    switchBlueGreenInProgress)
             }
-            onPromoteCanary={handlePromoteCanary}
-            promoteCanaryInProgress={promoteCanaryInProgress}
+            onPromote={deployStrategyType === 'canary' ? handlePromoteCanary : undefined}
+            onSwitch={deployStrategyType === 'blue-green' ? handleSwitchBlueGreen : undefined}
+            promoteInProgress={
+              promoteCanaryInProgress ||
+              switchBlueGreenInProgress ||
+              canaryStrategyPhase === 'promoting'
+            }
+            promoteStep={typeof canaryStrategyStep === 'string' ? canaryStrategyStep : undefined}
             cpuAvgLabel={cpuAvgLabel}
             cpuPeakLabel={cpuPeakLabel}
             memoryAvgLabel={memoryAvgLabel}
@@ -3860,7 +4110,7 @@ const ServiceDetails = () => {
             visibleServiceRules={visibleServiceRules}
             pagination={rulesPagination}
             onCreateRule={handleOpenCreateRule}
-            onOpenEditRule={openEditRule}
+            onOpenEditRule={(rule) => openEditRule(rule)}
             onOpenCopyRule={openCopyRule}
             onOpenPublishRule={openPublishRule}
             onDeleteRule={handleOpenDeleteRule}
@@ -3923,6 +4173,16 @@ const ServiceDetails = () => {
           setNewRuleName,
           newRuleAction,
           setNewRuleAction,
+          newRuleAuthMode,
+          setNewRuleAuthMode,
+          newRuleJWTIssuer,
+          setNewRuleJWTIssuer,
+          newRuleJWKSUri,
+          setNewRuleJWKSUri,
+          newRuleAudiences,
+          setNewRuleAudiences,
+          newEdge,
+          setNewEdge,
           newRuleMethods,
           toggleNewRuleMethod,
           newRulePathDraft,
@@ -3930,8 +4190,6 @@ const ServiceDetails = () => {
           addNewRulePath,
           newRulePaths,
           removeNewRulePath,
-          newRulePublishTargets,
-          setNewRulePublishTargets,
           onConfirm: handleCreateRule,
         }}
         editRule={{
@@ -3944,6 +4202,16 @@ const ServiceDetails = () => {
           setEditRuleName,
           editRuleAction,
           setEditRuleAction,
+          editRuleAuthMode,
+          setEditRuleAuthMode,
+          editRuleJWTIssuer,
+          setEditRuleJWTIssuer,
+          editRuleJWKSUri,
+          setEditRuleJWKSUri,
+          editRuleAudiences,
+          setEditRuleAudiences,
+          editEdge,
+          setEditEdge,
           editRuleMethods,
           toggleEditRuleMethod,
           editRulePathDraft,
@@ -3951,35 +4219,31 @@ const ServiceDetails = () => {
           addEditRulePath,
           editRulePaths,
           removeEditRulePath,
-          onOpenCopyFromEdit: handleOpenCopyFromEdit,
           onDeleteRuleFromEdit: handleDeleteRuleFromEdit,
           onConfirm: handleSaveRuleEdits,
-        }}
-        copyRule={{
-          open: copyRuleOpen,
-          setOpen: setCopyRuleOpen,
-          onClose: resetCopyRuleForm,
-          copyRule,
-          viewEnv,
-          environmentOptions,
-          copyRuleEnvs,
-          toggleCopyRuleEnvironment,
-          onConfirm: handleCopyRuleConfirm,
         }}
         publishRule={{
           open: publishRuleOpen,
           setOpen: setPublishRuleOpen,
-          onClose: () => {
-            setPublishRuleId(null);
-            setPublishPolicyPreflight(null);
-          },
-          publishRule,
+          onClose: () => setPublishRuleId(null),
+          rule: publishRule,
           viewEnv,
-          publishTargets,
-          setPublishTargets,
+          targets: publishTargets,
+          setTargets: setPublishTargets,
           preflight: publishPolicyPreflight,
           preflightLoading: publishPolicyPreflightLoading,
           onConfirm: handleConfirmPublishRule,
+        }}
+        promoteRule={{
+          open: copyRuleOpen,
+          setOpen: setCopyRuleOpen,
+          onClose: resetCopyRuleForm,
+          rule: copyRule,
+          viewEnv,
+          environmentOptions,
+          selected: copyRuleEnvs,
+          toggle: toggleCopyRuleEnvironment,
+          onConfirm: handleCopyRuleConfirm,
         }}
         deleteRule={{
           open: deleteRuleOpen,
@@ -3995,10 +4259,15 @@ const ServiceDetails = () => {
         }}
         confirmDeploy={{
           open: confirmDeployOpen,
-          setOpen: setConfirmDeployOpen,
+          setOpen: (open) => {
+            setConfirmDeployOpen(open);
+            if (!open) setPendingPromoteFrom(null);
+          },
           service,
           viewEnv,
           pendingVersion: pendingDeployVersion,
+          promoteFrom: pendingPromoteFrom,
+          promoteFromLabel: pendingPromoteFrom ? getEnvironmentLabel(pendingPromoteFrom) : undefined,
           onStart: handleDeploySubmitStart,
           onError: handleDeploySubmitError,
           onConfirm: handleConfirmDeploy,
@@ -4023,7 +4292,23 @@ const ServiceDetails = () => {
         environment={viewEnvLabel}
         busy={gitOpsMenuBusy}
         onOpenChange={(open) => !open && setGitOpsConfirmationAction(null)}
-        onConfirm={() => void handleConfirmGitOpsAction()}
+        onConfirm={(action) => void handleConfirmGitOpsAction(action)}
+      />
+
+      <ConfirmSwitchBlueGreenModal
+        open={switchBlueGreenOpen}
+        onOpenChange={(open) => {
+          setSwitchBlueGreenOpen(open);
+          if (!open) {
+            setSwitchBlueGreenViolations([]);
+          }
+        }}
+        serviceName={service?.name ?? ''}
+        environment={viewEnv}
+        activeSlot={switchActiveSlot}
+        candidateSlot={switchTargetSlot}
+        policyViolations={switchBlueGreenViolations}
+        onConfirm={handleConfirmSwitchBlueGreen}
       />
 
       <ConfirmPromoteCanaryModal

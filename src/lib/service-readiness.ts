@@ -129,17 +129,23 @@ export const buildServiceReadinessScorecard = ({
       state:
         !service.repoUrl?.trim() || (service.managementMode ?? 'managed') === 'observed'
           ? 'review'
-          : gitOpsRepositoryPolicyCheck?.status === 'invalid'
+          : !gitOpsRepositoryPolicyCheck
+            ? 'review'
+            : gitOpsRepositoryPolicyCheck.status === 'invalid'
             ? 'blocked'
-            : gitOpsRepositoryPolicyCheck?.status === 'needs-review'
+            : gitOpsRepositoryPolicyCheck.status === 'needs-review'
               ? 'review'
-              : 'ready',
+              : gitOpsRepositoryPolicyCheck.status === 'verified'
+                ? 'ready'
+                : 'review',
       message:
         !service.repoUrl?.trim()
           ? 'GitOps repository policy checks are unavailable because the service does not point to a repository.'
           : (service.managementMode ?? 'managed') === 'observed'
             ? 'GitOps repository policy checks stay limited while the service is observed-only.'
-            : gitOpsRepositoryPolicyCheck?.summary || 'Repository policy checks passed for GitOps delivery.',
+            : !gitOpsRepositoryPolicyCheck
+              ? 'Repository policy check is unavailable.'
+              : gitOpsRepositoryPolicyCheck.summary || 'Repository policy checks passed for GitOps delivery.',
     },
     {
       id: 'gitops',
@@ -147,22 +153,30 @@ export const buildServiceReadinessScorecard = ({
       state:
         !service.repoUrl?.trim() || (service.managementMode ?? 'managed') === 'observed'
           ? 'review'
-          : gitOpsDrift?.state === 'out-of-sync' || gitOpsDrift?.state === 'missing'
+          : !gitOpsDrift
             ? 'review'
-            : 'ready',
+            : gitOpsDrift.state === 'out-of-sync' || gitOpsDrift.state === 'missing'
+            ? 'review'
+            : gitOpsDrift.state === 'in-sync'
+              ? 'ready'
+              : 'review',
       message:
         !service.repoUrl?.trim()
           ? 'GitOps is not configured because the service does not point to a repository.'
           : (service.managementMode ?? 'managed') === 'observed'
             ? 'GitOps actions stay limited while the service is observed-only.'
-            : gitOpsDrift?.message || 'GitOps desired state is aligned.',
+            : !gitOpsDrift
+              ? 'GitOps drift check is unavailable.'
+              : gitOpsDrift.state === 'missing'
+                ? gitOpsDrift.message || 'GitOps is optional and no desired-state file has been added yet.'
+                : gitOpsDrift.message || 'GitOps desired state is aligned.',
     },
   ];
 
   const operationsItems: ServiceReadinessItem[] = [
     {
       id: 'telemetry',
-      label: 'Release intelligence',
+      label: 'Runtime health',
       state:
         !releaseIntelligence
           ? 'review'

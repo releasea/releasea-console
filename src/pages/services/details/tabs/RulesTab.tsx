@@ -13,6 +13,7 @@ import { Copy, Globe, MoreVertical, Pencil, Plus, Route as RouteIcon, ShieldChec
 import { getGatewayTargets } from '../constants';
 import type { RuleRow } from '../types';
 import { ServiceTabHeader } from '../ServiceTabHeader';
+import { DocumentationLink } from '@/components/layout/DocumentationLink';
 
 type PaginationState = {
   page: number;
@@ -56,10 +57,13 @@ export const RulesTab = ({
       description="Define paths, methods, access policy, and gateway publication for this service."
       environment={viewEnvLabel}
       actions={
-        <Button size="sm" className="gap-2" onClick={onCreateRule} disabled={isObservedManagementMode}>
-          <Plus className="w-4 h-4" />
-          New rule
-        </Button>
+        <div className="flex items-center gap-2">
+          <DocumentationLink slug="rules-and-traffic" label="Access guide" variant="button" />
+          <Button size="sm" className="gap-2" onClick={onCreateRule} disabled={isObservedManagementMode}>
+            <Plus className="w-4 h-4" />
+            New rule
+          </Button>
+        </div>
       }
     />
     <div className="bg-card border border-border rounded-lg overflow-hidden">
@@ -124,6 +128,15 @@ export const RulesTab = ({
                     ? 'published'
                     : 'unpublished';
               const actionLabel = rule.policy?.action ?? 'allow';
+              const accessLabel = actionLabel === 'deny'
+                ? 'Blocked'
+                : rule.policy?.authMode === 'jwt'
+                  ? 'JWT required'
+                  : rule.policy?.authMode === 'apikey'
+                    ? 'API key'
+                    : rule.policy?.authMode === 'mtls'
+                      ? 'mTLS'
+                      : 'Public';
               const methods = rule.methods.length ? rule.methods : ['ANY'];
               const visibleMethods = methods.slice(0, 3);
               const extraMethods = Math.max(0, methods.length - visibleMethods.length);
@@ -162,8 +175,10 @@ export const RulesTab = ({
                       <div>
                         <p className="font-mono font-medium text-foreground">{rule.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {actionLabel === 'allow' ? 'Allow' : 'Deny'} • {rule.paths.length} path(s) •{' '}
-                          {rule.hosts.length} host(s)
+                          v{rule.revision && rule.revision > 0 ? rule.revision : 1}
+                          {rule.promotedFromEnvironment ? ` · from ${getEnvironmentLabel(rule.promotedFromEnvironment)}` : ''}
+                          {' · '}
+                          {accessLabel} • {rule.paths.length} path(s)
                         </p>
                       </div>
                     </div>
@@ -224,7 +239,7 @@ export const RulesTab = ({
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => onOpenCopyRule(rule)} disabled={isObservedManagementMode}>
                           <Copy className="w-4 h-4 mr-2" />
-                          Copy to environments
+                          Promote to environment
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem

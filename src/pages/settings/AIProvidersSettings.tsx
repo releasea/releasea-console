@@ -4,6 +4,12 @@ import { SettingsSection } from '@/components/layout/SettingsSection';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { DocumentationLink } from '@/components/layout/DocumentationLink';
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+} from '@/components/modals/WorkflowDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,14 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import {
   createAIProvider,
@@ -221,17 +220,15 @@ export function AIProvidersSettings() {
           setForm(emptyProvider());
         }
       }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit AI provider' : 'Add AI provider'}</DialogTitle>
-            <DialogDescription>
-              Connect a model for evidence-backed diagnostics. Releasea keeps the workflow read-only and requires human review.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end">
-            <DocumentationLink slug="operational-ai" label="Review setup and security" />
-          </div>
-        <div className="grid gap-4 md:grid-cols-2">
+        <WorkflowDialogContent size="lg">
+          <WorkflowDialogHeader
+            title={editingId ? 'Edit AI provider' : 'Add AI provider'}
+            description="Connect a model for evidence-backed diagnostics. Releasea keeps the workflow read-only and requires human review."
+            icon={<Bot className="h-4 w-4" />}
+            meta={<DocumentationLink slug="operational-ai" label="Setup guide" />}
+          />
+          <WorkflowDialogBody>
+            <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="ai-name">Connection name</Label><Input id="ai-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production diagnostics" /><p className="text-xs text-muted-foreground">Use a name that identifies the runtime or intended workload.</p></div>
           <div className="space-y-2"><Label>Provider type</Label><Select value={form.type} onValueChange={(value) => changeType(value as AIProviderType)}><SelectTrigger aria-label="AI provider type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="openai">OpenAI API</SelectItem><SelectItem value="openai-compatible">OpenAI-compatible runtime</SelectItem></SelectContent></Select><p className="text-xs text-muted-foreground">Compatible runtimes include Ollama, llama.cpp, and vLLM with a /v1 endpoint.</p></div>
           <div className="space-y-2 md:col-span-2"><Label htmlFor="ai-url">Base URL</Label><Input id="ai-url" type="url" value={form.baseUrl} disabled={form.type === 'openai'} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} /><p className="text-xs text-muted-foreground">Enter the OpenAI-compatible API root, including /v1.</p></div>
@@ -256,14 +253,15 @@ export function AIProvidersSettings() {
               <div className="flex items-center justify-between rounded-lg border p-3 md:col-span-2"><div><p className="text-sm font-medium">Inference egress</p><p className="text-xs text-muted-foreground">Master switch for provider calls</p></div><Switch checked={form.externalEgress} onCheckedChange={(value) => setForm({ ...form, externalEgress: value })} /></div>
             </CollapsibleContent>
           </Collapsible>
-        </div>
-        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-border bg-background px-6 py-4">
-          <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={busy || !form.name.trim() || !form.model.trim()}>
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? 'Save provider' : 'Add provider'}
-          </Button>
-        </DialogFooter>
-        </DialogContent>
+            </div>
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+            <Button onClick={() => void save()} disabled={busy || !form.name.trim() || !form.model.trim()}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}{editingId ? 'Save provider' : 'Add provider'}
+            </Button>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
       </Dialog>
 
       <ConfirmDeleteModal

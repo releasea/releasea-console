@@ -303,7 +303,7 @@ const Environments = () => {
 
         <SectionCard
           title="Operational guidance"
-          description="Clarify how environments map to deploys, workers, and release flow"
+          description="Clarify how environments map to deploys, workers, and the path between them"
           icon={<Settings2 className="w-5 h-5 text-primary" />}
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -72,7 +72,7 @@ const CSRF_EXCLUDED_PATHS = [
   '/auth/sso/exchange',
   '/auth/csrf',
 ];
-const IDEMPOTENCY_PROTECTED_ENDPOINTS = [/^\/services\/[^/]+\/deploys$/, /^\/services\/[^/]+\/promote-canary$/];
+const IDEMPOTENCY_PROTECTED_ENDPOINTS = [/^\/services\/[^/]+\/deploys$/, /^\/services\/[^/]+\/promote-canary$/, /^\/services\/[^/]+\/switch-blue-green$/];
 const csrfTokenResponseSchema = z.object({
   csrfToken: z.string().min(16),
 });

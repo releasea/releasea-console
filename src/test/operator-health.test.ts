@@ -67,4 +67,38 @@ describe('buildOperatorHealthReport', () => {
     expect(lane?.level).toBe('degraded');
     expect(lane?.summary).toContain('Dispatch failures');
   });
+
+  it('names the unhealthy integration instead of a bare count', () => {
+    const report = buildOperatorHealthReport({
+      providerHealth: {
+        version: '1',
+        scm: {
+          kind: 'scm',
+          healthy: 0,
+          unhealthy: 1,
+          checks: [
+            {
+              providerId: 'github',
+              providerLabel: 'GitHub',
+              resourceLabel: 'Platform GitHub',
+              state: 'unhealthy',
+              message: 'Token rejected.',
+            },
+          ],
+        },
+        registry: { kind: 'registry', healthy: 0, unhealthy: 0, checks: [] },
+        secrets: { kind: 'secrets', healthy: 0, unhealthy: 0, checks: [] },
+        identity: { kind: 'identity', healthy: 0, unhealthy: 0, checks: [] },
+        notifications: { kind: 'notifications', healthy: 0, unhealthy: 0, checks: [] },
+      },
+      controlPlaneMetrics: null,
+      deploys: [],
+      workerPools: [],
+    });
+
+    const lane = report.lanes.find((candidate) => candidate.id === 'providers');
+    expect(lane?.summary).toBe('Platform GitHub · GitHub is unhealthy.');
+    expect(lane?.detail).toBe('Token rejected.');
+    expect(lane?.href).toBe('/settings?tab=providers&focus=health');
+  });
 });

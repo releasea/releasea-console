@@ -175,4 +175,23 @@ describe('buildServiceReadinessScorecard', () => {
     expect(scorecard.state).toBe('ready');
     expect(scorecard.score).toBe(100);
   });
+
+  it('does not treat a missing GitOps check as aligned', () => {
+    const scorecard = buildServiceReadinessScorecard({
+      service: baseService,
+      requirements: readyRequirements,
+      deployPolicyPreflight: cleanPolicy,
+      gitOpsRepositoryPolicyCheck: null,
+      gitOpsDrift: null,
+      releaseIntelligence: healthyRelease,
+    });
+
+    const gitops = scorecard.sections.find((section) => section.id === 'gitops');
+    expect(gitops?.state).toBe('review');
+    expect(gitops?.items.map((item) => item.message)).toEqual([
+      'Repository policy check is unavailable.',
+      'GitOps drift check is unavailable.',
+    ]);
+    expect(scorecard.state).toBe('ready');
+  });
 });
