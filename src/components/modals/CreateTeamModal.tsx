@@ -1,16 +1,15 @@
 import { useState } from 'react';
 import { Plus, X, UserPlus } from 'lucide-react';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+} from '@/components/modals/WorkflowDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -128,15 +127,14 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-card border-border">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">Create team</DialogTitle>
-          <DialogDescription>
-            Define the ownership group now. Member invitations are optional and can be sent later.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <form onSubmit={handleSubmit} className="space-y-5 mt-4">
+      <WorkflowDialogContent size="md">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <WorkflowDialogHeader
+            title="Create team"
+            description="Define the ownership group now. Member invitations are optional and can be sent later."
+            icon={<UserPlus className="h-4 w-4" />}
+          />
+          <WorkflowDialogBody className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="name">Team name</Label>
             <Input
@@ -219,7 +217,8 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
             )}
           </div>
 
-          <DialogFooter className="border-t border-border pt-4">
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -232,9 +231,9 @@ export function CreateTeamModal({ open, onOpenChange, onCreated }: CreateTeamMod
               <Plus className="w-4 h-4" />
               {isLoading ? 'Creating...' : 'Create team'}
             </Button>
-          </DialogFooter>
+          </WorkflowDialogFooter>
         </form>
-      </DialogContent>
+      </WorkflowDialogContent>
     </Dialog>
   );
 }

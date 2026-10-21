@@ -323,7 +323,11 @@ export function ServicesList({
                             <Rocket className="w-4 h-4 mr-2" />
                             Deploy service
                           </DropdownMenuItem>
-                          {service.status === 'running' ? (
+                          {resolveServiceStatusForDisplay({
+                            service,
+                            environment: latestLiveDeployByService.get(service.id)?.environment ?? latestDeployByService.get(service.id)?.environment,
+                            latestDeployStatus: latestLiveDeployByService.get(service.id)?.status ?? null,
+                          }) === 'running' ? (
                             <DropdownMenuItem>
                               <Square className="w-4 h-4 mr-2" />
                               Stop service

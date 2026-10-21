@@ -21,11 +21,20 @@ import {
   Trash2,
   Download,
   ChevronDown,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { DocumentationLink } from '@/components/layout/DocumentationLink';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+  WorkflowDialogSteps,
+} from '@/components/modals/WorkflowDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -263,6 +272,9 @@ const GovernancePage = () => {
   const [expandedRuleIndex, setExpandedRuleIndex] = useState<number | null>(0);
   const [isExceptionSaving, setIsExceptionSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<GovernanceTab>('approvals');
+  const [policyWizardOpen, setPolicyWizardOpen] = useState(false);
+  const [policyWizardStep, setPolicyWizardStep] = useState<'baseline' | 'review'>('baseline');
+  const [policyWizardPackId, setPolicyWizardPackId] = useState(GOVERNANCE_POLICY_PACKS[1]?.id ?? GOVERNANCE_POLICY_PACKS[0]?.id ?? '');
 
   // Audit log filters
   const [auditSearch, setAuditSearch] = useState('');
@@ -413,6 +425,17 @@ const GovernancePage = () => {
         void persistGovernanceSettings(next);
       },
     });
+  };
+
+  const applyPolicyWizard = () => {
+    if (!settings) return;
+    const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === policyWizardPackId);
+    if (!pack) return;
+    const next = applyGovernancePolicyPack(settings, pack);
+    setSettings(next);
+    setPolicyWizardOpen(false);
+    setPolicyWizardStep('baseline');
+    void persistGovernanceSettings(next);
   };
 
   const runPolicySimulation = async () => {
@@ -1074,7 +1097,15 @@ const GovernancePage = () => {
                   title="Policy packs by environment tier"
                   description="Apply a complete governance baseline for common environment tiers, then tune individual rules."
                   status={saveStatus}
-                  actions={<DocumentationLink slug="settings-identity-governance" label="Policy guide" variant="button" />}
+                  actions={(
+                    <div className="flex items-center gap-2">
+                      <DocumentationLink slug="settings-identity-governance" label="Policy guide" variant="button" />
+                      <Button type="button" size="sm" className="gap-2" onClick={() => { setPolicyWizardStep('baseline'); setPolicyWizardOpen(true); }}>
+                        <Shield className="h-4 w-4" />
+                        Guided setup
+                      </Button>
+                    </div>
+                  )}
                 >
                   <div className="grid gap-3 md:grid-cols-3">
                     {GOVERNANCE_POLICY_PACKS.map((pack) => (
@@ -1957,6 +1988,89 @@ const GovernancePage = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={policyWizardOpen} onOpenChange={(open) => { setPolicyWizardOpen(open); if (!open) setPolicyWizardStep('baseline'); }}>
+        <WorkflowDialogContent size="lg">
+          <WorkflowDialogHeader
+            title="Configure governance baseline"
+            description="Start from a policy pack, review its impact, and fine-tune individual controls after it is applied."
+            icon={<Shield className="h-4 w-4" />}
+          />
+          <WorkflowDialogBody className="space-y-5">
+            <WorkflowDialogSteps steps={['Choose baseline', 'Review impact']} activeStep={policyWizardStep === 'baseline' ? 0 : 1} />
+
+            {policyWizardStep === 'baseline' ? (
+              <div className="grid gap-3">
+                {GOVERNANCE_POLICY_PACKS.map((pack) => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => setPolicyWizardPackId(pack.id)}
+                    className={cn(
+                      'rounded-lg border p-4 text-left transition-colors',
+                      policyWizardPackId === pack.id ? 'border-primary/50 bg-primary/5' : 'border-border bg-card hover:bg-muted/20',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{pack.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{pack.description}</p>
+                      </div>
+                      <Badge variant="outline" className="shrink-0 text-[10px] normal-case">{pack.environmentTiers.join(' · ')}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (() => {
+              const pack = GOVERNANCE_POLICY_PACKS.find((item) => item.id === policyWizardPackId);
+              if (!pack) return null;
+              return (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-muted/20 p-4">
+                    <p className="text-sm font-medium text-foreground">{pack.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{pack.description}</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-xs text-muted-foreground">Deploy approvals</p>
+                      <p className="mt-1 text-sm font-medium">{pack.settings.deployApproval.enabled ? `${pack.settings.deployApproval.minApprovers} approver(s)` : 'Disabled'}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{pack.settings.deployApproval.environments.join(', ') || 'No environments'}</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-xs text-muted-foreground">Deploy guardrails</p>
+                      <p className="mt-1 text-sm font-medium">{pack.settings.deployPolicy.rules.length} environment rule(s)</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Evaluated before queueing work</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-xs text-muted-foreground">Route publishing</p>
+                      <p className="mt-1 text-sm font-medium">{pack.settings.rulePublishApproval.enabled ? `${pack.settings.rulePublishApproval.minApprovers} approver(s)` : 'No approval'}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{pack.settings.rulePublishApproval.externalOnly ? 'External routes only' : 'All publications'}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-warning/25 bg-warning/5 p-3 text-xs leading-5 text-muted-foreground">
+                    Applying this baseline replaces the current deploy approval, deploy policy, and route publication settings. Existing services are not redeployed automatically.
+                  </div>
+                </div>
+              );
+            })()}
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
+            <Button variant="outline" onClick={() => setPolicyWizardOpen(false)}>Cancel</Button>
+            {policyWizardStep === 'review' && (
+              <Button variant="ghost" className="gap-2" onClick={() => setPolicyWizardStep('baseline')}>
+                <ArrowLeft className="h-4 w-4" /> Back
+              </Button>
+            )}
+            {policyWizardStep === 'baseline' ? (
+              <Button className="gap-2" onClick={() => setPolicyWizardStep('review')} disabled={!policyWizardPackId}>
+                Review impact <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button onClick={applyPolicyWizard} disabled={isSaving}>Apply baseline</Button>
+            )}
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
+      </Dialog>
 
       <Dialog open={isExceptionDialogOpen} onOpenChange={setIsExceptionDialogOpen}>
         <DialogContent>

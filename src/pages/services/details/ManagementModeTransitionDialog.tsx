@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+} from '@/components/modals/WorkflowDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 
 export type ManagementTransitionRequirement = {
@@ -50,16 +49,14 @@ export function ManagementModeTransitionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] bg-card border-border">
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">Switch to managed mode</DialogTitle>
-          <DialogDescription>
-            Review the operational requirements before Releasea starts deploying <span className="font-medium text-foreground">{serviceName}</span>{' '}
-            in <span className="font-medium text-foreground">{environmentLabel}</span>.
-          </DialogDescription>
-        </DialogHeader>
+      <WorkflowDialogContent size="md">
+        <WorkflowDialogHeader
+          title="Switch to managed mode"
+          description={<>Review the operational requirements before Releasea starts deploying <span className="font-medium text-foreground">{serviceName}</span> in <span className="font-medium text-foreground">{environmentLabel}</span>.</>}
+          icon={<CheckCircle2 className="h-4 w-4" />}
+        />
 
-        <div className="space-y-4">
+        <WorkflowDialogBody className="space-y-4">
           <div
             className={`rounded-lg border px-4 py-3 text-sm ${
               readyToManage
@@ -69,7 +66,7 @@ export function ManagementModeTransitionDialog({
           >
             {readyToManage
               ? 'All required checks passed. Confirm to save the current settings and hand deploy control back to Releasea.'
-              : `${blockingCount} requirement${blockingCount === 1 ? '' : 's'} still need attention before this service can move to managed mode.`}
+              : `${blockingCount} ${blockingCount === 1 ? 'requirement still needs' : 'requirements still need'} attention before this service can move to managed mode.`}
           </div>
 
           <div className="space-y-3">
@@ -116,17 +113,17 @@ export function ManagementModeTransitionDialog({
               </div>
             </div>
           )}
-        </div>
+        </WorkflowDialogBody>
 
-        <DialogFooter className="mt-2">
+        <WorkflowDialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button type="button" onClick={onConfirm} disabled={!readyToManage || !takeoverConfirmed || isSaving}>
             {isSaving ? 'Saving...' : 'Save as managed'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </WorkflowDialogFooter>
+      </WorkflowDialogContent>
     </Dialog>
   );
 }

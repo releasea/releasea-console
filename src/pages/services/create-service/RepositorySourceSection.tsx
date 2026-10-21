@@ -99,7 +99,7 @@ export function RepositorySourceSection({
           ) : null}
           {templateRepoAvailability === 'error' ? (
             <p className="text-xs text-warning">
-              Could not verify repository availability now. You can try again in a moment.
+              {templateRepoAvailabilityMessage || 'Could not verify repository availability now. You can try again in a moment.'}
             </p>
           ) : null}
         </div>

@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { clientLogger } from '@/platform/logging/client-logger';
 
+export type PlatformTheme = 'light' | 'dark' | 'system';
+
 export interface PlatformPreferences {
   // Display preferences
+  theme: PlatformTheme;
   compactView: boolean;
   sidebarCollapsed: boolean;
   defaultLandingPage: '/' | '/projects' | '/services' | '/workers';
@@ -26,6 +29,7 @@ export interface PlatformPreferences {
 }
 
 const defaultPreferences: PlatformPreferences = {
+  theme: 'dark',
   compactView: false,
   sidebarCollapsed: false,
   defaultLandingPage: '/',

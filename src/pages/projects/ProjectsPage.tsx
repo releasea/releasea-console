@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { CreateProjectModal } from '@/components/modals/CreateProjectModal';
 import { format } from 'date-fns';
 import { EmptyState } from '@/components/layout/EmptyState';
-import { fetchProjects, fetchServices, fetchTeams } from '@/lib/data';
-import type { Project, Service, Team } from '@/types/releasea';
+import { fetchDeploys, fetchProjects, fetchServices, fetchTeams } from '@/lib/data';
+import type { Deploy, Project, Service, Team } from '@/types/releasea';
+import { displayedServiceStatus } from '@/components/dashboard/ServiceHive';
 
 const Projects = () => {
   const navigate = useNavigate();
@@ -22,19 +23,22 @@ const Projects = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [deploys, setDeploys] = useState<Deploy[]>([]);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [projectsData, teamsData, servicesData] = await Promise.all([
+      const [projectsData, teamsData, servicesData, deploysData] = await Promise.all([
         fetchProjects(),
         fetchTeams(),
         fetchServices(),
+        fetchDeploys(),
       ]);
       if (!active) return;
       setProjects(projectsData);
       setTeams(teamsData);
       setServices(servicesData);
+      setDeploys(deploysData);
     };
     load();
     return () => {
@@ -58,9 +62,9 @@ const Projects = () => {
 
   const getServiceStats = useCallback((projectId: string) => {
     const scoped = services.filter((service) => service.projectId === projectId);
-    const running = scoped.filter((service) => service.status === 'running').length;
+    const running = scoped.filter((service) => displayedServiceStatus(service, deploys) === 'running').length;
     return { total: scoped.length, running };
-  }, [services]);
+  }, [deploys, services]);
 
   const filteredProjects = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();

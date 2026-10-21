@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ServicesList } from '@/components/dashboard/ServicesList';
+import { ServiceHive, displayedServiceStatus, serviceNeedsAttention } from '@/components/dashboard/ServiceHive';
 import { DeploysList } from '@/components/dashboard/DeploysList';
 import { ConfirmActionModal } from '@/components/modals/ConfirmActionModal';
 import { format } from 'date-fns';
@@ -156,7 +157,7 @@ const ProjectDetails = () => {
   };
 
   const teamName = teams.find((team) => team.id === project.teamId)?.name || 'N/A';
-  const runningServices = projectServices.filter((service) => service.status === 'running').length;
+  const runningServices = projectServices.filter((service) => displayedServiceStatus(service, projectDeploys) === 'running').length;
   const successDeploys = projectDeploys.filter((deploy) => isSuccessfulDeployStatus(deploy.status)).length;
   const failedDeploys = projectDeploys.filter((deploy) => isFailedDeployStatus(deploy.status)).length;
   const deploySuccessRate =
@@ -433,6 +434,30 @@ const ProjectDetails = () => {
               },
             ]}
           />
+
+          <section className="rounded-lg border border-border bg-card p-5">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Services</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Open a cell to inspect that service.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Running</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-warning" /> Attention</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" /> Other</span>
+                <span className="text-foreground">
+                  {(() => {
+                    const count = projectServices.filter((service) => serviceNeedsAttention(service, projectDeploys)).length;
+                    if (count === 0) return 'All clear';
+                    return count === 1 ? '1 needs attention' : `${count} need attention`;
+                  })()}
+                </span>
+              </div>
+            </div>
+            <ServiceHive services={projectServices} deploys={projectDeploys} />
+          </section>
         </div>
 
         <TabsWrapper tabs={tabs} defaultValue="services" />

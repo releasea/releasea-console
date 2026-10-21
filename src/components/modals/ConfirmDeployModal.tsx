@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Service } from '@/types/releasea';
 import { apiClient } from '@/lib/api-client';
 import type { DeployPolicyViolation } from '@/types/governance';
@@ -22,6 +23,8 @@ interface ConfirmDeployModalProps {
   service: Service | null;
   environment: string;
   version: string;
+  promoteFrom?: string | null;
+  promoteFromLabel?: string;
   onStart?: () => void;
   onError?: (message?: string) => void;
   onConfirm: () => Promise<void> | void;
@@ -33,16 +36,20 @@ export function ConfirmDeployModal({
   service,
   environment,
   version,
+  promoteFrom,
+  promoteFromLabel,
   onStart,
   onError,
   onConfirm,
 }: ConfirmDeployModalProps) {
   const [isConfirming, setIsConfirming] = useState(false);
+  const [publishRules, setPublishRules] = useState(false);
   const [policyViolations, setPolicyViolations] = useState<DeployPolicyViolation[]>([]);
 
   useEffect(() => {
     if (!open) {
       setIsConfirming(false);
+      setPublishRules(false);
       setPolicyViolations([]);
     }
   }, [open]);
@@ -59,7 +66,12 @@ export function ConfirmDeployModal({
       message?: string;
     }>(
       `/services/${service.id}/deploys`,
-      { environment, version },
+      {
+        environment,
+        version,
+        publishRules,
+        ...(promoteFrom ? { promoteFrom, trigger: 'promotion' } : {}),
+      },
     );
     if (response.error) {
       const violations = extractDeployPolicyViolations(response.errorBody);
@@ -109,10 +121,12 @@ export function ConfirmDeployModal({
             </div>
             <div>
               <AlertDialogTitle className="text-lg">
-                Confirm deployment
+                {promoteFrom ? 'Promote image' : 'Confirm deployment'}
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm">
-                Review the details before proceeding.
+                {promoteFrom
+                  ? `Reuses the image already built in ${promoteFromLabel || promoteFrom}. This environment does not build it again.`
+                  : 'Review the details before proceeding.'}
               </AlertDialogDescription>
             </div>
           </div>
@@ -159,6 +173,21 @@ export function ConfirmDeployModal({
             </div>
           )}
 
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-card p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">Also publish traffic rules</p>
+              <p className="text-sm text-muted-foreground">
+                Optional. Leave this off to deploy only the workload. Turn it on to publish the routes for this environment in the same step.
+              </p>
+            </div>
+            <Switch
+              checked={publishRules}
+              onCheckedChange={setPublishRules}
+              disabled={isConfirming}
+              aria-label="Also publish traffic rules"
+            />
+          </div>
+
           {isProd && (
             <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
@@ -183,7 +212,7 @@ export function ConfirmDeployModal({
             className={`gap-2 ${isProd ? 'bg-warning text-warning-foreground hover:bg-warning/90' : ''}`}
           >
             <ActionIcon className="w-4 h-4" />
-            {isConfirming ? 'Starting...' : 'Deploy now'}
+            {isConfirming ? 'Starting...' : promoteFrom ? 'Promote image' : 'Deploy now'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, FolderKanban, Plus, Rocket, ShieldCheck } from 'lucide-react';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+  WorkflowDialogSteps,
+} from '@/components/modals/WorkflowDialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -56,7 +56,6 @@ export function CreateProjectModal({ open, onOpenChange, onCreated }: CreateProj
 
   const environmentOptions = getEnvironmentConfigs();
   const stepCount = 3;
-  const progress = Math.round(((step + 1) / stepCount) * 100);
 
   useEffect(() => {
     let active = true;
@@ -174,28 +173,16 @@ export function CreateProjectModal({ open, onOpenChange, onCreated }: CreateProj
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[680px] bg-card border-border">
-        <DialogHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-xl font-semibold">Create project</DialogTitle>
-            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-              Step {step + 1} of {stepCount}
-            </Badge>
-          </div>
-          <DialogDescription>
-            Create the project with ownership, governance, and delivery defaults already in place.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{stepTitle}</span>
-            <span>{progress}%</span>
-          </div>
-          <Progress value={progress} className="h-2" />
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
+      <WorkflowDialogContent size="lg">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <WorkflowDialogHeader
+            title="Create project"
+            description="Create the project with ownership, governance, and delivery defaults already in place."
+            icon={<FolderKanban className="h-4 w-4" />}
+            meta={<Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Step {step + 1} of {stepCount}</Badge>}
+          />
+          <WorkflowDialogBody className="space-y-5">
+            <WorkflowDialogSteps steps={['Basics', 'Ownership', 'Delivery defaults']} activeStep={step} />
           <div className="rounded-lg border border-border bg-muted/20 p-4">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-primary/10 p-2 text-primary">{stepIcon}</div>
@@ -404,7 +391,8 @@ export function CreateProjectModal({ open, onOpenChange, onCreated }: CreateProj
             </div>
           )}
 
-          <div className="flex justify-between gap-3 border-t border-border pt-4">
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter split>
             <div className="flex gap-3">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isLoading}>
                 Cancel
@@ -428,9 +416,9 @@ export function CreateProjectModal({ open, onOpenChange, onCreated }: CreateProj
                 {isLoading ? 'Creating...' : continueToService ? 'Create & continue' : 'Create Project'}
               </Button>
             )}
-          </div>
+          </WorkflowDialogFooter>
         </form>
-      </DialogContent>
+      </WorkflowDialogContent>
     </Dialog>
   );
 }

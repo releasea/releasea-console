@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Globe,
   Bell,
   Zap,
   Monitor,
+  Moon,
+  Sun,
   Clock,
   RotateCcw,
   KeyRound,
@@ -27,7 +29,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SettingsGrid, SettingsSection } from '@/components/layout/SettingsSection';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { TableEmptyRow } from '@/components/layout/EmptyState';
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { DocumentationLink } from '@/components/layout/DocumentationLink';
@@ -67,7 +68,8 @@ import {
   deleteServiceTemplate,
   updatePlatformSettings,
 } from '@/lib/data';
-import { usePlatformPreferences, type PlatformPreferences } from '@/contexts/PlatformPreferencesContext';
+import { unhealthyIntegrationLabels } from '@/lib/operator-health';
+import { usePlatformPreferences, type PlatformPreferences, type PlatformTheme } from '@/contexts/PlatformPreferencesContext';
 import type {
   CredentialScope,
   ProviderCatalog,
@@ -558,14 +560,27 @@ const SettingsPage = () => {
 
     const categories = [health.scm, health.registry, health.secrets, health.identity, health.notifications];
     const healthy = categories.reduce((sum, category) => sum + category.healthy, 0);
-    const unhealthy = categories.reduce((sum, category) => sum + category.unhealthy, 0);
+    const names = unhealthyIntegrationLabels(health);
     toast({
       title: 'Provider health checks completed',
-      description: unhealthy > 0
-        ? `${healthy} healthy · ${unhealthy} failed.`
+      description: names.length > 0
+        ? `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} unhealthy.`
         : `All ${healthy} configured provider checks passed.`,
     });
   };
+
+  const healthFocusRequested = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'providers' || query.get('focus') !== 'health') return;
+    if (healthFocusRequested.current) return;
+    healthFocusRequested.current = true;
+    void handleRunProviderHealthChecks();
+  }, [activeTab, query]);
+
+  useEffect(() => {
+    if (query.get('focus') !== 'health' || !providerHealth) return;
+    document.getElementById('provider-health')?.scrollIntoView({ block: 'start' });
+  }, [providerHealth, query]);
 
   const refreshTemplates = async () => {
     const templatesData = await fetchServiceTemplates();
@@ -1070,6 +1085,31 @@ const SettingsPage = () => {
               description="Customize the platform appearance and behavior"
             >
               <div className="space-y-4">
+                <div className="flex flex-col gap-3 py-3 border-b border-border/50 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Theme</p>
+                    <p className="text-xs text-muted-foreground">Light, dark, or follow the system appearance</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {([
+                      ['light', 'Light', Sun],
+                      ['dark', 'Dark', Moon],
+                      ['system', 'System', Monitor],
+                    ] as const).map(([value, label, Icon]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={preferences.theme === value ? 'default' : 'outline'}
+                        className="gap-2"
+                        onClick={() => updatePreference('theme', value as PlatformTheme)}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
                 <div className="flex items-center justify-between py-3 border-b border-border/50">
                   <div>
                     <p className="text-sm font-medium text-foreground">Compact view</p>
@@ -2102,8 +2142,9 @@ const SettingsPage = () => {
             )}
 
             <SettingsSection
+              id="provider-health"
               title="Provider health checks"
-              description="Run live validation against configured providers. This does not run automatically to avoid slowing down the settings page."
+              description="Live validation of connectivity and credentials for configured providers."
               actions={(
                 <>
                   <DocumentationLink slug="provider-cookbook" label="Provider guide" variant="button" />
@@ -2155,6 +2196,29 @@ const SettingsPage = () => {
                       </div>
                     </div>
 
+                    {providerHealthTotals.unhealthy > 0 ? (
+                      <div className="border-b border-destructive/20 bg-destructive/5 px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">Unhealthy integrations</p>
+                        <ul className="mt-2 space-y-1.5">
+                          {providerHealthSections.flatMap((category) =>
+                            category.checks
+                              .filter((check) => check.state === 'unhealthy')
+                              .map((check) => (
+                                <li key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`} className="text-xs text-muted-foreground">
+                                  <span className="font-medium text-foreground">
+                                    {check.resourceLabel || check.providerLabel}
+                                  </span>
+                                  {check.providerLabel && check.resourceLabel && check.resourceLabel !== check.providerLabel
+                                    ? ` · ${check.providerLabel}`
+                                    : ''}
+                                  {check.message ? ` - ${check.message}` : ''}
+                                </li>
+                              )),
+                          )}
+                        </ul>
+                      </div>
+                    ) : null}
+
                     {providerHealthSections.map((category) => {
                       const catalogCategory = providerCatalogSections.find((section) => section.kind === category.kind);
                       return (
@@ -2174,70 +2238,68 @@ const SettingsPage = () => {
                               No configured providers to validate.
                             </p>
                           ) : (
-                            <TooltipProvider delayDuration={250}>
-                              <ul className="divide-y divide-border/50 border-t border-border/40">
-                                {category.checks.map((check) => (
-                                  <Tooltip key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`}>
-                                    <li
-                                      className={`flex flex-col gap-3 px-4 py-3 transition-colors sm:flex-row sm:items-center sm:justify-between ${
-                                        check.state === 'unhealthy' ? 'hover:bg-destructive/5' : 'hover:bg-muted/30'
+                            <ul className="divide-y divide-border/50 border-t border-border/40">
+                              {category.checks.map((check) => (
+                                <li
+                                  key={`${category.kind}-${check.providerId}-${check.resourceId ?? check.resourceLabel}`}
+                                  className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                                    check.state === 'unhealthy' ? 'bg-destructive/5' : ''
+                                  }`}
+                                >
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <span
+                                      className={`mt-1.5 block h-2.5 w-2.5 shrink-0 rounded-full ring-4 ${
+                                        check.state === 'healthy'
+                                          ? 'bg-success ring-success/10'
+                                          : check.state === 'unhealthy'
+                                            ? 'bg-destructive ring-destructive/10'
+                                            : check.state === 'unsupported'
+                                              ? 'bg-warning ring-warning/10'
+                                              : 'bg-muted-foreground/50 ring-muted/60'
                                       }`}
-                                    >
-                                      <div className="flex min-w-0 items-center gap-3">
-                                        <TooltipTrigger asChild>
-                                          <button
-                                            type="button"
-                                            aria-label={`${formatProviderHealthState(check.state)} status. Show validation details.`}
-                                            className="shrink-0 cursor-help rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                          >
-                                          <span
-                                            className={`block h-2.5 w-2.5 rounded-full ring-4 ${
-                                              check.state === 'healthy'
-                                                ? 'bg-success ring-success/10'
-                                                : check.state === 'unhealthy'
-                                                  ? 'bg-destructive ring-destructive/10'
-                                                  : check.state === 'unsupported'
-                                                    ? 'bg-warning ring-warning/10'
-                                                    : 'bg-muted-foreground/50 ring-muted/60'
-                                            }`}
-                                            aria-hidden="true"
-                                          />
-                                          </button>
-                                        </TooltipTrigger>
-                                          <p className="truncate text-sm font-medium text-foreground">
-                                            {check.resourceLabel || check.providerLabel}
-                                          </p>
-                                          <span className="sr-only">{formatProviderHealthState(check.state)}</span>
-                                          <span className="sr-only">
-                                            {check.message || 'No details returned by the provider.'}
-                                          </span>
-                                        </div>
-                                        <div className="flex shrink-0 flex-wrap items-center gap-2 pl-5 sm:justify-end sm:pl-0">
-                                          <Badge variant="outline" className="text-[10px]">
-                                            {check.providerLabel}
-                                          </Badge>
-                                          {check.scope ? (
-                                            <Badge variant="outline" className="text-[10px]">
-                                              {scopeLabel(check.scope as CredentialScope)}
-                                            </Badge>
-                                          ) : null}
-                                          {check.default ? (
-                                            <Badge variant="outline" className="text-[10px]">
-                                              Default
-                                            </Badge>
-                                          ) : null}
-                                        </div>
-                                    </li>
-                                    <TooltipContent side="top" className="max-w-sm">
-                                      <p className="text-xs font-medium">{formatProviderHealthState(check.state)}</p>
-                                      <p className="mt-1 text-xs text-muted-foreground">
+                                      aria-hidden="true"
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium text-foreground">
+                                        {check.resourceLabel || check.providerLabel}
+                                      </p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground">
                                         {check.message || 'No details returned by the provider.'}
                                       </p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ))}
-                              </ul>
-                            </TooltipProvider>
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 flex-wrap items-center gap-2 pl-5 sm:justify-end sm:pl-0">
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[10px] ${
+                                        check.state === 'healthy'
+                                          ? 'border-success/30 bg-success/10 text-success'
+                                          : check.state === 'unhealthy'
+                                            ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                                            : check.state === 'unsupported'
+                                              ? 'border-warning/30 bg-warning/10 text-warning'
+                                              : ''
+                                      }`}
+                                    >
+                                      {formatProviderHealthState(check.state)}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {check.providerLabel}
+                                    </Badge>
+                                    {check.scope ? (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {scopeLabel(check.scope as CredentialScope)}
+                                      </Badge>
+                                    ) : null}
+                                    {check.default ? (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        Default
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
                           )}
                         </section>
                       );

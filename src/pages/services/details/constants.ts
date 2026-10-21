@@ -59,6 +59,30 @@ export const getPublicationLabel = ({ internal, external }: PublicationTargets) 
   return 'Not published';
 };
 
+export const ENVIRONMENT_URLS = [
+  { id: 'dev', label: 'Development', hint: 'Day-to-day' },
+  { id: 'staging', label: 'Staging', hint: 'Homologation' },
+  { id: 'prod', label: 'Production', hint: 'Live traffic' },
+] as const;
+
+export const environmentHostSlug = (environment: string): (typeof ENVIRONMENT_URLS)[number]['id'] => {
+  const value = environment.trim().toLowerCase();
+  if (value === 'prod' || value === 'production' || value === 'live') return 'prod';
+  if (['staging', 'stage', 'homol', 'hml', 'homolog', 'homologation', 'uat', 'preprod', 'pre-prod', 'pre-release'].includes(value)) {
+    return 'staging';
+  }
+  return 'dev';
+};
+
+export const environmentServiceHost = (
+  serviceName: string,
+  environment: string,
+  zone: 'internal' | 'external',
+) => {
+  const domain = zone === 'external' ? 'releasea.external' : 'releasea.internal';
+  return `${serviceName}-${environmentHostSlug(environment)}.${domain}`;
+};
+
 export const buildGateways = (
   currentGateways: Gateway[] = [],
   targets: PublicationTargets,

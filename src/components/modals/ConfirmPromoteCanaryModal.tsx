@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, AlertTriangle, Server, BarChart3, ArrowRight, ShieldAlert } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Server, BarChart3, ArrowRight, ShieldAlert, Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,10 +66,10 @@ export function ConfirmPromoteCanaryModal({
             </div>
             <div>
               <AlertDialogTitle className="text-lg">
-                Promote canary to 100%
+                Promote canary
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm">
-                This will route all traffic to the canary version.
+                Move the canary version to 100% of traffic. The app URL stays published.
               </AlertDialogDescription>
             </div>
           </div>
@@ -166,8 +166,7 @@ export function ConfirmPromoteCanaryModal({
           )}
 
           <p className="text-xs text-muted-foreground">
-            Your default canary percentage ({canaryPercent}%) will be preserved for the next deploy.
-            The canary deployment will be removed after traffic is fully shifted.
+            The stable pods become ready first. Then traffic moves, and the canary workload is removed.
           </p>
         </div>
 
@@ -181,8 +180,8 @@ export function ConfirmPromoteCanaryModal({
             disabled={isConfirming}
             className={`gap-2 ${isProd ? 'bg-warning text-warning-foreground hover:bg-warning/90' : ''}`}
           >
-            <TrendingUp className="w-4 h-4" />
-            {isConfirming ? 'Promoting...' : 'Promote to 100%'}
+            {isConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+            {isConfirming ? 'Starting...' : 'Promote canary'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

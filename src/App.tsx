@@ -3,10 +3,11 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { PlatformPreferencesProvider } from "@/contexts/PlatformPreferencesContext";
+import { PlatformPreferencesProvider, usePlatformPreferences } from "@/contexts/PlatformPreferencesContext";
+import { ThemeProvider, useTheme } from "next-themes";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 const Index = lazy(() => import("./pages/dashboard/IndexPage"));
 const Auth = lazy(() => import("./pages/auth/AuthPage"));
@@ -30,12 +31,25 @@ const RuntimeProfiles = lazy(() => import("./pages/runtime-profiles/RuntimeProfi
 
 const queryClient = new QueryClient();
 
+function ThemePreferenceSync() {
+  const { preferences } = usePlatformPreferences();
+  const { setTheme } = useTheme();
+
+  useEffect(() => {
+    setTheme(preferences.theme);
+  }, [preferences.theme, setTheme]);
+
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <PlatformPreferencesProvider>
-        <Toaster />
-        <Sonner />
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+          <ThemePreferenceSync />
+          <Toaster />
+          <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <ScrollToTop />
@@ -66,6 +80,7 @@ const App = () => (
             </Suspense>
           </AuthProvider>
         </BrowserRouter>
+        </ThemeProvider>
       </PlatformPreferencesProvider>
     </TooltipProvider>
   </QueryClientProvider>

@@ -629,6 +629,28 @@ export const promoteCanary = async (
   return operation ? { operation } : { error: 'No operation returned' };
 };
 
+export const switchBlueGreen = async (
+  serviceId: string,
+  environment: string,
+): Promise<PromoteCanaryResult> => {
+  const response = await apiClient.post<{ operation: { id: string; status: string } }>(
+    `/services/${serviceId}/switch-blue-green`,
+    { environment },
+    {
+      requestSchema: promoteCanaryRequestSchema,
+      responseSchema: promoteCanaryResponseSchema,
+    },
+  );
+  if (response.error) {
+    return {
+      error: response.error,
+      violations: extractDeployPolicyViolations(response.errorBody),
+    };
+  }
+  const operation = response.data?.operation;
+  return operation ? { operation } : { error: 'No operation returned' };
+};
+
 export type PublishRuleTargetsResult = {
   success: boolean;
   error?: string;
@@ -954,6 +976,30 @@ export const createRule = async (
   const response = await apiClient.post<ManagedRule>(endpoint, payload);
   if (response.error || !response.data) {
     clientLogger.warn('api.createRule', 'Request failed', { error: response.error });
+    return null;
+  }
+  return response.data;
+};
+
+export const promoteRule = async (
+  ruleId: string,
+  environment: string,
+): Promise<{
+  rule: ManagedRule;
+  revision: number;
+  republish: boolean;
+  internal: boolean;
+  external: boolean;
+} | null> => {
+  const response = await apiClient.post<{
+    rule: ManagedRule;
+    revision: number;
+    republish: boolean;
+    internal: boolean;
+    external: boolean;
+  }>(`/rules/${ruleId}/promote`, { environment });
+  if (response.error || !response.data?.rule) {
+    clientLogger.warn('api.promoteRule', 'Request failed', { error: response.error });
     return null;
   }
   return response.data;
