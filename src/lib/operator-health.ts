@@ -1,5 +1,5 @@
 import { isFailedDeployStatus, isLiveDeployStatus, isSuccessfulDeployStatus, parseDeployTimestamp } from '@/lib/deploy-status';
-import type { ControlPlaneMetrics, Deploy, ProviderHealthCatalog, WorkerPool } from '@/types/releasea';
+import type { ControlPlaneMetrics, Deploy, ProviderHealthCatalog, ProviderHealthCheck, WorkerPool } from '@/types/releasea';
 
 export type OperatorHealthLevel = 'healthy' | 'review' | 'degraded';
 
@@ -49,7 +49,7 @@ export const buildOperatorHealthReport = (input: {
     level === 'healthy'
       ? 'Control plane, workers, and recent delivery signals look healthy.'
       : level === 'degraded'
-        ? `${degradedCount} area${degradedCount === 1 ? '' : 's'} need immediate attention.`
+        ? `${degradedCount} ${degradedCount === 1 ? 'area needs' : 'areas need'} immediate attention.`
         : `${reviewCount} area${reviewCount === 1 ? '' : 's'} should be reviewed before the next production change.`;
 
   return {
@@ -57,6 +57,40 @@ export const buildOperatorHealthReport = (input: {
     summary,
     lanes,
   };
+};
+
+const integrationLabel = (check: ProviderHealthCheck) => {
+  const resource = check.resourceLabel?.trim() ?? '';
+  const provider = (check.providerLabel || check.providerId || '').trim();
+  const providerId = (check.providerId || '').trim().toLowerCase();
+  const resourceKey = resource.toLowerCase();
+  const resourceIsProvider = resourceKey === provider.toLowerCase() || resourceKey === providerId;
+  if (resource && provider && !resourceIsProvider) {
+    return `${resource} · ${provider}`;
+  }
+  return provider || resource || 'Unnamed integration';
+};
+
+const joinIntegrationNames = (names: string[]) => {
+  if (names.length <= 2) return names.join(' and ');
+  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
+};
+
+export const unhealthyIntegrationLabels = (providerHealth: ProviderHealthCatalog | null): string[] => {
+  if (!providerHealth) return [];
+  const categories = [
+    providerHealth.scm,
+    providerHealth.registry,
+    providerHealth.secrets,
+    providerHealth.identity,
+    providerHealth.notifications,
+  ];
+  const named = categories.flatMap((category) =>
+    (category?.checks ?? [])
+      .filter((check) => check.state === 'unhealthy')
+      .map(integrationLabel),
+  );
+  return [...new Set(named)];
 };
 
 const buildProviderLane = (providerHealth: ProviderHealthCatalog | null): OperatorHealthLane => {
@@ -83,13 +117,20 @@ const buildProviderLane = (providerHealth: ProviderHealthCatalog | null): Operat
   const healthy = categories.reduce((sum, category) => sum + (category?.healthy ?? 0), 0);
 
   if (unhealthy > 0) {
+    const failing = categories.flatMap((category) =>
+      (category?.checks ?? []).filter((check) => check.state === 'unhealthy'),
+    );
+    const names = unhealthyIntegrationLabels(providerHealth);
+    const named = names.length > 0 ? joinIntegrationNames(names) : `${unhealthy} integration${unhealthy === 1 ? '' : 's'}`;
+    const reason = failing.length === 1 ? failing[0]?.message?.trim() : '';
+    const single = names.length <= 1;
     return {
       id: 'providers',
       label: 'Integrations',
       level: 'degraded',
-      summary: `${unhealthy} unhealthy provider check${unhealthy === 1 ? '' : 's'}.`,
-      detail: `${healthy} healthy checks, ${unsupported} unsupported checks.`,
-      href: '/settings?tab=credentials',
+      summary: `${named} ${single ? 'is' : 'are'} unhealthy.`,
+      detail: reason || `${healthy} healthy checks, ${unsupported} unsupported checks.`,
+      href: '/settings?tab=providers&focus=health',
     };
   }
 

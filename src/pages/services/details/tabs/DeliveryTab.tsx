@@ -233,7 +233,7 @@ export const DeliveryTab = ({
     { value: 'overview', label: 'Overview', description: `${readiness.score}% ready` },
     { value: 'governance', label: 'Governance', description: policyLabel },
     { value: 'gitops', label: 'GitOps', description: gitOpsSync.label },
-    { value: 'intelligence', label: 'Release health', description: healthPostureLabel },
+    { value: 'intelligence', label: 'Runtime health', description: healthPostureLabel },
   ];
 
   return (
@@ -277,7 +277,7 @@ export const DeliveryTab = ({
               </div>
               <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
                 <StatusBadge state={readiness.state} label={statusLabel[readiness.state]} />
-                <span className="text-xs text-muted-foreground">{attentionItems.length === 0 ? 'No open checks' : `${attentionItems.length} check${attentionItems.length === 1 ? '' : 's'} need attention`}</span>
+                <span className="text-xs text-muted-foreground">{attentionItems.length === 0 ? 'No open checks' : `${attentionItems.length} ${attentionItems.length === 1 ? 'check needs' : 'checks need'} attention`}</span>
               </div>
             </section>
             <section className={cn(panelClass, 'p-6')}>
@@ -373,6 +373,31 @@ export const DeliveryTab = ({
         </TabsContent>
 
         <TabsContent value="gitops" className="mt-0 space-y-6">
+          <section className={cn(panelClass, 'p-5')}>
+            <SectionHeading
+              title="What these statuses mean"
+              description="GitOps records the desired state in Git. Releasea still deploys the workload. A pull request does not change the running service until it is merged and a reconciler applies it."
+              aside={<StatusBadge state={gitOpsSync.state} label={gitOpsSync.label} />}
+            />
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="font-medium text-foreground">In sync</dt>
+                <dd className="text-muted-foreground">The repository file matches the desired state Releasea would write now.</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">Drift</dt>
+                <dd className="text-muted-foreground">The committed file and the current desired state differ. Open a pull request to update Git.</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">Not configured</dt>
+                <dd className="text-muted-foreground">No desired-state file is in the repository yet. GitOps is optional.</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-foreground">Blocked</dt>
+                <dd className="text-muted-foreground">The desired state or the repository contract is invalid, so a pull request cannot be created.</dd>
+              </div>
+            </dl>
+          </section>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { label: 'Overall sync', signal: gitOpsSync, icon: <GitBranch className="h-4 w-4" /> },
@@ -427,7 +452,7 @@ export const DeliveryTab = ({
               </div>
               {releaseIntelligence.anomalies.length > 0 ? (
                 <section className={cn(panelClass, 'p-5')}>
-                  <SectionHeading title="Signals requiring attention" description="Anomalies detected in the current release window." aside={<StatusBadge state="review" label={`${releaseIntelligence.anomalies.length} detected`} />} />
+                  <SectionHeading title="Signals requiring attention" description="Anomalies detected in the current window." aside={<StatusBadge state="review" label={`${releaseIntelligence.anomalies.length} detected`} />} />
                   <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
                     {releaseIntelligence.anomalies.map((anomaly) => <div key={anomaly.id} className="flex items-start justify-between gap-4 py-3"><div><p className="text-sm font-medium text-foreground">{anomaly.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{anomaly.detail}</p></div><StatusBadge state={anomaly.severity === 'critical' ? 'blocked' : anomaly.severity === 'warning' ? 'review' : 'info'} label={anomaly.severity} /></div>)}
                   </div>
@@ -435,10 +460,10 @@ export const DeliveryTab = ({
               ) : null}
               <div className="grid items-start gap-6 xl:grid-cols-2">
                 <section className={cn(panelClass, 'p-5')}>
-                  <SectionHeading title="Latest release comparison" description="Change in service behavior after the latest successful deploy." aside={<StatusBadge state={releaseIntelligence.comparison.verdict === 'improved' ? 'ready' : releaseIntelligence.comparison.verdict === 'regressed' ? 'blocked' : releaseIntelligence.comparison.verdict === 'steady' ? 'info' : 'neutral'} label={releaseIntelligence.comparison.verdict.replace('-', ' ')} />} />
+                  <SectionHeading title="Latest deploy comparison" description="Change in service behavior after the latest successful deploy." aside={<StatusBadge state={releaseIntelligence.comparison.verdict === 'improved' ? 'ready' : releaseIntelligence.comparison.verdict === 'regressed' ? 'blocked' : releaseIntelligence.comparison.verdict === 'steady' ? 'info' : 'neutral'} label={releaseIntelligence.comparison.verdict.replace('-', ' ')} />} />
                   <div className="mt-5 grid grid-cols-2 gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
                     <div><p className="text-xs text-muted-foreground">Latest</p><p className="mt-1 font-mono text-sm font-medium text-foreground">{releaseIntelligence.latestReleaseLabel}</p><p className="mt-1 text-[11px] text-muted-foreground">{safeDate(releaseIntelligence.latestDeployAt)}</p></div>
-                    <div className="border-l border-border/60 pl-4"><p className="text-xs text-muted-foreground">Previous</p><p className="mt-1 font-mono text-sm font-medium text-foreground">{releaseIntelligence.previousReleaseLabel ?? 'No previous release'}</p><p className="mt-1 text-[11px] text-muted-foreground">{safeDate(releaseIntelligence.previousDeployAt)}</p></div>
+                    <div className="border-l border-border/60 pl-4"><p className="text-xs text-muted-foreground">Previous</p><p className="mt-1 font-mono text-sm font-medium text-foreground">{releaseIntelligence.previousReleaseLabel ?? 'No previous deploy'}</p><p className="mt-1 text-[11px] text-muted-foreground">{safeDate(releaseIntelligence.previousDeployAt)}</p></div>
                   </div>
                   <div className="mt-4 grid grid-cols-3 divide-x divide-border/60 border-y border-border/60 py-3 text-center">
                     {[
@@ -450,7 +475,7 @@ export const DeliveryTab = ({
                   <p className="mt-4 text-sm leading-5 text-muted-foreground">{releaseIntelligence.comparison.summary}</p>
                 </section>
                 <section className={cn(panelClass, 'p-5')}>
-                  <SectionHeading title="Rollback assessment" description="Evidence available if the latest release needs to be reversed." aside={<StatusBadge state={rollbackTone} label={`${releaseIntelligence.rollback.confidence} confidence`} />} />
+                  <SectionHeading title="Rollback assessment" description="Evidence available if the latest deploy needs to be reversed." aside={<StatusBadge state={rollbackTone} label={`${releaseIntelligence.rollback.confidence} confidence`} />} />
                   <p className="mt-5 text-sm leading-6 text-muted-foreground">{releaseIntelligence.rollback.message}</p>
                   <div className="mt-4 divide-y divide-border/60 border-y border-border/60">
                     {releaseIntelligence.rollback.factors.length > 0 ? releaseIntelligence.rollback.factors.map((factor) => <div key={factor} className="flex gap-3 py-3 text-sm text-muted-foreground"><span aria-hidden="true">•</span><span>{factor}</span></div>) : <p className="py-4 text-sm text-muted-foreground">No rollback factors are available yet.</p>}
@@ -458,7 +483,7 @@ export const DeliveryTab = ({
                 </section>
               </div>
               <section className={cn(panelClass, 'p-5')}>
-                <SectionHeading title="Release history" description="Impact classification for recent successful deploys. Expand an entry for raw before-and-after values." aside={<StatusBadge state="neutral" label={`${releaseIntelligence.deployImpactTimeline.length} releases`} />} />
+                <SectionHeading title="Deploy history" description="Impact classification for recent successful deploys. Expand an entry for raw before-and-after values." aside={<StatusBadge state="neutral" label={`${releaseIntelligence.deployImpactTimeline.length} deploys`} />} />
                 <div className="mt-5 divide-y divide-border/60 border-y border-border/60">
                   {releaseIntelligence.deployImpactTimeline.map((entry) => {
                     const impactState: StatusState = entry.impact === 'improved' ? 'ready' : entry.impact === 'regressed' ? 'blocked' : entry.impact === 'steady' ? 'info' : 'neutral';
@@ -479,7 +504,7 @@ export const DeliveryTab = ({
                 </div>
               </section>
             </>
-          ) : <EmptyState title="Release health is not available yet" description="A successful deploy and a telemetry window are required before Releasea can compare impact, evaluate SLOs, or advise on rollback." />}
+          ) : <EmptyState title="Runtime health is not available yet" description="A successful deploy and a telemetry window are required before Releasea can compare impact, evaluate SLOs, or advise on rollback." />}
         </TabsContent>
       </Tabs>
     </TabsContent>

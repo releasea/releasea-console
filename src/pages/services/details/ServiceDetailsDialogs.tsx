@@ -1,5 +1,12 @@
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { ConfirmDeployModal } from '@/components/modals/ConfirmDeployModal';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+  WorkflowDialogSection,
+} from '@/components/modals/WorkflowDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -7,11 +14,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -21,17 +26,37 @@ import { cn } from '@/lib/utils';
 import type { Deploy, ManagedRule, RulePolicyConfig, Service } from '@/types/releasea';
 import type { RulePublishPolicyPreflight } from '@/types/governance';
 import { format } from 'date-fns';
-import { CheckCircle, Copy, Plus, Rocket, Trash2, X } from 'lucide-react';
+import { CheckCircle, Copy, Plus, Rocket, Route, Trash2 } from 'lucide-react';
 import {
   getGatewayTargets,
   getPublicationLabel,
-  ruleMethods,
 } from './constants';
 import type { PublicationTargets, RuleRow } from './types';
+import { RuleForm } from './RuleForm';
+import type { EdgePolicyDraft } from './edge-policy';
 
 const renderStatusBadge = (status: Deploy['status']) => (
   <StatusBadge status={status} className="normal-case" />
 );
+
+function RuleDialogHeading({
+  title,
+  description,
+  environment,
+}: {
+  title: string;
+  description: string;
+  environment: string;
+}) {
+  return (
+    <WorkflowDialogHeader
+      title={title}
+      description={description}
+      icon={<Route className="h-4 w-4" />}
+      meta={<Badge variant="outline" className="font-normal normal-case">{environment}</Badge>}
+    />
+  );
+}
 
 type ServiceDetailsDialogsProps = {
   deployVersion: {
@@ -68,6 +93,8 @@ type ServiceDetailsDialogsProps = {
     setNewRuleJWKSUri: (value: string) => void;
     newRuleAudiences: string;
     setNewRuleAudiences: (value: string) => void;
+    newEdge: EdgePolicyDraft;
+    setNewEdge: (value: EdgePolicyDraft) => void;
     newRuleMethods: string[];
     toggleNewRuleMethod: (method: string) => void;
     newRulePathDraft: string;
@@ -75,8 +102,6 @@ type ServiceDetailsDialogsProps = {
     addNewRulePath: () => void;
     newRulePaths: string[];
     removeNewRulePath: (path: string) => void;
-    newRulePublishTargets: PublicationTargets;
-    setNewRulePublishTargets: (value: PublicationTargets) => void;
     onConfirm: () => void;
   };
   editRule: {
@@ -97,6 +122,8 @@ type ServiceDetailsDialogsProps = {
     setEditRuleJWKSUri: (value: string) => void;
     editRuleAudiences: string;
     setEditRuleAudiences: (value: string) => void;
+    editEdge: EdgePolicyDraft;
+    setEditEdge: (value: EdgePolicyDraft) => void;
     editRuleMethods: string[];
     toggleEditRuleMethod: (method: string) => void;
     editRulePathDraft: string;
@@ -104,31 +131,30 @@ type ServiceDetailsDialogsProps = {
     addEditRulePath: () => void;
     editRulePaths: string[];
     removeEditRulePath: (path: string) => void;
-    onOpenCopyFromEdit: () => void;
     onDeleteRuleFromEdit: () => void;
-    onConfirm: () => void;
-  };
-  copyRule: {
-    open: boolean;
-    setOpen: (open: boolean) => void;
-    onClose: () => void;
-    copyRule: ManagedRule | null;
-    viewEnv: string;
-    environmentOptions: { id: string; name: string }[];
-    copyRuleEnvs: string[];
-    toggleCopyRuleEnvironment: (envId: string) => void;
     onConfirm: () => void;
   };
   publishRule: {
     open: boolean;
     setOpen: (open: boolean) => void;
     onClose: () => void;
-    publishRule: ManagedRule | null;
+    rule: ManagedRule | null;
     viewEnv: string;
-    publishTargets: PublicationTargets;
-    setPublishTargets: (value: PublicationTargets) => void;
+    targets: PublicationTargets;
+    setTargets: (value: PublicationTargets) => void;
     preflight: RulePublishPolicyPreflight | null;
     preflightLoading: boolean;
+    onConfirm: () => void;
+  };
+  promoteRule: {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+    onClose: () => void;
+    rule: ManagedRule | null;
+    viewEnv: string;
+    environmentOptions: { id: string; name: string }[];
+    selected: string[];
+    toggle: (envId: string) => void;
     onConfirm: () => void;
   };
   deleteRule: {
@@ -149,6 +175,8 @@ type ServiceDetailsDialogsProps = {
     service: Service;
     viewEnv: string;
     pendingVersion: string | null;
+    promoteFrom?: string | null;
+    promoteFromLabel?: string;
     onStart: () => void;
     onError: (message?: string) => void;
     onConfirm: () => Promise<void> | void;
@@ -160,14 +188,14 @@ export const ServiceDetailsDialogs = ({
   deployLog,
   createRule,
   editRule,
-  copyRule,
   publishRule,
+  promoteRule,
   deleteRule,
   deleteService,
   confirmDeploy,
 }: ServiceDetailsDialogsProps) => {
-  const hasPublishTargets = publishRule.publishTargets.internal || publishRule.publishTargets.external;
-  const publishSummaryLabel = getPublicationLabel(publishRule.publishTargets);
+  const hasPublishTargets = publishRule.targets.internal || publishRule.targets.external;
+  const publishSummaryLabel = getPublicationLabel(publishRule.targets);
   const publishPolicyViolations = publishRule.preflight?.violations ?? [];
   const publishPolicyDryRun = publishRule.preflight?.dryRun === true;
   const publishBlockedByPolicy = publishPolicyViolations.length > 0 && !publishPolicyDryRun;
@@ -322,202 +350,38 @@ export const ServiceDetailsDialogs = ({
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[720px] bg-card border-border">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold">Create rule</DialogTitle>
-            <DialogDescription>
-              This rule applies to <span className="font-medium text-foreground">{getEnvironmentLabel(createRule.viewEnv)}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-[1.4fr_180px_180px] gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-rule-name">Rule name</Label>
-                <Input
-                  id="new-rule-name"
-                  value={createRule.newRuleName}
-                  onChange={(event) => createRule.setNewRuleName(event.target.value)}
-                  placeholder="allow-auth"
-                  className="bg-muted/40 font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Action</Label>
-                <Select value={createRule.newRuleAction} onValueChange={(value) => createRule.setNewRuleAction(value as RulePolicyConfig['action'])}>
-                  <SelectTrigger className="bg-muted/40"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="allow">Allow</SelectItem>
-                    <SelectItem value="deny">Deny</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Environment</Label>
-                <div className="h-10 px-3 rounded-md border border-border bg-muted/30 flex items-center text-sm text-muted-foreground">
-                  {getEnvironmentLabel(createRule.viewEnv)}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Route scope</p>
-                <p className="text-xs text-muted-foreground">Choose which requests this rule controls.</p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Methods</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {ruleMethods.map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => createRule.toggleNewRuleMethod(method)}
-                      className={cn(
-                        'px-2.5 py-1.5 rounded text-xs font-mono font-medium border transition-colors',
-                        createRule.newRuleMethods.includes(method)
-                          ? 'bg-primary/10 border-primary/40 text-primary'
-                          : 'border-border text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Paths</p>
-                <div className="flex gap-2">
-                  <Input
-                    value={createRule.newRulePathDraft}
-                    onChange={(event) => createRule.setNewRulePathDraft(event.target.value)}
-                    placeholder="/api/v1/*"
-                    className="bg-muted/40 font-mono text-sm"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        createRule.addNewRulePath();
-                      }
-                    }}
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={createRule.addNewRulePath}>
-                    Add path
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {createRule.newRulePaths.map((path) => (
-                    <Badge key={path} variant="secondary" className="gap-1 font-mono normal-case">
-                      {path}
-                      <button type="button" onClick={() => createRule.removeNewRulePath(path)}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                {createRule.newRulePaths.length === 0 && (
-                  <p className="text-xs text-warning">At least one path is required.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2 · Access control</p>
-                <p className="text-xs text-muted-foreground">
-                  {createRule.newRuleAction === 'deny'
-                    ? 'Matching requests are blocked before they reach the application.'
-                    : 'Keep the route public or require a JWT issued by your identity provider.'}
-                </p>
-              </div>
-              {createRule.newRuleAction === 'allow' && (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {([
-                      ['public', 'Public access', 'No identity token is required.'],
-                      ['jwt', 'JWT / OIDC', 'Validate tokens through the provider JWKS endpoint.'],
-                    ] as const).map(([value, title, description]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => createRule.setNewRuleAuthMode(value)}
-                        className={cn(
-                          'rounded-lg border p-3 text-left transition-colors',
-                          createRule.newRuleAuthMode === value
-                            ? 'border-primary/50 bg-primary/5'
-                            : 'border-border/60 bg-card/50 hover:border-border',
-                        )}
-                      >
-                        <p className="text-sm font-medium text-foreground">{title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-                      </button>
-                    ))}
-                  </div>
-                  {createRule.newRuleAuthMode === 'jwt' && (
-                    <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="new-rule-jwt-issuer">JWT issuer</Label>
-                        <Input id="new-rule-jwt-issuer" value={createRule.newRuleJWTIssuer} onChange={(event) => createRule.setNewRuleJWTIssuer(event.target.value)} placeholder="https://id.example.com/realms/platform" className="bg-muted/40 font-mono text-xs" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new-rule-jwks-uri">JWKS URL</Label>
-                        <Input id="new-rule-jwks-uri" value={createRule.newRuleJWKSUri} onChange={(event) => createRule.setNewRuleJWKSUri(event.target.value)} placeholder="https://id.example.com/.well-known/jwks.json" className="bg-muted/40 font-mono text-xs" />
-                      </div>
-                      <div className="space-y-2 sm:col-span-2">
-                        <Label htmlFor="new-rule-audiences">Allowed audiences <span className="font-normal text-muted-foreground">(optional)</span></Label>
-                        <Input id="new-rule-audiences" value={createRule.newRuleAudiences} onChange={(event) => createRule.setNewRuleAudiences(event.target.value)} placeholder="payments-api, internal-clients" className="bg-muted/40 font-mono text-xs" />
-                        <p className="text-xs text-muted-foreground">Comma-separated. Tokens are verified at the Istio sidecar before application traffic is allowed.</p>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">3 · Publication</p>
-                <p className="text-xs text-muted-foreground">Choose where the protected route becomes reachable.</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-3">
-                  <Checkbox
-                    checked={createRule.newRulePublishTargets.internal}
-                    onCheckedChange={(checked) =>
-                      createRule.setNewRulePublishTargets({
-                        ...createRule.newRulePublishTargets,
-                        internal: Boolean(checked),
-                      })
-                    }
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Internal gateway</p>
-                    <p className="text-xs text-muted-foreground">Expose the rule through the internal gateway.</p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-3">
-                  <Checkbox
-                    checked={createRule.newRulePublishTargets.external}
-                    onCheckedChange={(checked) =>
-                      createRule.setNewRulePublishTargets({
-                        ...createRule.newRulePublishTargets,
-                        external: Boolean(checked),
-                      })
-                    }
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">External gateway</p>
-                    <p className="text-xs text-muted-foreground">Publish externally through external gateways.</p>
-                  </div>
-                </label>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                If no target is selected, the rule will be saved as a draft.
-              </p>
-            </div>
-          </div>
-          <DialogFooter className="mt-4">
+        <WorkflowDialogContent size="xl" className="h-[min(700px,calc(100vh-2rem))]">
+          <RuleDialogHeading
+            title="Create rule"
+            description="Define which requests match, how callers authenticate, and which gateway controls apply."
+            environment={getEnvironmentLabel(createRule.viewEnv)}
+          />
+          <RuleForm
+            tabKey="create-rule"
+            idPrefix="new-rule"
+            name={createRule.newRuleName}
+            onNameChange={createRule.setNewRuleName}
+            action={createRule.newRuleAction}
+            onActionChange={createRule.setNewRuleAction}
+            authMode={createRule.newRuleAuthMode}
+            onAuthModeChange={createRule.setNewRuleAuthMode}
+            jwtIssuer={createRule.newRuleJWTIssuer}
+            onJwtIssuerChange={createRule.setNewRuleJWTIssuer}
+            jwksUri={createRule.newRuleJWKSUri}
+            onJwksUriChange={createRule.setNewRuleJWKSUri}
+            audiences={createRule.newRuleAudiences}
+            onAudiencesChange={createRule.setNewRuleAudiences}
+            edge={createRule.newEdge}
+            onEdgeChange={createRule.setNewEdge}
+            methods={createRule.newRuleMethods}
+            onToggleMethod={createRule.toggleNewRuleMethod}
+            pathDraft={createRule.newRulePathDraft}
+            onPathDraftChange={createRule.setNewRulePathDraft}
+            onAddPath={createRule.addNewRulePath}
+            paths={createRule.newRulePaths}
+            onRemovePath={createRule.removeNewRulePath}
+          />
+          <WorkflowDialogFooter>
             <Button type="button" variant="ghost" onClick={() => createRule.setOpen(false)}>
               Cancel
             </Button>
@@ -525,8 +389,8 @@ export const ServiceDetailsDialogs = ({
               <Plus className="w-4 h-4" />
               Create rule
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
       </Dialog>
 
       <Dialog
@@ -538,347 +402,153 @@ export const ServiceDetailsDialogs = ({
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[720px] bg-card border-border">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold">Edit rule</DialogTitle>
-            <DialogDescription>
-              This rule applies to{' '}
-              <span className="font-medium text-foreground">
-                {getEnvironmentLabel(editRule.editingRule?.environment ?? editRule.viewEnv)}
-              </span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-[1.4fr_180px_180px] gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-name">Rule name</Label>
-                <Input
-                  id="edit-rule-name"
-                  value={editRule.editRuleName}
-                  onChange={(event) => editRule.setEditRuleName(event.target.value)}
-                  placeholder="allow-auth"
-                  className="bg-muted/40 font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Action</Label>
-                <Select value={editRule.editRuleAction} onValueChange={(value) => editRule.setEditRuleAction(value as RulePolicyConfig['action'])}>
-                  <SelectTrigger className="bg-muted/40"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="allow">Allow</SelectItem>
-                    <SelectItem value="deny">Deny</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Environment</Label>
-                <div className="h-10 px-3 rounded-md border border-border bg-muted/30 flex items-center text-sm text-muted-foreground">
-                  {getEnvironmentLabel(editRule.editingRule?.environment ?? editRule.viewEnv)}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Methods</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {ruleMethods.map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => editRule.toggleEditRuleMethod(method)}
-                      className={cn(
-                        'px-2.5 py-1.5 rounded text-xs font-mono font-medium border transition-colors',
-                        editRule.editRuleMethods.includes(method)
-                          ? 'bg-primary/10 border-primary/40 text-primary'
-                          : 'border-border text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Paths</p>
-                <div className="flex gap-2">
-                  <Input
-                    value={editRule.editRulePathDraft}
-                    onChange={(event) => editRule.setEditRulePathDraft(event.target.value)}
-                    placeholder="/api/v1/*"
-                    className="bg-muted/40 font-mono text-sm"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        editRule.addEditRulePath();
-                      }
-                    }}
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={editRule.addEditRulePath}>
-                    Add path
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {editRule.editRulePaths.map((path) => (
-                    <Badge key={path} variant="secondary" className="gap-1 font-mono normal-case">
-                      {path}
-                      {editRule.editRulePaths.length > 1 && (
-                        <button type="button" onClick={() => editRule.removeEditRulePath(path)}>
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Access control</p>
-                <p className="text-xs text-muted-foreground">
-                  {editRule.editRuleAction === 'deny'
-                    ? 'Matching requests are blocked before they reach the application.'
-                    : 'Control whether matching requests require a validated identity token.'}
-                </p>
-              </div>
-              {editRule.editRuleAction === 'allow' && (
-                <>
-                  <Select value={editRule.editRuleAuthMode} onValueChange={(value) => editRule.setEditRuleAuthMode(value as NonNullable<RulePolicyConfig['authMode']>)}>
-                    <SelectTrigger className="bg-muted/40"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="public">Public — no token required</SelectItem>
-                      <SelectItem value="jwt">JWT / OIDC — validate issuer and signature</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {editRule.editRuleAuthMode === 'jwt' && (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-rule-jwt-issuer">JWT issuer</Label>
-                        <Input id="edit-rule-jwt-issuer" value={editRule.editRuleJWTIssuer} onChange={(event) => editRule.setEditRuleJWTIssuer(event.target.value)} className="bg-muted/40 font-mono text-xs" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-rule-jwks-uri">JWKS URL</Label>
-                        <Input id="edit-rule-jwks-uri" value={editRule.editRuleJWKSUri} onChange={(event) => editRule.setEditRuleJWKSUri(event.target.value)} className="bg-muted/40 font-mono text-xs" />
-                      </div>
-                      <div className="space-y-2 sm:col-span-2">
-                        <Label htmlFor="edit-rule-audiences">Allowed audiences</Label>
-                        <Input id="edit-rule-audiences" value={editRule.editRuleAudiences} onChange={(event) => editRule.setEditRuleAudiences(event.target.value)} placeholder="payments-api, internal-clients" className="bg-muted/40 font-mono text-xs" />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-          <DialogFooter className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" onClick={editRule.onOpenCopyFromEdit}>
-                Copy rule
-              </Button>
-              <Button type="button" variant="destructive" onClick={editRule.onDeleteRuleFromEdit} className="gap-2">
-                <Trash2 className="w-4 h-4" />
-                Delete rule
-              </Button>
-            </div>
+        <WorkflowDialogContent size="xl" className="h-[min(700px,calc(100vh-2rem))]">
+          <RuleDialogHeading
+            title="Edit rule"
+            description="Update request matching, caller access, and gateway behavior without changing publication targets."
+            environment={getEnvironmentLabel(editRule.editingRule?.environment ?? editRule.viewEnv)}
+          />
+          <RuleForm
+            tabKey={editRule.editingRule?.id ?? 'edit-rule'}
+            idPrefix="edit-rule"
+            name={editRule.editRuleName}
+            onNameChange={editRule.setEditRuleName}
+            action={editRule.editRuleAction}
+            onActionChange={editRule.setEditRuleAction}
+            authMode={editRule.editRuleAuthMode}
+            onAuthModeChange={editRule.setEditRuleAuthMode}
+            jwtIssuer={editRule.editRuleJWTIssuer}
+            onJwtIssuerChange={editRule.setEditRuleJWTIssuer}
+            jwksUri={editRule.editRuleJWKSUri}
+            onJwksUriChange={editRule.setEditRuleJWKSUri}
+            audiences={editRule.editRuleAudiences}
+            onAudiencesChange={editRule.setEditRuleAudiences}
+            edge={editRule.editEdge}
+            onEdgeChange={editRule.setEditEdge}
+            methods={editRule.editRuleMethods}
+            onToggleMethod={editRule.toggleEditRuleMethod}
+            pathDraft={editRule.editRulePathDraft}
+            onPathDraftChange={editRule.setEditRulePathDraft}
+            onAddPath={editRule.addEditRulePath}
+            paths={editRule.editRulePaths}
+            onRemovePath={editRule.removeEditRulePath}
+          />
+          <WorkflowDialogFooter split>
+            <Button type="button" variant="destructive" onClick={editRule.onDeleteRuleFromEdit} className="gap-2">
+              <Trash2 className="w-4 h-4" />
+              Delete rule
+            </Button>
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" onClick={() => editRule.setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="button" onClick={editRule.onConfirm}>
+              <Button type="button" onClick={editRule.onConfirm} disabled={editRule.editRulePaths.length === 0}>
                 Save changes
               </Button>
             </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={copyRule.open}
-        onOpenChange={(open) => {
-          copyRule.setOpen(open);
-          if (!open) {
-            copyRule.onClose();
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[560px] bg-card border-border">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold">Copy rule</DialogTitle>
-            <DialogDescription>
-              Copy <span className="font-medium text-foreground">{copyRule.copyRule?.name ?? 'Rule'}</span> from{' '}
-              <span className="font-medium text-foreground">{getEnvironmentLabel(copyRule.copyRule?.environment ?? copyRule.viewEnv)}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target environments</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {copyRule.environmentOptions
-                  .filter((env) => env.id !== (copyRule.copyRule?.environment ?? copyRule.viewEnv))
-                  .map((env) => (
-                    <label key={env.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Checkbox
-                        checked={copyRule.copyRuleEnvs.includes(env.id)}
-                        onCheckedChange={() => copyRule.toggleCopyRuleEnvironment(env.id)}
-                      />
-                      <span>{env.name}</span>
-                    </label>
-                  ))}
-                {copyRule.environmentOptions.filter((env) => env.id !== (copyRule.copyRule?.environment ?? copyRule.viewEnv)).length === 0 && (
-                  <span className="text-sm text-muted-foreground">No other environments available.</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="mt-4">
-            <Button type="button" variant="ghost" onClick={() => copyRule.setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={copyRule.onConfirm} disabled={copyRule.copyRuleEnvs.length === 0} className="gap-2">
-              <Copy className="w-4 h-4" />
-              Copy rule
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
       </Dialog>
 
       <Dialog
         open={publishRule.open}
         onOpenChange={(open) => {
           publishRule.setOpen(open);
-          if (!open) {
-            publishRule.onClose();
-          }
+          if (!open) publishRule.onClose();
         }}
       >
-        <DialogContent className="sm:max-w-[600px] bg-card border-border">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold">Manage publication</DialogTitle>
-            <DialogDescription>
-              Choose where this rule should be published in{' '}
-              <span className="font-medium text-foreground">{getEnvironmentLabel(publishRule.viewEnv)}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Rule</span>
-                <span className="font-mono text-foreground">{publishRule.publishRule?.name ?? 'Rule'}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Current state</span>
-                <span className="text-foreground">
-                  {getPublicationLabel(getGatewayTargets(publishRule.publishRule?.gateways ?? []))}
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Publication targets</p>
-              <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-3">
-                <Checkbox
-                  checked={publishRule.publishTargets.internal}
-                  onCheckedChange={(checked) =>
-                    publishRule.setPublishTargets({
-                      ...publishRule.publishTargets,
-                      internal: Boolean(checked),
-                    })
-                  }
-                />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Internal gateway</p>
-                  <p className="text-xs text-muted-foreground">Expose the rule through the internal gateway.</p>
-                </div>
-              </label>
-              <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/50 p-3">
-                <Checkbox
-                  checked={publishRule.publishTargets.external}
-                  onCheckedChange={(checked) =>
-                    publishRule.setPublishTargets({
-                      ...publishRule.publishTargets,
-                      external: Boolean(checked),
-                    })
-                  }
-                />
-                <div>
-                  <p className="text-sm font-medium text-foreground">External gateway</p>
-                  <p className="text-xs text-muted-foreground">Publish externally through external gateways.</p>
-                </div>
-              </label>
-              <p className="text-[11px] text-muted-foreground">Unselect all targets to unpublish the rule.</p>
-            </div>
-
-            <div className="rounded-lg border border-border bg-muted/20 p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Resulting lifecycle</p>
-                <p className="text-sm font-medium text-foreground">
-                  {hasPublishTargets ? 'Published' : 'Draft'}
-                </p>
-              </div>
-              <Badge variant="outline" className="text-xs">
-                {publishSummaryLabel}
-              </Badge>
-            </div>
-
-            <div
-              className={cn(
-                'rounded-lg border p-4 space-y-2 text-sm',
-                publishBlockedByPolicy
-                  ? 'border-destructive/40 bg-destructive/10'
-                  : publishPolicyViolations.length > 0
-                    ? 'border-warning/30 bg-warning/10'
-                  : 'border-border bg-muted/20',
-              )}
+        <WorkflowDialogContent size="xl" className="h-[min(700px,calc(100vh-2rem))]">
+          <RuleDialogHeading
+            title="Manage publication"
+            description="Choose where this saved rule receives traffic and review governance checks before applying it."
+            environment={getEnvironmentLabel(publishRule.rule?.environment ?? publishRule.viewEnv)}
+          />
+          <WorkflowDialogBody className="grid content-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <WorkflowDialogSection
+              title="Publication targets"
+              description="Internal and external gateways can be managed independently."
             >
-              <p className="font-medium text-foreground">
-                {publishRule.preflightLoading
-                  ? 'Checking publish policy'
-                  : publishBlockedByPolicy
-                    ? 'Publication blocked by policy'
+              <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
+              <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-3 py-2.5">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Current</p>
+                  <p className="text-sm text-foreground">
+                    {getPublicationLabel(getGatewayTargets(publishRule.rule?.gateways ?? []))}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{hasPublishTargets ? 'Published' : 'Draft'}</span>
+                  <Badge variant="outline" className="text-xs">{publishSummaryLabel}</Badge>
+                </div>
+              </div>
+              <label className="flex items-center gap-3 border-b border-border/70 px-3 py-3">
+                <Checkbox
+                  checked={publishRule.targets.internal}
+                  onCheckedChange={(checked) =>
+                    publishRule.setTargets({ ...publishRule.targets, internal: Boolean(checked) })
+                  }
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">Internal gateway</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">Private traffic for this environment.</span>
+                </span>
+              </label>
+              <label className="flex items-center gap-3 border-b border-border/70 px-3 py-3">
+                <Checkbox
+                  checked={publishRule.targets.external}
+                  onCheckedChange={(checked) =>
+                    publishRule.setTargets({ ...publishRule.targets, external: Boolean(checked) })
+                  }
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">External gateway</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">Public traffic for this environment.</span>
+                </span>
+              </label>
+              <div
+                className={cn(
+                  'px-3 py-2.5 text-sm',
+                  publishBlockedByPolicy
+                    ? 'bg-destructive/10 text-foreground'
                     : publishPolicyViolations.length > 0
-                      ? 'Publication warnings in dry-run mode'
-                    : 'No policy blockers for this publication'}
-              </p>
-              {publishRule.preflightLoading ? (
-                <p className="text-muted-foreground">Evaluating governance rules for the selected targets.</p>
-              ) : publishPolicyViolations.length > 0 ? (
-                <>
-                  <p className="text-muted-foreground">
+                      ? 'bg-warning/10 text-foreground'
+                      : 'text-foreground',
+                )}
+              >
+                <p className="font-medium">
+                  {publishRule.preflightLoading
+                    ? 'Checking publish policy'
+                    : publishBlockedByPolicy
+                      ? 'Publication blocked by policy'
+                      : publishPolicyViolations.length > 0
+                        ? 'Publication warnings in dry-run mode'
+                        : 'No policy blockers for this publication'}
+                </p>
+                {publishPolicyViolations.length > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {publishPolicyDryRun
-                      ? 'Releasea will audit these governance warnings, but it will not block this publication while dry-run mode stays enabled.'
+                      ? 'These warnings are audited and do not block publication while dry-run mode stays enabled.'
                       : summarizeDeployPolicyViolations(publishPolicyViolations)}
                   </p>
-                  <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-                    {publishPolicyViolations.map((violation) => (
-                      <li key={`${violation.environment}:${violation.code}`}>{violation.message}</li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <p className="text-muted-foreground">
-                  Governance currently allows this publication change for {getEnvironmentLabel(publishRule.viewEnv)}.
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground">Attention</p>
-              <p>Changes can propagate immediately or take a few minutes to be visible.</p>
-              <p>Traffic may be impacted while policies are syncing.</p>
-            </div>
-          </div>
-          <DialogFooter className="mt-4">
+                )}
+              </div>
+              </div>
+            </WorkflowDialogSection>
+            <WorkflowDialogSection title="What happens next" description="Publication changes routing only. The rule remains saved even when every target is cleared.">
+              <dl className="space-y-3 text-sm">
+                <div><dt className="font-medium text-foreground">Internal</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Routes private traffic through the environment's internal host.</dd></div>
+                <div><dt className="font-medium text-foreground">External</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Routes public traffic through the environment's external host.</dd></div>
+              </dl>
+            </WorkflowDialogSection>
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
             <Button type="button" variant="ghost" onClick={() => publishRule.setOpen(false)}>
               Cancel
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => publishRule.setPublishTargets({ internal: false, external: false })}
+              onClick={() => publishRule.setTargets({ internal: false, external: false })}
               disabled={!hasPublishTargets || publishRule.preflightLoading}
             >
               Unpublish all
@@ -890,11 +560,74 @@ export const ServiceDetailsDialogs = ({
               disabled={publishRule.preflightLoading || publishBlockedByPolicy}
             >
               <CheckCircle className="w-4 h-4" />
-              Apply changes
+              Apply publication
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
       </Dialog>
+
+      <Dialog
+        open={promoteRule.open}
+        onOpenChange={(open) => {
+          promoteRule.setOpen(open);
+          if (!open) promoteRule.onClose();
+        }}
+      >
+        <WorkflowDialogContent size="xl" className="h-[min(700px,calc(100vh-2rem))]">
+          <RuleDialogHeading
+            title="Promote rule"
+            description="Copy the rule configuration into one or more environments while preserving each destination's identity."
+            environment={getEnvironmentLabel(promoteRule.rule?.environment ?? promoteRule.viewEnv)}
+          />
+          <WorkflowDialogBody className="grid content-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <WorkflowDialogSection title="Destination environments" description="Select every environment that should receive a new revision.">
+              <div className="overflow-hidden rounded-lg border border-border/70">
+                {promoteRule.environmentOptions
+                  .filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv))
+                  .map((env, index, list) => (
+                    <label
+                      key={env.id}
+                      className={cn(
+                        'flex items-center gap-3 px-3 py-3',
+                        index < list.length - 1 && 'border-b border-border/70',
+                      )}
+                    >
+                      <Checkbox
+                        checked={promoteRule.selected.includes(env.id)}
+                        onCheckedChange={() => promoteRule.toggle(env.id)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-foreground">{env.name}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          Next revision of {promoteRule.rule?.name ?? 'this rule'}, on its own host.
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                {promoteRule.environmentOptions.filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv)).length === 0 && (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">No other environments available.</p>
+                )}
+              </div>
+            </WorkflowDialogSection>
+            <WorkflowDialogSection title="Promotion scope" description="Promotion creates a new rule revision; it does not deploy an application image.">
+              <dl className="space-y-3 text-sm">
+                <div><dt className="font-medium text-foreground">Copied</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Paths, methods, access, and edge policy.</dd></div>
+                <div><dt className="font-medium text-foreground">Preserved</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Host, namespace, publication state, and running image.</dd></div>
+              </dl>
+            </WorkflowDialogSection>
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
+            <Button type="button" variant="ghost" onClick={() => promoteRule.setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={promoteRule.onConfirm} disabled={promoteRule.selected.length === 0} className="gap-2">
+              <Copy className="w-4 h-4" />
+              Promote rule
+            </Button>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
+      </Dialog>
+
 
       <ConfirmDeleteModal
         open={deleteRule.open}
@@ -930,6 +663,8 @@ export const ServiceDetailsDialogs = ({
         service={confirmDeploy.service}
         environment={confirmDeploy.viewEnv}
         version={confirmDeploy.pendingVersion ?? 'Latest'}
+        promoteFrom={confirmDeploy.promoteFrom}
+        promoteFromLabel={confirmDeploy.promoteFromLabel}
         onStart={confirmDeploy.onStart}
         onError={confirmDeploy.onError}
         onConfirm={confirmDeploy.onConfirm}

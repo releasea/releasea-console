@@ -314,19 +314,19 @@ export function buildReleaseIntelligenceSummary(
 
   let comparisonVerdict: ReleaseIntelligenceSummary['comparison']['verdict'] = 'steady';
   let comparisonSummary = previousDeploy
-    ? 'Latest release is broadly consistent with the previous successful deploy.'
-    : 'A previous successful release is required for an explicit comparison view.';
+    ? 'The latest deploy is broadly consistent with the previous successful deploy.'
+    : 'A previous successful deploy is required for an explicit comparison view.';
   if (!previousDeploy || !baselineAvailable) {
     comparisonVerdict = 'insufficient-data';
     comparisonSummary = previousDeploy
-      ? 'Need telemetry on both sides of the latest deploy to compare it against the previous successful release.'
-      : 'A previous successful release is required for an explicit comparison view.';
+      ? 'Need telemetry on both sides of the latest deploy to compare it with the previous successful deploy.'
+      : 'A previous successful deploy is required for an explicit comparison view.';
   } else if (rollbackRecommendation === 'rollback' || rollbackRecommendation === 'watch') {
     comparisonVerdict = 'regressed';
-    comparisonSummary = 'Latest release regressed against the previous successful release and needs attention.';
+    comparisonSummary = 'The latest deploy regressed against the previous successful deploy and needs attention.';
   } else if ((latencyChangePct ?? 0) <= -10 || (errorChangePct ?? 0) <= -10 || (availabilityChangePctPoints ?? 0) >= 0.1) {
     comparisonVerdict = 'improved';
-    comparisonSummary = 'Latest release is performing better than the previous successful release in the current telemetry window.';
+    comparisonSummary = 'The latest deploy is performing better than the previous successful deploy in the current telemetry window.';
   }
 
   const deployImpactTimeline = buildDeployImpactTimeline(successfulDeploys, metrics, timestamps);
@@ -361,8 +361,8 @@ export function buildReleaseIntelligenceSummary(
     anomalies.push({
       id: 'repeated-regression',
       severity: 'warning',
-      title: 'Recent releases are regressing in sequence',
-      detail: 'Two consecutive successful releases show regression signals, which suggests a moving baseline instead of a one-off spike.',
+      title: 'Recent deploys are regressing in sequence',
+      detail: 'Two consecutive successful deploys show regression signals, which suggests a moving baseline instead of a one-off spike.',
     });
   }
 

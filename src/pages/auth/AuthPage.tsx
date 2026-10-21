@@ -231,10 +231,10 @@ const Auth = () => {
             <span className="bg-gradient-to-r from-muted-foreground via-foreground/70 to-foreground/50 bg-clip-text text-transparent">
               open source
             </span>{' '}
-            Internal Developer Portal
+            service surface
           </h2>
           <p className="text-muted-foreground leading-relaxed max-w-md">
-            Stop exposing Kubernetes complexity to your developers. Create, deploy, monitor and govern services across any cluster, any environment.
+            Run the service and decide how a request reaches it. Environments, runtime, and the edge stay on one surface.
           </p>
 
           {/* Highlight cards */}
@@ -267,7 +267,7 @@ const Auth = () => {
         <ReleaseaMark className="h-14 w-14" />
       </div>
       <h1 className="text-2xl font-bold text-foreground">Releasea</h1>
-      <p className="text-muted-foreground">Platform Orchestrator</p>
+      <p className="text-muted-foreground">Service surface</p>
     </div>
   );
 

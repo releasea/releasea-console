@@ -9,6 +9,7 @@ import { GettingStartedChecklist } from '@/components/dashboard/GettingStartedCh
 import { OperatorHealthReport } from '@/components/dashboard/OperatorHealthReport';
 import { ProviderReadinessChecks } from '@/components/dashboard/ProviderReadinessChecks';
 import { ServicesList } from '@/components/dashboard/ServicesList';
+import { displayedServiceStatus, serviceNeedsAttention } from '@/components/dashboard/ServiceHive';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
@@ -112,7 +113,7 @@ const Dashboard = () => {
     setIsRunningProviderHealth(false);
   }, []);
 
-  const runningServices = services.filter((s) => s.status === 'running').length;
+  const runningServices = services.filter((service) => displayedServiceStatus(service, deploys) === 'running').length;
   const onlineWorkers = workers.filter((w) => w.status === 'online' || w.status === 'busy').length;
   const successDeploys = deploys.filter((deploy) => isSuccessfulDeployStatus(deploy.status)).length;
   const failedDeploys = deploys.filter((deploy) => isFailedDeployStatus(deploy.status)).length;
@@ -271,7 +272,7 @@ const Dashboard = () => {
               </div>
               {totalDeploys === 0 ? (
                 <div className="mt-auto pt-4">
-                  <p className="text-3xl font-semibold tracking-tight text-muted-foreground tabular-nums">—</p>
+                  <p className="text-3xl font-semibold tracking-tight text-muted-foreground tabular-nums">-</p>
                   <p className="mt-1 text-sm font-medium text-foreground">No deploy history yet</p>
                   <p className="mt-1 text-xs text-muted-foreground">Complete the first deploy to measure reliability.</p>
                 </div>
@@ -290,6 +291,41 @@ const Dashboard = () => {
               )}
             </article>
           </div>
+        </section>
+
+        <section className="space-y-3" aria-labelledby="projects-heading">
+          <div>
+            <h2 id="projects-heading" className="text-sm font-semibold text-foreground">Projects</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Open a project to see its services and which ones need attention.</p>
+          </div>
+          {projects.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">No projects yet.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {projects.map((project) => {
+                const projectServices = services.filter((service) => service.projectId === project.id);
+                const attention = projectServices.filter((service) => serviceNeedsAttention(service, deploys)).length;
+                const running = projectServices.filter((service) => displayedServiceStatus(service, deploys) === 'running').length;
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                    className="rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium text-foreground">{project.name}</p>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${attention > 0 ? 'bg-warning/15 text-warning' : 'bg-success/12 text-success'}`}>
+                        {attention > 0 ? `${attention} ${attention === 1 ? 'needs' : 'need'} attention` : 'Healthy'}
+                      </span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{project.description || 'No description'}</p>
+                    <p className="mt-3 text-xs text-muted-foreground">{running}/{projectServices.length} services running</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Main Content */}

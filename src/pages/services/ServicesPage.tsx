@@ -380,7 +380,7 @@ const Services = () => {
                 <Rocket className="w-4 h-4 mr-2" />
                 Deploy service
               </DropdownMenuItem>
-              {service.status === 'running' ? (
+              {displayStatusByService.get(service.id) === 'running' ? (
                 <DropdownMenuItem onClick={() => {
                   toast({ title: 'Stop requested', description: `Stopping ${service.name}...` });
                 }}>

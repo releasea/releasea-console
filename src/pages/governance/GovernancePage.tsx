@@ -28,6 +28,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { DocumentationLink } from '@/components/layout/DocumentationLink';
+import {
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+  WorkflowDialogSteps,
+} from '@/components/modals/WorkflowDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -1983,18 +1990,14 @@ const GovernancePage = () => {
       </div>
 
       <Dialog open={policyWizardOpen} onOpenChange={(open) => { setPolicyWizardOpen(open); if (!open) setPolicyWizardStep('baseline'); }}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Configure governance baseline</DialogTitle>
-            <DialogDescription>
-              Start with an understandable policy pack. You can still tune individual controls after applying it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className={cn('rounded-md border px-3 py-2', policyWizardStep === 'baseline' ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground')}>1 · Choose baseline</div>
-              <div className={cn('rounded-md border px-3 py-2', policyWizardStep === 'review' ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground')}>2 · Review impact</div>
-            </div>
+        <WorkflowDialogContent size="lg">
+          <WorkflowDialogHeader
+            title="Configure governance baseline"
+            description="Start from a policy pack, review its impact, and fine-tune individual controls after it is applied."
+            icon={<Shield className="h-4 w-4" />}
+          />
+          <WorkflowDialogBody className="space-y-5">
+            <WorkflowDialogSteps steps={['Choose baseline', 'Review impact']} activeStep={policyWizardStep === 'baseline' ? 0 : 1} />
 
             {policyWizardStep === 'baseline' ? (
               <div className="grid gap-3">
@@ -2050,8 +2053,8 @@ const GovernancePage = () => {
                 </div>
               );
             })()}
-          </div>
-          <DialogFooter>
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
             <Button variant="outline" onClick={() => setPolicyWizardOpen(false)}>Cancel</Button>
             {policyWizardStep === 'review' && (
               <Button variant="ghost" className="gap-2" onClick={() => setPolicyWizardStep('baseline')}>
@@ -2065,8 +2068,8 @@ const GovernancePage = () => {
             ) : (
               <Button onClick={applyPolicyWizard} disabled={isSaving}>Apply baseline</Button>
             )}
-          </DialogFooter>
-        </DialogContent>
+          </WorkflowDialogFooter>
+        </WorkflowDialogContent>
       </Dialog>
 
       <Dialog open={isExceptionDialogOpen} onOpenChange={setIsExceptionDialogOpen}>

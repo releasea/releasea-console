@@ -132,7 +132,11 @@ export const RulesTab = ({
                 ? 'Blocked'
                 : rule.policy?.authMode === 'jwt'
                   ? 'JWT required'
-                  : 'Public';
+                  : rule.policy?.authMode === 'apikey'
+                    ? 'API key'
+                    : rule.policy?.authMode === 'mtls'
+                      ? 'mTLS'
+                      : 'Public';
               const methods = rule.methods.length ? rule.methods : ['ANY'];
               const visibleMethods = methods.slice(0, 3);
               const extraMethods = Math.max(0, methods.length - visibleMethods.length);
@@ -171,8 +175,10 @@ export const RulesTab = ({
                       <div>
                         <p className="font-mono font-medium text-foreground">{rule.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {accessLabel} • {rule.paths.length} path(s) •{' '}
-                          {rule.hosts.length} host(s)
+                          v{rule.revision && rule.revision > 0 ? rule.revision : 1}
+                          {rule.promotedFromEnvironment ? ` · from ${getEnvironmentLabel(rule.promotedFromEnvironment)}` : ''}
+                          {' · '}
+                          {accessLabel} • {rule.paths.length} path(s)
                         </p>
                       </div>
                     </div>
@@ -233,7 +239,7 @@ export const RulesTab = ({
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => onOpenCopyRule(rule)} disabled={isObservedManagementMode}>
                           <Copy className="w-4 h-4 mr-2" />
-                          Copy to environments
+                          Promote to environment
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem

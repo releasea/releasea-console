@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Gauge } from 'lucide-react';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+} from '@/components/modals/WorkflowDialog';
+import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,14 +59,14 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{profile ? 'Edit runtime profile' : 'Create runtime profile'}</DialogTitle>
-          <DialogDescription>
-            Set reusable Kubernetes requests and limits. Use values such as 250m for CPU and 256Mi for memory.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <WorkflowDialogContent size="md">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <WorkflowDialogHeader
+            title={profile ? 'Edit runtime profile' : 'Create runtime profile'}
+            description="Set reusable Kubernetes requests and limits. Use values such as 250m for CPU and 256Mi for memory."
+            icon={<Gauge className="h-4 w-4" />}
+          />
+          <WorkflowDialogBody className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="rp-name">Name</Label>
             <Input
@@ -134,16 +134,17 @@ export function RuntimeProfileFormModal({ open, onClose, onSubmit, loading, prof
             </div>
           </div>
 
-          <DialogFooter>
+          </WorkflowDialogBody>
+          <WorkflowDialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !form.name.trim()}>
               {loading ? 'Saving...' : profile ? 'Save changes' : 'Create profile'}
             </Button>
-          </DialogFooter>
+          </WorkflowDialogFooter>
         </form>
-      </DialogContent>
+      </WorkflowDialogContent>
     </Dialog>
   );
 }

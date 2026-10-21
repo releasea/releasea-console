@@ -1,36 +1,36 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, ExternalLink, GitPullRequest, Info } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  WorkflowDialogBody,
+  WorkflowDialogContent,
+  WorkflowDialogFooter,
+  WorkflowDialogHeader,
+  WorkflowDialogSteps,
+} from '@/components/modals/WorkflowDialog';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 export type GitOpsAction = 'releasea' | 'argocd' | 'flux';
 
 const actionCopy: Record<GitOpsAction, { title: string; description: string; effect: string; confirm: string }> = {
   releasea: {
-    title: 'Create a GitOps pull request',
-    description: 'Releasea will write this service’s desired state to the configured application repository.',
-    effect: 'The running service is not changed immediately. After the pull request is reviewed and merged, your delivery process can apply the new desired state.',
-    confirm: 'Create PR and open',
+    title: 'Write the desired state',
+    description: 'Opens a pull request with one file: .releasea/gitops/<service>.desired-state.yaml. Use this when your pipeline already reads that file.',
+    effect: 'The running service stays as it is. Merge the pull request before any reconciler applies the new desired state.',
+    confirm: 'Create pull request',
   },
   argocd: {
-    title: 'Create an Argo CD starter pull request',
-    description: 'Releasea will add the repository structure required to start managing this service with Argo CD.',
-    effect: 'The running service remains unchanged until the pull request is merged and Argo CD reconciles the committed configuration.',
-    confirm: 'Create Argo CD PR',
+    title: 'Start with Argo CD',
+    description: 'Opens a pull request that adds the desired-state file, a Kustomize package, and an Argo CD Application. Argo CD will sync that package as a ConfigMap.',
+    effect: 'Releasea keeps deploying the workload. Argo CD only reconciles the committed desired-state package after the pull request is merged.',
+    confirm: 'Create Argo CD pull request',
   },
   flux: {
-    title: 'Create a Flux starter pull request',
-    description: 'Releasea will add the repository structure required to start managing this service with Flux.',
-    effect: 'The running service remains unchanged until the pull request is merged and Flux reconciles the committed configuration.',
-    confirm: 'Create Flux PR',
+    title: 'Start with Flux',
+    description: 'Opens a pull request that adds the desired-state file, a Kustomize package, a Flux GitRepository, and a Flux Kustomization.',
+    effect: 'Releasea keeps deploying the workload. Flux only reconciles the committed desired-state package after the pull request is merged.',
+    confirm: 'Create Flux pull request',
   },
 };
 
@@ -68,22 +68,15 @@ export function GitOpsConfirmationDialog({
 
   return (
     <Dialog open={action !== null} onOpenChange={(open) => !busy && onOpenChange(open)}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <GitPullRequest className="h-5 w-5" />
-          </div>
-          <DialogTitle>Configure GitOps delivery</DialogTitle>
-          <DialogDescription>
-            Choose who will reconcile the desired state, then review the repository change before creating the pull request.
-          </DialogDescription>
-        </DialogHeader>
+      <WorkflowDialogContent size="md">
+        <WorkflowDialogHeader
+          title="GitOps delivery"
+          description="Create a pull request in the service repository and choose which controller will reconcile it after merge. The running service is not changed now."
+          icon={<GitPullRequest className="h-4 w-4" />}
+        />
 
-        <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className={cn('rounded-md border px-3 py-2', step === 'provider' ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground')}>1 · Delivery model</div>
-            <div className={cn('rounded-md border px-3 py-2', step === 'review' ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground')}>2 · Review & create</div>
-          </div>
+        <WorkflowDialogBody className="space-y-5">
+          <WorkflowDialogSteps steps={['Delivery model', 'Review & create']} activeStep={step === 'provider' ? 0 : 1} />
 
           {step === 'provider' ? (
             <div className="grid gap-3">
@@ -133,9 +126,9 @@ export function GitOpsConfirmationDialog({
               </div>
             </>
           )}
-        </div>
+        </WorkflowDialogBody>
 
-        <DialogFooter>
+        <WorkflowDialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
@@ -156,8 +149,8 @@ export function GitOpsConfirmationDialog({
               {busy ? 'Creating pull request...' : copy.confirm}
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
+        </WorkflowDialogFooter>
+      </WorkflowDialogContent>
     </Dialog>
   );
 }

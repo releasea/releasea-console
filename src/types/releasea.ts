@@ -282,6 +282,7 @@ export interface DeployStrategyConfig {
   type: DeployStrategyType;
   canaryPercent?: number;
   blueGreenPrimary?: 'blue' | 'green';
+  environmentSlots?: Partial<Record<string, 'blue' | 'green'>>;
 }
 
 export interface EnvironmentConfig {
@@ -428,6 +429,26 @@ export type RuleStatus =
   | 'publishing'
   | 'unpublishing';
 
+export interface RuleCORSConfig {
+  enabled: boolean;
+  origins: string[];
+  methods?: string[];
+  headers?: string[];
+  maxAgeSeconds?: number;
+}
+
+export interface RuleRateLimitConfig {
+  requests: number;
+  windowSeconds: number;
+}
+
+export interface RuleCircuitBreakerConfig {
+  consecutiveErrors: number;
+  intervalSeconds?: number;
+  baseEjectionSeconds?: number;
+  maxEjectionPercent?: number;
+}
+
 export interface RulePolicyConfig {
   action: 'allow' | 'deny';
   timeoutMs: number;
@@ -435,7 +456,16 @@ export interface RulePolicyConfig {
   ipPolicy: 'open' | 'allowlist' | 'blocklist';
   ipList?: string[];
   requiredHeaders?: string[];
-  authMode?: 'public' | 'jwt';
+  requiredScopes?: string[];
+  apiKeyHeader?: string;
+  apiKeys?: string[];
+  cors?: RuleCORSConfig;
+  rateLimit?: RuleRateLimitConfig;
+  circuitBreaker?: RuleCircuitBreakerConfig;
+  maxBodyBytes?: number;
+  securityHeaders?: boolean;
+  lockNetwork?: boolean;
+  authMode?: 'public' | 'jwt' | 'apikey' | 'mtls';
   jwtIssuer?: string;
   jwksUri?: string;
   audiences?: string[];
@@ -447,6 +477,10 @@ export interface ManagedRule extends Rule {
   updatedAt: string;
   lastPublishedAt?: string;
   policy: RulePolicyConfig;
+  contractId?: string;
+  revision?: number;
+  promotedFromRuleId?: string;
+  promotedFromEnvironment?: Environment | string;
 }
 
 export interface ServiceDesiredStatePublication {
@@ -629,6 +663,8 @@ export interface Deploy {
   status: DeployStatusValue;
   environment?: string;
   commit?: string;
+  image?: string;
+  promotedFrom?: string;
   branch?: string;
   triggeredBy: string;
   startedAt: string;
