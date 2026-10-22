@@ -1139,9 +1139,14 @@ export default function CreateService() {
         private: newRepoPrivate,
       });
       if (repositoryError || !repo) {
+        const credentialName = effectiveScmCredential.name?.trim() || 'selected GitHub credential';
         toast({
-          title: 'Failed to create application repository',
-          description: repositoryError || 'Check your GitHub credentials and try again.',
+          title: repositoryError?.includes('GitHub authentication failed')
+            ? 'GitHub credential rejected'
+            : 'Failed to create application repository',
+          description: repositoryError
+            ? `${repositoryError} Selected credential: ${credentialName}.`
+            : `GitHub could not create the repository with ${credentialName}. Review the credential in Platform Settings and try again.`,
           variant: 'destructive',
         });
         setIsLoading(false);
