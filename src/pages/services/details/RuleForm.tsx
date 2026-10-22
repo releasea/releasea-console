@@ -23,14 +23,16 @@ export function RuleContextPane({
   notes,
   outcome,
   fill = true,
+  className,
 }: {
   children: ReactNode;
   notes: RuleNote[];
   outcome: string;
   fill?: boolean;
+  className?: string;
 }) {
   return (
-    <div className={cn('grid min-h-0 lg:grid-cols-[minmax(0,1fr)_260px]', fill ? 'h-full overflow-y-auto lg:overflow-hidden' : 'h-auto')}>
+    <div className={cn('grid min-h-0 lg:grid-cols-[minmax(0,1fr)_260px]', fill ? 'h-full overflow-y-auto lg:overflow-hidden' : 'h-auto', className)}>
       <div className={cn('min-h-0 px-6 py-5', fill ? 'lg:h-full lg:overflow-y-auto' : 'h-auto')}>{children}</div>
       <aside className="flex min-h-0 flex-col border-t border-border/70 bg-muted/15 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
         <p className={fieldLabelClassName}>Guidance</p>

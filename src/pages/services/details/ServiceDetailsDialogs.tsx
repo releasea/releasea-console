@@ -1,11 +1,9 @@
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { ConfirmDeployModal } from '@/components/modals/ConfirmDeployModal';
 import {
-  WorkflowDialogBody,
   WorkflowDialogContent,
   WorkflowDialogFooter,
   WorkflowDialogHeader,
-  WorkflowDialogSection,
 } from '@/components/modals/WorkflowDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +30,7 @@ import {
   getPublicationLabel,
 } from './constants';
 import type { PublicationTargets, RuleRow } from './types';
-import { RuleForm } from './RuleForm';
+import { RuleContextPane, RuleForm } from './RuleForm';
 import type { EdgePolicyDraft } from './edge-policy';
 
 const renderStatusBadge = (status: Deploy['status']) => (
@@ -463,12 +461,15 @@ export const ServiceDetailsDialogs = ({
             description="Choose where this saved rule receives traffic and review governance checks before applying it."
             environment={getEnvironmentLabel(publishRule.rule?.environment ?? publishRule.viewEnv)}
           />
-          <WorkflowDialogBody className="grid content-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <WorkflowDialogSection
-              title="Publication targets"
-              description="Internal and external gateways can be managed independently."
-            >
-              <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
+          <RuleContextPane
+            className="min-h-0 flex-1"
+            notes={[
+              { title: 'Internal', body: 'Private traffic uses the internal host for this environment.' },
+              { title: 'External', body: 'Public traffic uses the external host for this environment.' },
+            ]}
+            outcome="Apply writes the selected gateways. Clear both to unpublish. The rule stays saved."
+          >
+            <div className="overflow-hidden rounded-lg border border-border/70">
               <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-3 py-2.5">
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Current</p>
@@ -532,15 +533,8 @@ export const ServiceDetailsDialogs = ({
                   </p>
                 )}
               </div>
-              </div>
-            </WorkflowDialogSection>
-            <WorkflowDialogSection title="What happens next" description="Publication changes routing only. The rule remains saved even when every target is cleared.">
-              <dl className="space-y-3 text-sm">
-                <div><dt className="font-medium text-foreground">Internal</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Routes private traffic through the environment's internal host.</dd></div>
-                <div><dt className="font-medium text-foreground">External</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Routes public traffic through the environment's external host.</dd></div>
-              </dl>
-            </WorkflowDialogSection>
-          </WorkflowDialogBody>
+            </div>
+          </RuleContextPane>
           <WorkflowDialogFooter>
             <Button type="button" variant="ghost" onClick={() => publishRule.setOpen(false)}>
               Cancel
@@ -579,43 +573,42 @@ export const ServiceDetailsDialogs = ({
             description="Copy the rule configuration into one or more environments while preserving each destination's identity."
             environment={getEnvironmentLabel(promoteRule.rule?.environment ?? promoteRule.viewEnv)}
           />
-          <WorkflowDialogBody className="grid content-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <WorkflowDialogSection title="Destination environments" description="Select every environment that should receive a new revision.">
-              <div className="overflow-hidden rounded-lg border border-border/70">
-                {promoteRule.environmentOptions
-                  .filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv))
-                  .map((env, index, list) => (
-                    <label
-                      key={env.id}
-                      className={cn(
-                        'flex items-center gap-3 px-3 py-3',
-                        index < list.length - 1 && 'border-b border-border/70',
-                      )}
-                    >
-                      <Checkbox
-                        checked={promoteRule.selected.includes(env.id)}
-                        onCheckedChange={() => promoteRule.toggle(env.id)}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium text-foreground">{env.name}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          Next revision of {promoteRule.rule?.name ?? 'this rule'}, on its own host.
-                        </span>
+          <RuleContextPane
+            className="min-h-0 flex-1"
+            notes={[
+              { title: 'Copied', body: 'Paths, methods, access, and edge policy move into the next revision.' },
+              { title: 'Preserved', body: 'Host, namespace, publication state, and the running image stay with each environment.' },
+            ]}
+            outcome="A published destination is republished on the same gateways. A draft stays a draft."
+          >
+            <div className="overflow-hidden rounded-lg border border-border/70">
+              {promoteRule.environmentOptions
+                .filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv))
+                .map((env, index, list) => (
+                  <label
+                    key={env.id}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-3',
+                      index < list.length - 1 && 'border-b border-border/70',
+                    )}
+                  >
+                    <Checkbox
+                      checked={promoteRule.selected.includes(env.id)}
+                      onCheckedChange={() => promoteRule.toggle(env.id)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-foreground">{env.name}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Next revision of {promoteRule.rule?.name ?? 'this rule'}, on its own host.
                       </span>
-                    </label>
-                  ))}
-                {promoteRule.environmentOptions.filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv)).length === 0 && (
-                  <p className="px-3 py-3 text-sm text-muted-foreground">No other environments available.</p>
-                )}
-              </div>
-            </WorkflowDialogSection>
-            <WorkflowDialogSection title="Promotion scope" description="Promotion creates a new rule revision; it does not deploy an application image.">
-              <dl className="space-y-3 text-sm">
-                <div><dt className="font-medium text-foreground">Copied</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Paths, methods, access, and edge policy.</dd></div>
-                <div><dt className="font-medium text-foreground">Preserved</dt><dd className="mt-1 text-xs leading-5 text-muted-foreground">Host, namespace, publication state, and running image.</dd></div>
-              </dl>
-            </WorkflowDialogSection>
-          </WorkflowDialogBody>
+                    </span>
+                  </label>
+                ))}
+              {promoteRule.environmentOptions.filter((env) => env.id !== (promoteRule.rule?.environment ?? promoteRule.viewEnv)).length === 0 && (
+                <p className="px-3 py-3 text-sm text-muted-foreground">No other environments available.</p>
+              )}
+            </div>
+          </RuleContextPane>
           <WorkflowDialogFooter>
             <Button type="button" variant="ghost" onClick={() => promoteRule.setOpen(false)}>
               Cancel
