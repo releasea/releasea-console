@@ -19,10 +19,10 @@ export function ReleaseaMark({ className }: BrandMarkProps) {
       className={cn('h-8 w-8', className)}
     >
       <rect width="64" height="64" rx="16" fill="#0B1220" />
-      <path d="M15 45h34" fill="none" stroke="#F8FAFC" strokeWidth="5" strokeLinecap="round" />
-      <path d="M18 45c4-15 12-21 28-21" fill="none" stroke="#3B82F6" strokeWidth="5" strokeLinecap="round" />
-      <circle cx="46" cy="24" r="5.2" fill="#3B82F6" />
-      <circle cx="46" cy="24" r="2.1" fill="#F8FAFC" />
+      <rect x="15" y="26" width="13" height="19" rx="3.5" fill="#334155" />
+      <rect x="12" y="40" width="40" height="11" rx="3.5" fill="#F8FAFC" />
+      <rect x="31" y="14" width="19" height="31" rx="4.5" fill="#3B82F6" />
+      <rect x="35.5" y="20" width="10" height="3.5" rx="1.6" fill="#F8FAFC" />
     </svg>
   );
 }
