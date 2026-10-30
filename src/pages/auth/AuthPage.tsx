@@ -10,6 +10,9 @@ import { buildAuthSSOStartUrl, fetchAuthSSOConfig } from '@/lib/data';
 
 type AuthView = 'login' | 'signup' | 'forgot-password' | 'reset-sent' | 'reset-password' | 'reset-success';
 const signupEnabled = import.meta.env.RELEASEA_ENABLE_SIGNUP === 'true';
+const demoMode = import.meta.env.RELEASEA_DEMO === 'true';
+const demoEmail = 'demo@releasea.io';
+const demoPassword = 'demo';
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -18,8 +21,8 @@ const Auth = () => {
   
   const passwordResetToken = new URLSearchParams(location.search).get('resetToken')?.trim() ?? '';
   const [view, setView] = useState<AuthView>(passwordResetToken ? 'reset-password' : 'login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(demoMode ? demoEmail : '');
+  const [password, setPassword] = useState(demoMode ? demoPassword : '');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +98,8 @@ const Auth = () => {
   }, [ssoTicket, from, loginWithSSOTicket, navigate, clearTransientSSOParams]);
 
   const resetForm = () => {
-    setEmail('');
-    setPassword('');
+    setEmail(demoMode ? demoEmail : '');
+    setPassword(demoMode ? demoPassword : '');
     setConfirmPassword('');
     setName('');
     setError(null);
@@ -278,6 +281,9 @@ const Auth = () => {
       <div className="text-center lg:text-left">
         <h2 className="text-2xl font-bold text-foreground">Welcome back</h2>
         <p className="text-muted-foreground mt-2">Sign in to continue to your dashboard</p>
+        {import.meta.env.RELEASEA_DEMO === 'true' ? (
+          <p className="text-muted-foreground mt-2 text-sm">Any email and password open the demo. Nothing is created on GitHub, and records you add disappear after 1 hour.</p>
+        ) : null}
       </div>
 
       {error && (

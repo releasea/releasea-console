@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderKanban, Server, Cpu, Rocket, Plus } from 'lucide-react';
+import { Plus, Rocket } from 'lucide-react';
+import { platformIcons } from '@/components/branding/platform-icons';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { EmptyState } from '@/components/layout/EmptyState';
@@ -220,7 +221,7 @@ const Dashboard = () => {
             <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
               <div className="flex items-center gap-2">
                 <div className="rounded-md bg-primary/10 p-2 text-primary ring-1 ring-primary/15">
-                  <FolderKanban className="h-4 w-4" />
+                  <platformIcons.projects className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Projects</span>
               </div>
@@ -234,7 +235,7 @@ const Dashboard = () => {
             <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
               <div className="flex items-center gap-2">
                 <div className="rounded-md bg-info/10 p-2 text-info ring-1 ring-info/15">
-                  <Server className="h-4 w-4" />
+                  <platformIcons.services className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Services</span>
               </div>
@@ -250,7 +251,7 @@ const Dashboard = () => {
             <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-border bg-background p-4 transition-colors hover:border-border/80">
               <div className="flex items-center gap-2">
                 <div className="rounded-md bg-warning/10 p-2 text-warning ring-1 ring-warning/15">
-                  <Cpu className="h-4 w-4" />
+                  <platformIcons.workers className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Workers</span>
               </div>
@@ -333,7 +334,7 @@ const Dashboard = () => {
           {services.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-card/60 p-8">
               <EmptyState
-                icon={<Server className="h-5 w-5 text-muted-foreground" />}
+                icon={<platformIcons.services className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
                 title="No services yet"
                 description={
                   projects.length > 0

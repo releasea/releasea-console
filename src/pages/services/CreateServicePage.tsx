@@ -17,6 +17,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ServiceType, DeployStrategyType, RegistryCredential, ScmCredential, ServiceManagementMode, Environment } from '@/types/releasea';
 import { toast } from '@/hooks/use-toast';
 import { hasRegisteredWorkerForEnvironment } from '@/lib/worker-registrations';
@@ -177,6 +185,7 @@ export default function CreateService() {
   ]);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [demoNoticeOpen, setDemoNoticeOpen] = useState(false);
   const [templateRepoAvailability, setTemplateRepoAvailability] = useState<
     'idle' | 'checking' | 'available' | 'exists' | 'error'
   >('idle');
@@ -1089,6 +1098,14 @@ export default function CreateService() {
       setIsLoading(false);
       return;
     }
+    const finishDemoPreview = () => {
+      setIsLoading(false);
+      setDemoNoticeOpen(true);
+    };
+    if (import.meta.env.RELEASEA_DEMO === 'true' && !isTemplateMode) {
+      finishDemoPreview();
+      return;
+    }
     if (isTemplateMode) {
       if (!parsedTemplateRepo) {
         toast({
@@ -1120,6 +1137,10 @@ export default function CreateService() {
           description: 'Configure a registry credential before creating this service.',
         });
         setIsLoading(false);
+        return;
+      }
+      if (import.meta.env.RELEASEA_DEMO === 'true') {
+        finishDemoPreview();
         return;
       }
 
@@ -2404,6 +2425,24 @@ export default function CreateService() {
           )}
         </div>
       </CreateServiceFormStoreProvider>
+      <Dialog open={demoNoticeOpen} onOpenChange={setDemoNoticeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Demo only</DialogTitle>
+            <DialogDescription>
+              You reached the end of service creation. This service was not created, and no GitHub repository was created. The sample services stay available so you can review history, metrics, logs, and rules.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDemoNoticeOpen(false)}>
+              Stay here
+            </Button>
+            <Button type="button" onClick={() => navigate('/services')}>
+              Back to services
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

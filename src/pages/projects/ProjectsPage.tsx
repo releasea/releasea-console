@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Users, FolderKanban, Activity, ArrowUpDown } from 'lucide-react';
+import { Activity, ArrowUpDown, Plus, Users } from 'lucide-react';
+import { platformIcons } from '@/components/branding/platform-icons';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { TableFiltersBar } from '@/components/layout/TableFiltersBar';
@@ -166,7 +167,7 @@ const Projects = () => {
           {filteredProjects.length === 0 ? (
             <div className="col-span-full rounded-lg border border-dashed border-border bg-card/60 p-10">
               <EmptyState
-                icon={<FolderKanban className="h-5 w-5 text-muted-foreground" />}
+                icon={<platformIcons.projects className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
                 title={projects.length === 0 ? 'No projects yet' : 'No projects match your filters'}
                 description={projects.length === 0 ? 'Create a project to group services, access, and delivery settings.' : 'Adjust the search or filters to find another project.'}
                 actionLabel={projects.length === 0 ? 'Create project' : undefined}
@@ -192,7 +193,7 @@ const Projects = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
-                      <FolderKanban className="h-5 w-5 text-primary" />
+                      <platformIcons.projects className="h-5 w-5 shrink-0 text-primary" strokeWidth={1.75} />
                     </div>
                     <div>
                       <p className="text-[11px] uppercase tracking-wider text-muted-foreground">

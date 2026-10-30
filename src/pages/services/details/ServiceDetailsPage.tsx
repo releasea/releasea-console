@@ -2021,6 +2021,33 @@ const ServiceDetails = () => {
     };
   }, [id, selectedReplica, viewEnv]);
 
+  useEffect(() => {
+    if (import.meta.env.RELEASEA_DEMO !== 'true') return;
+    if (!id || !viewEnv || !selectedReplica || logsLoaded) return;
+    let active = true;
+    setLogsLoading(true);
+    const to = new Date();
+    const from = new Date(to.getTime() - LOGS_DEFAULT_WINDOW_MS);
+    void fetchServiceLogsResult(id, {
+      from,
+      to,
+      limit: LOG_LINE_LIMIT,
+      environment: viewEnv,
+      pod: selectedReplica,
+    }).then((result) => {
+      if (!active) return;
+      setLogs(result.logs);
+      setLogsError(result.error ?? null);
+      if (result.diagnostics?.namespace) setLogsNamespace(result.diagnostics.namespace);
+      setLastLogsLoadedAt(new Date());
+      setLogsLoaded(true);
+      setLogsLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [id, logsLoaded, selectedReplica, viewEnv]);
+
   if (isLoading) {
     return (
       <AppLayout>
