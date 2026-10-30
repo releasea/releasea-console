@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
-import { ReleaseaLogo, ReleaseaMark } from '@/components/branding/ReleaseaLogo';
+import { ReleaseaLogo } from '@/components/branding/ReleaseaLogo';
 import { buildAuthSSOStartUrl, fetchAuthSSOConfig } from '@/lib/data';
 
 type AuthView = 'login' | 'signup' | 'forgot-password' | 'reset-sent' | 'reset-password' | 'reset-success';
@@ -214,7 +214,7 @@ const Auth = () => {
 
       <div className="relative z-10 grid h-full grid-rows-[auto_1fr_auto] p-12">
         {/* Logo */}
-        <ReleaseaLogo textClassName="text-lg font-bold" />
+        <ReleaseaLogo />
 
         {/* Hero copy */}
         <div className="space-y-6 self-center -translate-y-8">
@@ -265,12 +265,8 @@ const Auth = () => {
   );
 
   const renderMobileLogo = () => (
-    <div className="lg:hidden text-center mb-8">
-      <div className="flex justify-center mb-4">
-        <ReleaseaMark className="h-14 w-14" />
-      </div>
-      <h1 className="text-2xl font-bold text-foreground">Releasea</h1>
-      <p className="text-muted-foreground">Service surface</p>
+    <div className="mb-8 flex justify-center lg:hidden">
+      <ReleaseaLogo />
     </div>
   );
 

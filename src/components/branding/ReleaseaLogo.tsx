@@ -17,7 +17,7 @@ export function ReleaseaMark({ className }: BrandMarkProps) {
       src="/releasea.svg"
       alt=""
       aria-hidden="true"
-      className={cn('h-8 w-8 object-contain', className)}
+      className={cn('block h-[42px] w-[42px] shrink-0 object-contain', className)}
     />
   );
 }
@@ -29,14 +29,14 @@ export function ReleaseaLogo({
   subtitle = 'Service surface',
 }: BrandLogoProps) {
   return (
-    <div className={cn('flex items-center gap-3', className)}>
+    <div className={cn('flex items-center gap-[2px]', className)}>
       <ReleaseaMark />
-      <div className="flex min-w-0 flex-col items-start leading-tight text-left">
-        <p className={cn('text-sm font-semibold tracking-tight uppercase', textClassName)}>
+      <div className="flex min-w-0 flex-col items-start justify-center text-left leading-[1.2]">
+        <p className={cn('text-sm font-semibold uppercase tracking-[-0.02em]', textClassName)}>
           <span className="text-foreground">release</span>
           <span className="text-primary">a</span>
         </p>
-        <p className={cn('text-xs text-muted-foreground', subtitleClassName)}>{subtitle}</p>
+        <p className={cn('text-[11px] text-muted-foreground', subtitleClassName)}>{subtitle}</p>
       </div>
     </div>
   );
