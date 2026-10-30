@@ -18,11 +18,10 @@ export function ReleaseaMark({ className }: BrandMarkProps) {
       aria-hidden="true"
       className={cn('h-8 w-8', className)}
     >
-      <rect width="64" height="64" rx="16" fill="#0B1220" />
-      <rect x="15" y="26" width="13" height="19" rx="3.5" fill="#334155" />
-      <rect x="12" y="40" width="40" height="11" rx="3.5" fill="#F8FAFC" />
-      <rect x="31" y="14" width="19" height="31" rx="4.5" fill="#3B82F6" />
-      <rect x="35.5" y="20" width="10" height="3.5" rx="1.6" fill="#F8FAFC" />
+      <rect width="64" height="64" rx="15" fill="#07111F" />
+      <rect x="1" y="1" width="62" height="62" rx="14" fill="none" stroke="#2563EB" strokeOpacity=".38" strokeWidth="2" />
+      <path d="M17 50V14h19c9.3 0 15 5.3 15 14s-5.7 14-15 14H25" fill="none" stroke="#F8FAFC" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M34 39.5 50 52" fill="none" stroke="#3B82F6" strokeWidth="8" strokeLinecap="round" />
     </svg>
   );
 }

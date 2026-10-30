@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Cpu, KeyRound, Layers, Plus, Zap, MoreVertical, Settings2, RefreshCw, Trash2, CheckCircle, Copy, ExternalLink } from 'lucide-react';
+import { CheckCircle, Copy, ExternalLink, KeyRound, Layers, MoreVertical, Plus, RefreshCw, Settings2, Trash2, Zap } from 'lucide-react';
+import { platformIcons } from '@/components/branding/platform-icons';
 import { format } from 'date-fns';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -521,7 +522,7 @@ const Workers = () => {
     {
       label: 'Workers Connected',
       value: `${onlineWorkers}/${totalWorkers}`,
-      icon: <Cpu className="w-4 h-4 text-success" />,
+      icon: <platformIcons.workers className="h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />,
     },
     {
       label: 'Instances Ready',
@@ -779,7 +780,7 @@ const Workers = () => {
                   {filteredWorkers.length === 0 && (
                     <TableEmptyRow
                       colSpan={7}
-                      icon={<Cpu className="h-5 w-5 text-muted-foreground" />}
+                      icon={<platformIcons.workers className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
                       title={workerListRows.length === 0 ? 'No workers or registrations yet' : 'No workers match the current filters'}
                       description={
                         workerListRows.length === 0

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, MoreVertical, ExternalLink, Play, Square, Rocket, Filter, Server, Activity, Eye } from 'lucide-react';
+import { Activity, ExternalLink, Eye, Filter, MoreVertical, Play, Plus, Rocket, Square } from 'lucide-react';
+import { platformIcons } from '@/components/branding/platform-icons';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListPageHeader } from '@/components/layout/ListPageHeader';
 import { DataTable, Column } from '@/components/layout/DataTable';
@@ -482,7 +483,7 @@ const Services = () => {
           data={filteredServices}
           keyExtractor={(service) => service.id}
           onRowClick={(service) => navigate(`/services/${service.id}`)}
-          emptyIcon={<Server className="h-5 w-5 text-muted-foreground" />}
+          emptyIcon={<platformIcons.services className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />}
         />
       </div>
     </AppLayout>
