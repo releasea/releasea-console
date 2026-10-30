@@ -13,16 +13,12 @@ type BrandLogoProps = {
 
 export function ReleaseaMark({ className }: BrandMarkProps) {
   return (
-    <svg
-      viewBox="0 0 64 64"
+    <img
+      src="/releasea.svg"
+      alt=""
       aria-hidden="true"
-      className={cn('h-8 w-8', className)}
-    >
-      <rect width="64" height="64" rx="15" fill="#07111F" />
-      <rect x="1" y="1" width="62" height="62" rx="14" fill="none" stroke="#2563EB" strokeOpacity=".38" strokeWidth="2" />
-      <path d="M17 50V14h19c9.3 0 15 5.3 15 14s-5.7 14-15 14H25" fill="none" stroke="#F8FAFC" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M34 39.5 50 52" fill="none" stroke="#3B82F6" strokeWidth="8" strokeLinecap="round" />
-    </svg>
+      className={cn('h-8 w-8 object-contain', className)}
+    />
   );
 }
 
