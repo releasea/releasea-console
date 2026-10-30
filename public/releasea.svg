@@ -1,14 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
-  <title id="title">Releasea</title>
-  <desc id="desc">Releasea wordmark with an R monogram and a forward release path</desc>
-  <rect width="960" height="320" fill="#0F172A"/>
-  <g transform="translate(72 72) scale(2.75)">
-    <rect width="64" height="64" rx="15" fill="#07111F"/>
-    <rect x="1" y="1" width="62" height="62" rx="14" fill="none" stroke="#2563EB" stroke-opacity=".38" stroke-width="2"/>
-    <path d="M17 50V14h19c9.3 0 15 5.3 15 14s-5.7 14-15 14H25" fill="none" stroke="#F8FAFC" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M34 39.5 50 52" fill="none" stroke="#3B82F6" stroke-width="8" stroke-linecap="round"/>
-  </g>
-  <text x="292" y="188" font-size="104" font-weight="640" letter-spacing="-1.5" font-family="Inter, ui-sans-serif, system-ui, sans-serif">
-    <tspan fill="#F8FAFC">release</tspan><tspan fill="#3B82F6">a</tspan>
-  </text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Releasea symbol">
+<path fill="#FFFFFF" d="M 268 279 L 271 344 L 286 368 L 303 378 L 317 382 L 545 382 L 558 387 L 619 448 L 622 469 L 606 492 L 591 503 L 571 510 L 551 511 L 639 598 L 727 518 L 746 492 L 755 461 L 755 439 L 740 394 L 643 295 L 614 277 L 591 272 L 275 272 Z"/>
+<path fill="#51B3F7" d="M 269 456 L 267 502 L 271 511 L 511 750 L 531 753 L 726 753 L 730 750 L 729 741 L 440 453 L 412 443 L 306 442 L 280 445 Z"/>
 </svg>
